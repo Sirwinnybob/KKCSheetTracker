@@ -161,73 +161,78 @@ private fun ReadySection(source: DoorPanelCutListSource, onPrinted: () -> Unit) 
                 )
             }
             AnimatedVisibility(visible = expanded) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 360.dp)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    CheckRow(label = "Room Tags", trailing = null, checked = selection.roomTags) {
-                        selection = selection.copy(roomTags = it)
-                    }
-                    GroupLabel("Materials")
-                    materialOpts.forEach { option ->
-                        CheckRow(option.material, "${option.pieces} pcs", option.checked) { checked ->
-                            selection = selection.copy(
-                                materials = if (checked) selection.materials + option.material
-                                else selection.materials - option.material
-                            )
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 240.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        CheckRow(label = "Room Tags", trailing = null, checked = selection.roomTags) {
+                            selection = selection.copy(roomTags = it)
                         }
-                    }
-                    if (showRoomFilter(source)) {
-                        GroupLabel("Rooms")
-                        roomOpts.forEach { option ->
-                            CheckRow(option.displayName, "${option.pieces} pcs", option.checked) { checked ->
+                        GroupLabel("Materials")
+                        materialOpts.forEach { option ->
+                            CheckRow(option.material, "${option.pieces} pcs", option.checked) { checked ->
                                 selection = selection.copy(
-                                    rooms = if (checked) selection.rooms + option.key else selection.rooms - option.key
+                                    materials = if (checked) selection.materials + option.material
+                                    else selection.materials - option.material
                                 )
                             }
                         }
-                    }
-                    errorText?.let {
-                        Text(text = it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    }
-                    Button(
-                        onClick = {
-                            building = true
-                            errorText = null
-                            val printModel = model
-                            scope.launch {
-                                val result = runCatching {
-                                    withContext(Dispatchers.IO) {
-                                        prepareCutListPrintFile(context, source.jobFolderName).also {
-                                            writeDoorPanelCutListPdf(printModel, it)
-                                        }
-                                    }
-                                }
-                                building = false
-                                result.onSuccess { file ->
-                                    printPdfFile(
-                                        context,
-                                        file,
-                                        "KKC Sheet Tracker - ${cutListJobNumber(source.jobFolderName)} Door Cut List"
+                        if (showRoomFilter(source)) {
+                            GroupLabel("Rooms")
+                            roomOpts.forEach { option ->
+                                CheckRow(option.displayName, "${option.pieces} pcs", option.checked) { checked ->
+                                    selection = selection.copy(
+                                        rooms = if (checked) selection.rooms + option.key else selection.rooms - option.key
                                     )
-                                    onPrinted()
-                                }.onFailure { e ->
-                                    Log.e(TAG, "Door cut list build failed for ${source.jobFolderName}", e)
-                                    errorText = "Couldn't build cut list. Try again."
                                 }
                             }
-                        },
-                        enabled = model.canPrint && !building,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-                    ) {
-                        if (building) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        } else {
-                            Text("Print")
+                        }
+                    }
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                        errorText?.let {
+                            Text(text = it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Button(
+                            onClick = {
+                                if (building) return@Button
+                                building = true
+                                errorText = null
+                                val printModel = model
+                                scope.launch {
+                                    val result = runCatching {
+                                        withContext(Dispatchers.IO) {
+                                            prepareCutListPrintFile(context, source.jobFolderName).also {
+                                                writeDoorPanelCutListPdf(printModel, it)
+                                            }
+                                        }
+                                    }
+                                    building = false
+                                    result.onSuccess { file ->
+                                        printPdfFile(
+                                            context,
+                                            file,
+                                            "KKC Sheet Tracker - ${cutListJobNumber(source.jobFolderName)} Door Cut List"
+                                        )
+                                        onPrinted()
+                                    }.onFailure { e ->
+                                        Log.e(TAG, "Door cut list build failed for ${source.jobFolderName}", e)
+                                        errorText = "Couldn't build cut list. Try again."
+                                    }
+                                }
+                            },
+                            enabled = model.canPrint && !building,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                        ) {
+                            if (building) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("Print")
+                            }
                         }
                     }
                 }
