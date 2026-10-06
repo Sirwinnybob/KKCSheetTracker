@@ -2,7 +2,6 @@ package com.kkc.sheettracker.ui.viewer
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
@@ -53,6 +52,7 @@ import androidx.compose.material3.*
 import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.data.IdlePhase
 import com.kkc.sheettracker.ui.components.ClockInButton
+import com.kkc.sheettracker.ui.components.icons.StationEdgeBanderIcon
 import androidx.compose.runtime.*
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -73,15 +73,12 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Alignment as UiAlignment
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -94,7 +91,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.PathParser
 import com.kkc.sheettracker.BuildConfig
 import com.tom_roush.pdfbox.cos.COSName
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -3367,7 +3363,9 @@ private fun PartMarkers(
         contentAlignment = Alignment.Center
     ) {
         if (PartMarker.Banding in markers) {
-            EdgeBandingIcon(
+            Icon(
+                imageVector = StationEdgeBanderIcon,
+                contentDescription = "Edge banding",
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(22.dp)
             )
@@ -3382,49 +3380,6 @@ private fun PartMarkers(
                 fontSize = 13.sp,
                 lineHeight = 13.sp,
                 color = Color(0xFFE65100)
-            )
-        }
-    }
-}
-
-@Composable
-private fun EdgeBandingIcon(
-    tint: Color,
-    modifier: Modifier = Modifier
-) {
-    Canvas(modifier = modifier) {
-        drawIntoCanvas { canvas ->
-            val nativeCanvas = canvas.nativeCanvas
-            val scale = min(size.width, size.height) / 100f
-            nativeCanvas.save()
-            nativeCanvas.scale(scale, scale)
-            nativeCanvas.translate(30f, 40f)
-
-            val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = tint.toArgb()
-                style = Paint.Style.STROKE
-                strokeWidth = 6f
-                strokeCap = Paint.Cap.ROUND
-                strokeJoin = Paint.Join.ROUND
-            }
-            val bandPath = PathParser.createPathFromPathData(
-                "M -4 0 A 4 4 0 0 1 4 0 A 8 8 0 0 1 -12 0 " +
-                    "A 12 12 0 0 1 12 0 A 16 16 0 0 1 -20 0 " +
-                    "A 20 20 0 0 1 20 0 C 20 20 28 27 40 27 L 55 27"
-            )
-            nativeCanvas.drawPath(bandPath, strokePaint)
-            nativeCanvas.restore()
-
-            val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = tint.toArgb()
-                style = Paint.Style.FILL
-            }
-            nativeCanvas.drawRect(
-                5f * scale,
-                70f * scale,
-                88f * scale,
-                85f * scale,
-                fillPaint
             )
         }
     }

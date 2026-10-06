@@ -3,6 +3,23 @@ package com.kkc.sheettracker.ui.specialty
 import com.kkc.sheettracker.ui.jobs.stationBarColor
 
 import com.kkc.sheettracker.ui.components.KKCPillAction
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.kkc.sheettracker.ui.components.icons.ActionPrintIcon
+import com.kkc.sheettracker.ui.components.icons.ActionSplitViewIcon
+import com.kkc.sheettracker.ui.components.icons.HardwoodsBoardStockIcon
+import com.kkc.sheettracker.ui.components.icons.HardwoodsSpecialtyIcon
+import com.kkc.sheettracker.ui.components.icons.StationCncIcon
+import com.kkc.sheettracker.ui.components.icons.StationEdgeBanderIcon
+import com.kkc.sheettracker.ui.components.icons.StationSawIcon
+import com.kkc.sheettracker.ui.components.icons.StationSheetRipsIcon
+import com.kkc.sheettracker.ui.components.icons.HardwoodsClosetRodIcon
+import com.kkc.sheettracker.ui.components.icons.HardwoodsRipIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceAssemblyIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceDeliveryIcon
+import com.kkc.sheettracker.ui.components.icons.ReferencePlansIcon
+import com.kkc.sheettracker.ui.components.icons.ReferencePullsIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceView3DIcon
+import com.kkc.sheettracker.ui.components.icons.SpecialtyDoorPanelsIcon
 import com.kkc.sheettracker.ui.components.KKCPillActionRow
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -114,7 +131,6 @@ import com.kkc.sheettracker.data.loadAdminBoardStock
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.ReferenceDocType
-import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Visibility
 import com.kkc.sheettracker.data.MoldingLibraryRepository
 import com.kkc.sheettracker.data.models.AdminBoardStockItem
@@ -279,19 +295,19 @@ internal fun SpecialtyJobDetailScreen(
     // Remembered so the row (a SubcomposeLayout) isn't handed new lists on every recomposition.
     val specialtyActions = remember(availability.hasClosetRods, onOpenDoorPanels, onOpenSawRipList, onOpenClosetRods, onOpenSplitView) {
         buildList {
-            add(KKCPillAction("Door Panels", onOpenDoorPanels))
-            add(KKCPillAction("Rip List", onOpenSawRipList))
-            if (availability.hasClosetRods) add(KKCPillAction("Closet Rods", onOpenClosetRods))
-            add(KKCPillAction("Split View", onOpenSplitView))
+            add(KKCPillAction("Door Panels", onOpenDoorPanels, SpecialtyDoorPanelsIcon))
+            add(KKCPillAction("Rip List", onOpenSawRipList, HardwoodsRipIcon))
+            if (availability.hasClosetRods) add(KKCPillAction("Closet Rods", onOpenClosetRods, HardwoodsClosetRodIcon))
+            add(KKCPillAction("Split View", onOpenSplitView, ActionSplitViewIcon))
         }
     }
     val referenceActions = remember(availability, onOpenReferenceDocument, onOpenThreeD) {
         buildList {
-            if (availability.hasAssemblySheet) add(KKCPillAction("Assembly", { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) }))
-            if (availability.hasPlansElevations) add(KKCPillAction("Plans & Elevations", { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1) }))
-            if (availability.hasDeliverySheet) add(KKCPillAction("Delivery", { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }))
-            if (availability.hasPullsSheet) add(KKCPillAction("Pulls", { onOpenReferenceDocument(ReferenceDocType.PULLS, 1) }))
-            if (availability.hasThreeDAssets) add(KKCPillAction("3D", onOpenThreeD))
+            if (availability.hasAssemblySheet) add(KKCPillAction("Assembly", { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) }, ReferenceAssemblyIcon))
+            if (availability.hasPlansElevations) add(KKCPillAction("Plans & Elevations", { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1) }, ReferencePlansIcon))
+            if (availability.hasDeliverySheet) add(KKCPillAction("Delivery", { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }, ReferenceDeliveryIcon))
+            if (availability.hasPullsSheet) add(KKCPillAction("Pulls", { onOpenReferenceDocument(ReferenceDocType.PULLS, 1) }, ReferencePullsIcon))
+            if (availability.hasThreeDAssets) add(KKCPillAction("3D", onOpenThreeD, ReferenceView3DIcon))
         }
     }
 
@@ -372,7 +388,7 @@ internal fun SpecialtyJobDetailScreen(
                 },
                 actions = {
                     IconButton(onClick = { showPrintDialog = true }) {
-                        Icon(Icons.Default.Print, contentDescription = "Print")
+                        Icon(ActionPrintIcon, contentDescription = "Print")
                     }
                     IconButton(onClick = {
                         kanbanLayout = !kanbanLayout
@@ -487,6 +503,7 @@ internal fun SpecialtyJobDetailScreen(
                 stickyHeader(key = "sheet-rips-header") {
                     SectionProgressHeader(
                         title = "Sheet Rips",
+                        icon = StationSheetRipsIcon,
                         itemCount = sheetRipItems.size,
                         done = sheetDoneCount,
                         total = sheetRipItems.size,
@@ -572,7 +589,8 @@ internal fun SpecialtyJobDetailScreen(
                                 )
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            tintColor = sectionTint
+                            tintColor = sectionTint,
+                            icon = specialtySectionIcon(section.id)
                         )
                     }
 
@@ -1417,6 +1435,20 @@ internal fun specialtyChecklistLazyRowEntries(
         item = item
     )
 }
+
+internal fun SpecialtyStation.icon(): ImageVector = when (this) {
+    SpecialtyStation.CNC -> StationCncIcon
+    SpecialtyStation.HARDWOODS -> HardwoodsBoardStockIcon
+    SpecialtyStation.SAW -> StationSawIcon
+    SpecialtyStation.EDGE_BANDER -> StationEdgeBanderIcon
+    SpecialtyStation.ASSEMBLY -> ReferenceAssemblyIcon
+    SpecialtyStation.SPECIALTY -> HardwoodsSpecialtyIcon
+    SpecialtyStation.DELIVERY -> ReferenceDeliveryIcon
+}
+
+/** Section ids are station names; the "other" bucket has no icon. */
+internal fun specialtySectionIcon(sectionId: String): ImageVector? =
+    SpecialtyStation.entries.firstOrNull { it.name == sectionId }?.icon()
 
 internal data class SpecialtyDetailSection(
     val id: String,

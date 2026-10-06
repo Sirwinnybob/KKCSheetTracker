@@ -327,7 +327,7 @@ fun KKCPillToggleButton(
                         indication = null,
                         onClick = onClick
                     )
-                    .padding(horizontal = 12.dp)
+                    .padding(horizontal = 10.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -409,7 +409,7 @@ fun KKCSlidingPillRow(
             scrollable = false,
             height = 36.dp,
             edgePadding = 2.dp,
-            itemPadding = 12.dp,
+            itemPadding = 10.dp,
             fillWidth = fillWidth,
             persistKey = persistKey
         )
@@ -876,7 +876,7 @@ private fun KKCPillActionButton(action: KKCPillAction, style: KKCPillStyle) {
             .kkcPillIndicator(style)
             .clip(RoundedCornerShape(6.dp))
             .clickable(onClick = action.onClick)
-            .padding(horizontal = 14.dp)
+            .padding(horizontal = 10.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,

@@ -71,6 +71,17 @@ private fun doorParts() = kkcIcon("HardwoodsDoorParts") {
     solid(DUOTONE) { roundRect(7f, 6f, 17f, 18f, 0.75f) }
 }
 
+// ── Door panels: the door-parts icon inverted — solid panel, light stiles + rails ──
+private fun doorPanels() = kkcIcon("SpecialtyDoorPanels") {
+    solid(DUOTONE) {
+        roundRect(3.5f, 2f, 5.75f, 22f, 0.6f)
+        roundRect(18.25f, 2f, 20.5f, 22f, 0.6f)
+        roundRect(7f, 2.5f, 17f, 4.75f, 0.6f)
+        roundRect(7f, 19.25f, 17f, 21.5f, 0.6f)
+    }
+    solid { roundRect(7f, 6f, 17f, 18f, 0.75f) }
+}
+
 // ── Closet rod: solid clothes hanger ────────────────────────────────────────────
 private fun closetRod() = kkcIcon("HardwoodsClosetRod") {
     line {
@@ -239,6 +250,7 @@ val HardwoodsRipIcon: ImageVector by lazy { rip() }
 val HardwoodsFaceFrameIcon: ImageVector by lazy { faceFrame() }
 val HardwoodsNailerIcon: ImageVector by lazy { nailer() }
 val HardwoodsDoorPartsIcon: ImageVector by lazy { doorParts() }
+val SpecialtyDoorPanelsIcon: ImageVector by lazy { doorPanels() }
 val HardwoodsClosetRodIcon: ImageVector by lazy { closetRod() }
 val HardwoodsBoardStockIcon: ImageVector by lazy { boardStock() }
 val HardwoodsSpecialtyIcon: ImageVector by lazy { specialty() }

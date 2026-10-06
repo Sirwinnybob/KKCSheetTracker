@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -297,7 +298,9 @@ fun SectionProgressHeader(
     isSubHeader: Boolean = false,
     topPadding: Dp = 0.dp,
     // Optional section color (e.g. a station's job-list bar color): tints wash, accent, border, bar.
-    tintColor: Color? = null
+    tintColor: Color? = null,
+    // Optional icon before the title (full-size headers only), in the section color.
+    icon: ImageVector? = null
 ) {
     val colors = KKCThemeColors.statusColors
     val safeTotal = total.coerceAtLeast(0)
@@ -504,6 +507,14 @@ fun SectionProgressHeader(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            if (icon != null) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    tint = if (dimmed || skipped) titleColor else tintColor ?: MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
                             Text(
                                 text = title,
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
