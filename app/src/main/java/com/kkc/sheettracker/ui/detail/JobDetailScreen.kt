@@ -1,6 +1,5 @@
 package com.kkc.sheettracker.ui.detail
 
-import androidx.compose.material.icons.filled.Build
 import com.kkc.sheettracker.ui.components.KKCPillAction
 import com.kkc.sheettracker.ui.components.KKCPillActionRow
 import android.util.Log
@@ -31,7 +30,6 @@ import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Refresh
 import com.kkc.sheettracker.ui.components.PrintDocumentsModal
 import androidx.compose.material3.Button
@@ -102,6 +100,13 @@ import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.components.PageStatusBar
 import com.kkc.sheettracker.ui.components.ProgressCard
+import com.kkc.sheettracker.ui.components.icons.ActionPrintIcon
+import com.kkc.sheettracker.ui.components.icons.ActionManageCodeIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceAssemblyIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceDeliveryIcon
+import com.kkc.sheettracker.ui.components.icons.ReferencePlansIcon
+import com.kkc.sheettracker.ui.components.icons.ReferencePullsIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceView3DIcon
 import com.kkc.sheettracker.ui.specialty.CompactSpecialtySection
 import com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
@@ -516,7 +521,7 @@ fun JobDetailScreen(
                 },
                 actions = {
                     IconButton(onClick = { showPrintDialog = true }) {
-                        Icon(Icons.Default.Print, contentDescription = "Print")
+                        Icon(ActionPrintIcon, contentDescription = "Print")
                     }
                     IconButton(onClick = retryJob) {
                         Icon(Icons.Filled.Refresh, "Refresh job")
@@ -586,33 +591,33 @@ fun JobDetailScreen(
                             add(KKCPillAction("Assembly", {
                                 suppressLeavePrompt = true
                                 onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1)
-                            }))
+                            }, ReferenceAssemblyIcon))
                         }
                         if (hasPlansElevations) {
                             add(KKCPillAction("Plans & Elevations", {
                                 suppressLeavePrompt = true
                                 onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1)
-                            }))
+                            }, ReferencePlansIcon))
                         }
                         if (hasDeliverySheet) {
                             add(KKCPillAction("Delivery", {
                                 suppressLeavePrompt = true
                                 onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1)
-                            }))
+                            }, ReferenceDeliveryIcon))
                         }
                         if (hasPullsSheet) {
                             add(KKCPillAction("Pulls", {
                                 suppressLeavePrompt = true
                                 onOpenReferenceDocument(ReferenceDocType.PULLS, 1)
-                            }))
+                            }, ReferencePullsIcon))
                         }
                         if (hasThreeDAssets) {
                             add(KKCPillAction("3D", {
                                 suppressLeavePrompt = true
                                 onOpenThreeD()
-                            }))
+                            }, ReferenceView3DIcon))
                         }
-                        add(KKCPillAction("Manage code", { onOpenManageCode() }, Icons.Default.Build))
+                        add(KKCPillAction("Manage code", { onOpenManageCode() }, ActionManageCodeIcon))
                     }
                     KKCPillActionRow(actions = referenceActions)
                 }

@@ -14,7 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Print
+import com.kkc.sheettracker.ui.components.icons.ActionPrintIcon
 import com.kkc.sheettracker.ui.components.PrintDocumentsModal
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -101,7 +101,7 @@ fun AssemblyJobDetailScreen(
                 },
                 actions = {
                     IconButton(onClick = { showPrintDialog = true }) {
-                        Icon(Icons.Default.Print, contentDescription = "Print")
+                        Icon(ActionPrintIcon, contentDescription = "Print")
                     }
                 },
                 windowInsets = androidx.compose.foundation.layout.WindowInsets.statusBars

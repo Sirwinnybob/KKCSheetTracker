@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -54,6 +56,7 @@ import com.kkc.sheettracker.ui.components.parseJobLabelColor
 import com.kkc.sheettracker.ui.hardwoods.toStatusCounts
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.components.kkcCardDepth
+import com.kkc.sheettracker.ui.components.icons.ReferenceDeliveryIcon
 
 @Composable
 fun UnifiedJobCard(
@@ -377,7 +380,14 @@ fun UnifiedJobCard(
                         FilterChip(
                             selected = false,
                             onClick = { model.onViewCoverSheetClick?.invoke() },
-                            label = { Text("Delivery") }
+                            label = { Text("Delivery") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = ReferenceDeliveryIcon,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(FilterChipDefaults.IconSize)
+                                )
+                            }
                         )
                     }
                 }

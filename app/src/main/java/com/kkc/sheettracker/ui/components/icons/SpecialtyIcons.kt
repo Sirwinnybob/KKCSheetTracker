@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.components.icons
 
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathBuilder
 
 // Specialty job-detail station + action icons. Single state, duotone.
 // Style and helpers live in IconDsl.kt.
@@ -115,6 +116,31 @@ private fun splitView() = kkcIcon("ActionSplitView") {
     line { roundRect(3f, 3f, 21f, 21f, 1.5f) }
 }
 
+// ── Document: page with a folded corner ─────────────────────────────────────────
+private fun document() = kkcIcon("ReferenceDocument") {
+    val page: PathBuilder.() -> Unit = {
+        moveTo(6f, 2.5f)
+        horizontalLineTo(14f)
+        lineTo(19f, 7.5f)
+        verticalLineTo(20f)
+        arcTo(1.5f, 1.5f, 0f, false, true, 17.5f, 21.5f)
+        horizontalLineTo(6.5f)
+        arcTo(1.5f, 1.5f, 0f, false, true, 5f, 20f)
+        verticalLineTo(3.5f)
+        arcTo(1f, 1f, 0f, false, true, 6f, 2.5f)
+        close()
+    }
+    solid(DUOTONE, pathBuilder = page)
+    line(width = 1.5f, pathBuilder = page)
+    block(width = 1f) { moveTo(14f, 2.5f); verticalLineTo(7.5f); horizontalLineTo(19f); close() }
+    line(width = 1.5f) {
+        moveTo(8f, 12f); horizontalLineTo(16f)
+        moveTo(8f, 15.5f); horizontalLineTo(16f)
+        moveTo(8f, 19f); horizontalLineTo(12.5f)
+    }
+}
+
+val ReferenceDocumentIcon: ImageVector by lazy { document() }
 val StationCncIcon: ImageVector by lazy { cnc() }
 val StationEdgeBanderIcon: ImageVector by lazy { edgeBander() }
 val StationSawIcon: ImageVector by lazy { saw() }

@@ -44,6 +44,14 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.kkc.sheettracker.ui.components.KKCSlidingTabRow
 import com.kkc.sheettracker.ui.components.KKCTabItem
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.kkc.sheettracker.ui.components.icons.LibraryStandardsIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceAssemblyIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceDeliveryIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceDocumentIcon
+import com.kkc.sheettracker.ui.components.icons.ReferencePlansIcon
+import com.kkc.sheettracker.ui.components.icons.ReferencePullsIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceView3DIcon
 import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -1476,21 +1484,22 @@ private fun RowScope.PaneSourceControlsInline(
 ) {
     val pillStyle = rememberKKCPillStyle()
     val items = buildList {
-        fun source(label: String, target: PaneSource) = add(
+        fun source(label: String, target: PaneSource, icon: ImageVector) = add(
             KKCTabItem(
                 label = label,
+                icon = icon,
                 isSelected = selectedSource == target,
                 onClick = { onSelectSource(target) }
             )
         )
-        source("Plans", PaneSource.PLANS)
-        source("Assembly", PaneSource.ASSEMBLY)
-        source("Delivery", PaneSource.DELIVERY)
-        if (hasPulls) source("Pulls", PaneSource.PULLS)
-        source("3D", PaneSource.THREE_D)
-        source("Checklist", PaneSource.CHECKLIST)
+        source("Plans", PaneSource.PLANS, ReferencePlansIcon)
+        source("Assembly", PaneSource.ASSEMBLY, ReferenceAssemblyIcon)
+        source("Delivery", PaneSource.DELIVERY, ReferenceDeliveryIcon)
+        if (hasPulls) source("Pulls", PaneSource.PULLS, ReferencePullsIcon)
+        source("3D", PaneSource.THREE_D, ReferenceView3DIcon)
+        source("Checklist", PaneSource.CHECKLIST, LibraryStandardsIcon)
         if (!selectedOtherFilename.isNullOrBlank()) {
-            source("Other: $selectedOtherFilename", PaneSource.OTHER)
+            source("Other: $selectedOtherFilename", PaneSource.OTHER, ReferenceDocumentIcon)
         }
     }
     // Both hosts (the floating bar's scrolling Row and the split-divider Row) own their layout, so
