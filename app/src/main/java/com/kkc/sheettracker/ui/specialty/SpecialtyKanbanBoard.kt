@@ -53,6 +53,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -431,6 +432,7 @@ internal fun SpecialtyKanbanColumnFrame(
     done: Int,
     total: Int,
     modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
     /** Emits the bucket's cards; apply [itemMotion] to each so reordering (done -> bottom) animates. */
     content: @Composable (itemMotion: Modifier) -> Unit
 ) {
@@ -449,6 +451,14 @@ internal fun SpecialtyKanbanColumnFrame(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
+                if (icon != null) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.padding(end = 8.dp).size(20.dp)
+                    )
+                }
                 Text(
                     text = label.uppercase(),
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = Color.White),
@@ -491,6 +501,7 @@ private fun KanbanStationPillRow(
             items = columns.map { column ->
                 KKCTabItem(
                     label = column.label.uppercase(),
+                    icon = specialtySectionIcon(column.id),
                     isSelected = selectedId == column.id,
                     alwaysBold = true,
                     onClick = { onSelect(column.id) }
@@ -559,7 +570,8 @@ internal fun SpecialtyKanbanBoard(
                     color = color,
                     done = sheetRipItems.count(sheetRipIsDone),
                     total = sheetRipItems.size,
-                    modifier = placed
+                    modifier = placed,
+                    icon = specialtySectionIcon(column.id)
                 ) { itemMotion ->
                     // Same as the station buckets: finished rips drop to the bottom.
                     orderKanbanCards(sheetRipItems, sheetRipIsDone).forEach { rip ->
@@ -594,7 +606,8 @@ internal fun SpecialtyKanbanBoard(
                     color = color,
                     done = cards.count { (_, state) -> state.done },
                     total = cards.size,
-                    modifier = placed
+                    modifier = placed,
+                    icon = specialtySectionIcon(column.id)
                 ) { itemMotion ->
                     cards.forEach { (resolved, state) ->
                         key(resolved.item.id) {

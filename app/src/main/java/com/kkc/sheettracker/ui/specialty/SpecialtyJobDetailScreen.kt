@@ -6,7 +6,7 @@ import com.kkc.sheettracker.ui.components.KKCPillAction
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.kkc.sheettracker.ui.components.icons.ActionPrintIcon
 import com.kkc.sheettracker.ui.components.icons.ActionSplitViewIcon
-import com.kkc.sheettracker.ui.components.icons.HardwoodsBoardStockIcon
+import com.kkc.sheettracker.ui.components.icons.HardwoodsPlankIcon
 import com.kkc.sheettracker.ui.components.icons.HardwoodsSpecialtyIcon
 import com.kkc.sheettracker.ui.components.icons.StationCncIcon
 import com.kkc.sheettracker.ui.components.icons.StationEdgeBanderIcon
@@ -1438,7 +1438,7 @@ internal fun specialtyChecklistLazyRowEntries(
 
 internal fun SpecialtyStation.icon(): ImageVector = when (this) {
     SpecialtyStation.CNC -> StationCncIcon
-    SpecialtyStation.HARDWOODS -> HardwoodsBoardStockIcon
+    SpecialtyStation.HARDWOODS -> HardwoodsPlankIcon
     SpecialtyStation.SAW -> StationSawIcon
     SpecialtyStation.EDGE_BANDER -> StationEdgeBanderIcon
     SpecialtyStation.ASSEMBLY -> ReferenceAssemblyIcon
@@ -1446,9 +1446,10 @@ internal fun SpecialtyStation.icon(): ImageVector = when (this) {
     SpecialtyStation.DELIVERY -> ReferenceDeliveryIcon
 }
 
-/** Section ids are station names; the "other" bucket has no icon. */
+/** Section ids are station names (plus sheet rips); the "other" bucket has no icon. */
 internal fun specialtySectionIcon(sectionId: String): ImageVector? =
-    SpecialtyStation.entries.firstOrNull { it.name == sectionId }?.icon()
+    if (sectionId == SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS) StationSheetRipsIcon
+    else SpecialtyStation.entries.firstOrNull { it.name == sectionId }?.icon()
 
 internal data class SpecialtyDetailSection(
     val id: String,

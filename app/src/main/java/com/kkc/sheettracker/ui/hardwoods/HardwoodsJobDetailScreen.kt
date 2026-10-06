@@ -83,7 +83,7 @@ import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.kkc.sheettracker.ui.components.icons.ActionPrintIcon
-import com.kkc.sheettracker.ui.components.icons.HardwoodsBoardStockIcon
+import com.kkc.sheettracker.ui.components.icons.HardwoodsPlankIcon
 import com.kkc.sheettracker.ui.components.icons.HardwoodsClosetRodIcon
 import com.kkc.sheettracker.ui.components.icons.HardwoodsFaceFrameIcon
 import com.kkc.sheettracker.ui.components.icons.HardwoodsNailerIcon
@@ -363,7 +363,7 @@ fun HardwoodsJobDetailScreen(
                 title = "Hardwoods Progress",
                 subtitle = "${summary.counts.donePieces}/${summary.counts.effectiveTotalPieces} done",
                 fraction = summary.counts.completionFraction,
-                headerLeading = { CardHeaderIcon(HardwoodsBoardStockIcon) },
+                headerLeading = { CardHeaderIcon(HardwoodsPlankIcon) },
                 expanded = progressExpanded,
                 segmentedStatusCounts = jobStatusCounts,
                 showBottomProgressBar = true,

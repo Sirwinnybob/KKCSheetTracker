@@ -110,6 +110,33 @@ private fun boardStock() = kkcIcon("HardwoodsBoardStock") {
     block { roundRect(2.5f, 16.5f, 21.5f, 20.5f, 1f) }
 }
 
+// ── Hardwoods: a board in perspective — grain on the face, solid end ───────────
+private fun plank() = kkcIcon("HardwoodsPlank") {
+    solid(DUOTONE) {
+        // front face
+        moveTo(2f, 9f); horizontalLineTo(18f); verticalLineTo(17f); horizontalLineTo(2f); close()
+        // top face
+        moveTo(2f, 9f); lineTo(5f, 6f); horizontalLineTo(21f); lineTo(18f, 9f); close()
+    }
+    // end face
+    solid { moveTo(18f, 9f); lineTo(21f, 6f); verticalLineTo(14f); lineTo(18f, 17f); close() }
+    line(width = 1.5f) {
+        moveTo(2f, 9f); horizontalLineTo(18f); verticalLineTo(17f); horizontalLineTo(2f); close()
+        moveTo(2f, 9f); lineTo(5f, 6f); horizontalLineTo(21f); lineTo(18f, 9f)
+        moveTo(18f, 17f); lineTo(21f, 14f); verticalLineTo(6f)
+    }
+    // wavy grain
+    line(width = 1.1f) {
+        moveTo(4f, 11.5f)
+        curveTo(6.5f, 10.75f, 8.5f, 12.25f, 11f, 11.5f)
+        reflectiveCurveTo(14.5f, 10.75f, 16f, 11.25f)
+        moveTo(4f, 14.5f)
+        curveTo(6f, 14.5f, 7.5f, 13.6f, 9.25f, 13.6f)
+        curveTo(10.75f, 13.6f, 11.25f, 15f, 12.75f, 15f)
+        reflectiveCurveTo(15f, 14.4f, 16f, 14.5f)
+    }
+}
+
 // ── Specialty / stock-custom: two sparkles ──────────────────────────────────────
 private fun specialty() = kkcIcon("HardwoodsSpecialty") {
     block(width = 1f) {
@@ -253,6 +280,7 @@ val HardwoodsDoorPartsIcon: ImageVector by lazy { doorParts() }
 val SpecialtyDoorPanelsIcon: ImageVector by lazy { doorPanels() }
 val HardwoodsClosetRodIcon: ImageVector by lazy { closetRod() }
 val HardwoodsBoardStockIcon: ImageVector by lazy { boardStock() }
+val HardwoodsPlankIcon: ImageVector by lazy { plank() }
 val HardwoodsSpecialtyIcon: ImageVector by lazy { specialty() }
 val ReferenceAssemblyIcon: ImageVector by lazy { assembly() }
 val ReferencePlansIcon: ImageVector by lazy { plans() }

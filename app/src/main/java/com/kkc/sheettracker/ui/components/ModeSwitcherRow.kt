@@ -4,9 +4,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.navigation.WorkMode
 import com.kkc.sheettracker.navigation.shortLabel
+import com.kkc.sheettracker.ui.components.icons.HardwoodsPlankIcon
+import com.kkc.sheettracker.ui.components.icons.HardwoodsSpecialtyIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceAssemblyIcon
+import com.kkc.sheettracker.ui.components.icons.StationCncIcon
+
+/** Each mode shows its station icon (same as the Specialty station headers). */
+internal fun WorkMode.modeIcon(): ImageVector = when (this) {
+    WorkMode.CNC -> StationCncIcon
+    WorkMode.HARDWOODS -> HardwoodsPlankIcon
+    WorkMode.ASSEMBLY -> ReferenceAssemblyIcon
+    WorkMode.SPECIALTY -> HardwoodsSpecialtyIcon
+}
 
 /**
  * Compact sliding-pill switcher for a TopAppBar `actions` slot, letting the operator switch which
@@ -27,7 +40,8 @@ fun ModeSwitcherRow(
             KKCPillOption(
                 label = mode.shortLabel(),
                 isSelected = mode == selected,
-                onClick = { onSelect(mode) }
+                onClick = { onSelect(mode) },
+                icon = mode.modeIcon()
             )
         }
     }
