@@ -25,11 +25,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ClearAll
-import androidx.compose.material.icons.filled.DoorFront
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -50,6 +45,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
+import com.kkc.sheettracker.ui.components.icons.LibraryArchiveIcon
+import com.kkc.sheettracker.ui.components.icons.LibraryDoorIcon
+import com.kkc.sheettracker.ui.components.icons.LibraryMoldingIcon
+import com.kkc.sheettracker.ui.components.icons.LibrarySafetyIcon
+import com.kkc.sheettracker.ui.components.icons.LibraryStandardsIcon
 
 /**
  * Tiles on the [StandardsHubScreen] grid. Molding Library, Safety / SDS, and Archive are live destinations; Door
@@ -57,11 +57,11 @@ import com.kkc.sheettracker.ui.components.KKCTopAppBar
  * render dimmed and inert with a "Coming soon" badge until those screens exist.
  */
 enum class StandardsTile(val label: String, val icon: ImageVector, val enabled: Boolean) {
-    MOLDING("Molding Library", Icons.Filled.Straighten, enabled = true),
-    DOOR_PROFILES("Door Profiles", Icons.Filled.DoorFront, enabled = false),
-    KKC_STANDARDS("KKC Standards", Icons.Filled.ClearAll, enabled = false),
-    SAFETY("Safety / SDS", Icons.Filled.Shield, enabled = true),
-    ARCHIVE("Archive", Icons.Filled.Archive, enabled = true)
+    MOLDING("Molding Library", LibraryMoldingIcon, enabled = true),
+    DOOR_PROFILES("Door Profiles", LibraryDoorIcon, enabled = false),
+    KKC_STANDARDS("KKC Standards", LibraryStandardsIcon, enabled = false),
+    SAFETY("Safety / SDS", LibrarySafetyIcon, enabled = true),
+    ARCHIVE("Archive", LibraryArchiveIcon, enabled = true)
 }
 
 /**

@@ -30,29 +30,16 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.automirrored.outlined.List
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cached
-import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
-import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.UnfoldMore
-import androidx.compose.material.icons.outlined.AccessTime
-import androidx.compose.material.icons.outlined.Calculate
-import androidx.compose.material.icons.outlined.Dashboard
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -77,8 +64,7 @@ import com.kkc.sheettracker.ui.theme.boldGradientBrush
 import com.kkc.sheettracker.ui.theme.kkcFrostedBaseColor
 import com.kkc.sheettracker.ui.theme.kkcFrostedContentColor
 import com.kkc.sheettracker.ui.timecard.BgPickerSheet
-import com.kkc.sheettracker.ui.timecard.TimecardIcon
-import com.kkc.sheettracker.ui.components.SupplyIcon
+import com.kkc.sheettracker.ui.components.icons.*
 import dev.chrisbanes.haze.HazeDefaults
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
@@ -121,14 +107,14 @@ enum class NavDestination(
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector
 ) {
-    DASHBOARD("dashboard", "Dashboard", Icons.Filled.Dashboard, Icons.Outlined.Dashboard),
-    JOBS("jobs", "Jobs", Icons.AutoMirrored.Filled.List, Icons.AutoMirrored.Outlined.List),
-    SEARCH("search", "Search", Icons.Filled.Search, Icons.Outlined.Search),
-    HOURS("hours", "Hours", Icons.Filled.AccessTime, Icons.Outlined.AccessTime),
-    TIMECARD("timecard", "Timeclock", TimecardIcon, TimecardIcon),
-    SUPPLY("supply", "Supply", SupplyIcon, SupplyIcon),
-    SETTINGS("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings),
-    STANDARDS("standards", "Library", Icons.AutoMirrored.Filled.MenuBook, Icons.AutoMirrored.Outlined.MenuBook)
+    DASHBOARD("dashboard", "Dashboard", NavDashboardSelected, NavDashboardUnselected),
+    JOBS("jobs", "Jobs", NavJobsSelected, NavJobsUnselected),
+    SEARCH("search", "Search", NavSearchSelected, NavSearchUnselected),
+    HOURS("hours", "Hours", NavHoursSelected, NavHoursUnselected),
+    TIMECARD("timecard", "Timeclock", NavTimeclockSelected, NavTimeclockUnselected),
+    SUPPLY("supply", "Supply", NavSupplySelected, NavSupplyUnselected),
+    SETTINGS("settings", "Settings", NavSettingsSelected, NavSettingsUnselected),
+    STANDARDS("standards", "Library", NavLibrarySelected, NavLibraryUnselected)
 }
 
 @Composable
@@ -271,7 +257,7 @@ private fun MorphingNavIconRow(
                         verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
                         Icon(
-                            if (isCalculatorOpen) Icons.Filled.Calculate else Icons.Outlined.Calculate,
+                            if (isCalculatorOpen) NavCalculatorSelected else NavCalculatorUnselected,
                             contentDescription = "Calculator",
                             tint = if (isCalculatorOpen) selectedTint else unselectedTint,
                             modifier = Modifier.size(iconSize)
