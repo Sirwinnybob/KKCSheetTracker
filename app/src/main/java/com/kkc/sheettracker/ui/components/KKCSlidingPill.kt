@@ -366,7 +366,8 @@ data class KKCPillOption(
     val label: String,
     val isSelected: Boolean,
     val onClick: () -> Unit,
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    val icon: ImageVector? = null
 )
 
 /**
@@ -400,7 +401,8 @@ fun KKCSlidingPillRow(
                     isSelected = opt.isSelected,
                     onClick = opt.onClick,
                     accent = accent,
-                    enabled = opt.enabled
+                    enabled = opt.enabled,
+                    icon = opt.icon
                 )
             },
             modifier = widthMod,
@@ -438,7 +440,9 @@ data class KKCTabItem(
      * Content drawn flush before the label, inside the item (so the pill covers it too); gets the
      * label's current color. E.g. a table's marker-column header folded into the next column.
      */
-    val prefix: (@Composable (color: Color) -> Unit)? = null
+    val prefix: (@Composable (color: Color) -> Unit)? = null,
+    /** Small icon before the label, drawn in the label's current color. */
+    val icon: ImageVector? = null
 )
 
 /**
@@ -713,6 +717,14 @@ private fun KKCTabLabel(item: KKCTabItem, color: Color, modifier: Modifier) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = modifier
     ) {
+        if (item.icon != null) {
+            Icon(
+                imageVector = item.icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(16.dp)
+            )
+        }
         if (item.alwaysBold) {
             Text(
                 text = item.label,

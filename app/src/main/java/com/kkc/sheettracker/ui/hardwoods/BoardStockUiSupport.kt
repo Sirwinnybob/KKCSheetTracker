@@ -1,11 +1,13 @@
 package com.kkc.sheettracker.ui.hardwoods
 
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.models.BoardStockRow
 import com.kkc.sheettracker.data.models.BoardStockSource
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
+import com.kkc.sheettracker.ui.components.icons.HardwoodsSpecialtyIcon
 import java.math.BigDecimal
 import java.util.Locale
 import kotlin.math.ceil
@@ -73,6 +75,14 @@ internal fun BoardStockSource.toRipListTitle(): String {
         BoardStockSource.DOOR -> "Door Rip List"
         BoardStockSource.MANUAL -> "Stock/Custom"
     }
+}
+
+/** Rip sources share their cut list's icon; manual stock/custom rips get the specialty sparkle. */
+internal fun BoardStockSource.icon(): ImageVector = when (this) {
+    BoardStockSource.FRAME -> HardwoodDocType.FACE_FRAME_CUT_LIST.icon()
+    BoardStockSource.NAILER -> HardwoodDocType.NAILER_CUT_LIST.icon()
+    BoardStockSource.DOOR -> HardwoodDocType.DOOR_CUT_LIST.icon()
+    BoardStockSource.MANUAL -> HardwoodsSpecialtyIcon
 }
 
 internal fun applySkippedPartRowsToBoardStockRows(

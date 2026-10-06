@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.components.icons
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -40,8 +41,12 @@ internal fun ImageVector.Builder.line(
     pathBuilder = pathBuilder
 )
 
-internal fun ImageVector.Builder.solid(alpha: Float = 1f, pathBuilder: PathBuilder.() -> Unit) =
-    path(fill = SolidColor(Color.Black), fillAlpha = alpha, pathBuilder = pathBuilder)
+/** Pass [PathFillType.EvenOdd] to punch inner shapes out of an outer one (e.g. frame openings). */
+internal fun ImageVector.Builder.solid(
+    alpha: Float = 1f,
+    fillType: PathFillType = PathFillType.NonZero,
+    pathBuilder: PathBuilder.() -> Unit
+) = path(fill = SolidColor(Color.Black), fillAlpha = alpha, pathFillType = fillType, pathBuilder = pathBuilder)
 
 /** Fill + stroke of the same shape: a solid shape with the family's rounded edge. */
 internal fun ImageVector.Builder.block(width: Float = STROKE, pathBuilder: PathBuilder.() -> Unit) = path(

@@ -71,6 +71,11 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.ui.components.ClockInButton
+import com.kkc.sheettracker.ui.components.icons.HardwoodsBoardStockIcon
+import com.kkc.sheettracker.ui.components.icons.HardwoodsRipIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceAssemblyIcon
+import com.kkc.sheettracker.ui.components.icons.ReferencePlansIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceView3DIcon
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -1293,6 +1298,7 @@ fun HardwoodsWorkspaceScreen(
                                     add(
                                         KKCTabItem(
                                             label = docType.uiLabel(),
+                                            icon = docType.icon(),
                                             isSelected = selectedIndex == idx,
                                             onClick = {
                                                 selectedDocType = docType
@@ -1306,6 +1312,7 @@ fun HardwoodsWorkspaceScreen(
                                 add(
                                     KKCTabItem(
                                         label = "Rip Cut List",
+                                        icon = HardwoodsRipIcon,
                                         isSelected = showRipCutList,
                                         onClick = {
                                             showRipCutList = true
@@ -1481,6 +1488,7 @@ fun HardwoodsWorkspaceScreen(
                             items = categoryList.map { source ->
                                 KKCTabItem(
                                     label = source?.toRipListTitle() ?: "All",
+                                    icon = source?.icon(),
                                     isSelected = selectedRipSource == source,
                                     onClick = { selectedRipSource = source }
                                 )
@@ -2454,30 +2462,30 @@ private fun ReferencePane(
     }
 
     val docControls: @Composable RowScope.() -> Unit = {
-        data class DocControlOption(val label: String, val isSelected: Boolean, val onClick: () -> Unit)
+        data class DocControlOption(val label: String, val icon: ImageVector, val isSelected: Boolean, val onClick: () -> Unit)
         val options = remember(hasAssemblyReference, hasPlansReference, hasThreeDAssets, jumpTarget, referenceDocType) {
             buildList {
                 if (hasAssemblyReference) {
-                    add(DocControlOption("Assembly", jumpTarget == HardwoodsJumpTarget.ASSEMBLY && referenceDocType == ReferenceDocType.ASSEMBLY) {
+                    add(DocControlOption("Assembly", ReferenceAssemblyIcon, jumpTarget == HardwoodsJumpTarget.ASSEMBLY && referenceDocType == ReferenceDocType.ASSEMBLY) {
                         onReferenceDocTypeChange(ReferenceDocType.ASSEMBLY)
                         onJumpTargetChange(HardwoodsJumpTarget.ASSEMBLY)
                     })
                 }
                 if (hasPlansReference) {
-                    add(DocControlOption("Plans & Elevs.", jumpTarget == HardwoodsJumpTarget.PLANS && referenceDocType == ReferenceDocType.PLANS_ELEVATIONS) {
+                    add(DocControlOption("Plans & Elevs.", ReferencePlansIcon, jumpTarget == HardwoodsJumpTarget.PLANS && referenceDocType == ReferenceDocType.PLANS_ELEVATIONS) {
                         onReferenceDocTypeChange(ReferenceDocType.PLANS_ELEVATIONS)
                         onJumpTargetChange(HardwoodsJumpTarget.PLANS)
                     })
                 }
                 if (hasThreeDAssets) {
-                    add(DocControlOption("View 3D", jumpTarget == HardwoodsJumpTarget.THREE_D) {
+                    add(DocControlOption("View 3D", ReferenceView3DIcon, jumpTarget == HardwoodsJumpTarget.THREE_D) {
                         onJumpTargetChange(HardwoodsJumpTarget.THREE_D)
                     })
                 }
             }
         }
         KKCSlidingPillRow(
-            options = options.map { KKCPillOption(it.label, it.isSelected, it.onClick) }
+            options = options.map { KKCPillOption(it.label, it.isSelected, it.onClick, icon = it.icon) }
         )
     }
 
@@ -2743,6 +2751,12 @@ private fun HardwoodsBoardStockList(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Icon(
+                            imageVector = HardwoodsBoardStockIcon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Text(
                             text = sectionTitle,
                             style = MaterialTheme.typography.labelLarge,
@@ -3033,6 +3047,12 @@ private fun HardwoodsBoardStockList(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            Icon(
+                                imageVector = sourceSection.source.icon(),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
                             Text(text = sourceSection.title,
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -10,6 +10,9 @@ import androidx.compose.ui.graphics.Color
 import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.theme.kkcZebraTint
+import com.kkc.sheettracker.ui.components.icons.HardwoodsSpecialtyIcon
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.heightIn
@@ -185,15 +188,26 @@ fun CompactSpecialtySection(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = if (rowModels.isEmpty() && scanState.status == ScanStatus.LOADING) {
-                        "Specialty loading..."
-                    } else {
-                        "Specialty"
-                    },
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = HardwoodsSpecialtyIcon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(
+                        text = if (rowModels.isEmpty() && scanState.status == ScanStatus.LOADING) {
+                            "Specialty loading..."
+                        } else {
+                            "Specialty"
+                        },
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
                 if (rowModels.isNotEmpty()) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),

@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.components.icons
 
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathBuilder
 
@@ -30,19 +31,20 @@ private fun molding() = kkcIcon("LibraryMolding") {
     }
 }
 
-// ── Door Profiles: raised-panel door ────────────────────────────────────────────
+// ── Door Profiles (and door cut lists): Shaker door — tinted frame, flat recessed panel ──
 private fun door() = kkcIcon("LibraryDoor") {
-    solid(DUOTONE) { roundRect(5f, 2f, 19f, 22f, 1.5f) }
+    solid(DUOTONE, PathFillType.EvenOdd) {
+        roundRect(5f, 2f, 19f, 22f, 1.5f)
+        moveTo(8.5f, 5.5f); horizontalLineTo(15.5f); verticalLineTo(18.5f); horizontalLineTo(8.5f); close()
+    }
     line { roundRect(5f, 2f, 19f, 22f, 1.5f) }
-    line(width = 1.5f) { roundRect(8f, 5f, 16f, 19f, 0.5f) }
-    // raised field
-    solid { roundRect(10f, 7.5f, 14f, 16.5f, 0.5f) }
-    // bevels from panel corners to field corners
+    line(width = 1.5f) {
+        moveTo(8.5f, 5.5f); horizontalLineTo(15.5f); verticalLineTo(18.5f); horizontalLineTo(8.5f); close()
+    }
+    // bar pull at the top of the stile, like a base cabinet door
     line(width = 1.25f) {
-        moveTo(8f, 5f); lineTo(10f, 7.5f)
-        moveTo(16f, 5f); lineTo(14f, 7.5f)
-        moveTo(8f, 19f); lineTo(10f, 16.5f)
-        moveTo(16f, 19f); lineTo(14f, 16.5f)
+        moveTo(17.1f, 4.5f)
+        verticalLineTo(8f)
     }
 }
 
@@ -72,7 +74,7 @@ private fun safety() = kkcIcon("LibrarySafety") {
         lineTo(2.5f, 12f)
         close()
     }
-    solid(DUOTONE, diamond)
+    solid(DUOTONE, pathBuilder = diamond)
     line(pathBuilder = diamond)
     line(width = 2.5f) {
         moveTo(12f, 7.5f)

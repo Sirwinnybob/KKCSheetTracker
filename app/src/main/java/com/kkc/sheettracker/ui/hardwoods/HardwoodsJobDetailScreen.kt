@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Print
 import com.kkc.sheettracker.ui.components.PrintDocumentsModal
 import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.ArchiveLifecycleClient
@@ -82,6 +81,19 @@ import com.kkc.sheettracker.ui.specialty.CompactSpecialtySection
 import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.kkc.sheettracker.ui.components.icons.ActionPrintIcon
+import com.kkc.sheettracker.ui.components.icons.HardwoodsBoardStockIcon
+import com.kkc.sheettracker.ui.components.icons.HardwoodsClosetRodIcon
+import com.kkc.sheettracker.ui.components.icons.HardwoodsFaceFrameIcon
+import com.kkc.sheettracker.ui.components.icons.HardwoodsNailerIcon
+import com.kkc.sheettracker.ui.components.icons.HardwoodsRipIcon
+import com.kkc.sheettracker.ui.components.icons.HardwoodsDoorPartsIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceAssemblyIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceDeliveryIcon
+import com.kkc.sheettracker.ui.components.icons.ReferencePlansIcon
+import com.kkc.sheettracker.ui.components.icons.ReferencePullsIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceView3DIcon
 import java.io.File
 
 internal fun HardwoodStatusCounts.toStatusCounts(): StatusCounts {
@@ -272,7 +284,7 @@ fun HardwoodsJobDetailScreen(
                 },
                 actions = {
                     IconButton(onClick = { showPrintDialog = true }) {
-                        Icon(Icons.Default.Print, contentDescription = "Print")
+                        Icon(ActionPrintIcon, contentDescription = "Print")
                     }
                     if (archiveActionVisible(adminEnabled = adminEnabled, sourceIsLive = true)) {
                         TextButton(onClick = { showArchiveActionSheet = true }) {
@@ -317,31 +329,31 @@ fun HardwoodsJobDetailScreen(
                     add(KKCPillAction("Assembly", {
                         suppressLeavePrompt = true
                         onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1)
-                    }))
+                    }, ReferenceAssemblyIcon))
                 }
                 if (hasPlansElevations) {
                     add(KKCPillAction("Plans & Elevations", {
                         suppressLeavePrompt = true
                         onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1)
-                    }))
+                    }, ReferencePlansIcon))
                 }
                 if (hasDeliverySheet) {
                     add(KKCPillAction("Delivery", {
                         suppressLeavePrompt = true
                         onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1)
-                    }))
+                    }, ReferenceDeliveryIcon))
                 }
                 if (hasPullsSheet) {
                     add(KKCPillAction("Pulls", {
                         suppressLeavePrompt = true
                         onOpenReferenceDocument(ReferenceDocType.PULLS, 1)
-                    }))
+                    }, ReferencePullsIcon))
                 }
                 if (hasThreeDAssets) {
                     add(KKCPillAction("3D", {
                         suppressLeavePrompt = true
                         onOpenThreeD()
-                    }))
+                    }, ReferenceView3DIcon))
                 }
             }
             KKCPillActionRow(actions = referenceActions)
@@ -351,6 +363,7 @@ fun HardwoodsJobDetailScreen(
                 title = "Hardwoods Progress",
                 subtitle = "${summary.counts.donePieces}/${summary.counts.effectiveTotalPieces} done",
                 fraction = summary.counts.completionFraction,
+                headerLeading = { CardHeaderIcon(HardwoodsBoardStockIcon) },
                 expanded = progressExpanded,
                 segmentedStatusCounts = jobStatusCounts,
                 showBottomProgressBar = true,
@@ -396,6 +409,7 @@ fun HardwoodsJobDetailScreen(
                 title = "Rip Cut List",
                 subtitle = "${boardStockCounts.donePieces}/${boardStockCounts.effectiveTotalPieces} done",
                 fraction = boardStockCounts.completionFraction,
+                headerLeading = { CardHeaderIcon(HardwoodsRipIcon) },
                 expanded = false,
                 segmentedStatusCounts = boardStockCounts.toStatusCounts(),
                 showBottomProgressBar = true,
@@ -424,6 +438,7 @@ fun HardwoodsJobDetailScreen(
                     title = docType.uiLabel(),
                     subtitle = "${counts.donePieces}/${counts.effectiveTotalPieces} done • ${filteredDoc.rows.size} rows",
                     fraction = if (!available) 0f else counts.completionFraction,
+                    headerLeading = { CardHeaderIcon(docType.icon()) },
                     expanded = expanded,
                     segmentedStatusCounts = statusCounts,
                     materialSegments = materialSegments,
@@ -485,6 +500,23 @@ internal fun HardwoodDocType.uiLabel(): String = when (this) {
     HardwoodDocType.DOOR_CUT_LIST -> "Door Cut List"
     HardwoodDocType.CLOSET_ROD_CUT_LIST -> "Closet Rod Cut List"
     HardwoodDocType.DOOR_LIST -> "Door List"
+}
+
+@Composable
+private fun CardHeaderIcon(icon: ImageVector) {
+    Icon(
+        imageVector = icon,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.size(28.dp)
+    )
+}
+
+internal fun HardwoodDocType.icon(): ImageVector = when (this) {
+    HardwoodDocType.FACE_FRAME_CUT_LIST -> HardwoodsFaceFrameIcon
+    HardwoodDocType.NAILER_CUT_LIST -> HardwoodsNailerIcon
+    HardwoodDocType.DOOR_CUT_LIST, HardwoodDocType.DOOR_LIST -> HardwoodsDoorPartsIcon
+    HardwoodDocType.CLOSET_ROD_CUT_LIST -> HardwoodsClosetRodIcon
 }
 
 private fun buildHardwoodsMaterialSegments(
