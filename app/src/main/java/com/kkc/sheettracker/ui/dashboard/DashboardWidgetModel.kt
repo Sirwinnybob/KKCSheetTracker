@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.ui.dashboard
 
+import androidx.compose.ui.graphics.vector.ImageVector
+
 enum class DashboardAccent {
     NEUTRAL,
     INFO,
@@ -13,7 +15,8 @@ data class DashboardStatModel(
     val value: String,
     val supportingText: String? = null,
     val accent: DashboardAccent = DashboardAccent.NEUTRAL,
-    val action: DashboardStatAction? = null
+    val action: DashboardStatAction? = null,
+    val icon: ImageVector? = null
 )
 
 enum class DashboardStatAction {
@@ -80,14 +83,16 @@ sealed interface DashboardWidgetModel {
         val title: String,
         val message: String,
         val supportingText: String? = null,
-        val accent: DashboardAccent = DashboardAccent.NEUTRAL
+        val accent: DashboardAccent = DashboardAccent.NEUTRAL,
+        val icon: ImageVector? = null
     ) : DashboardWidgetModel
 
     data class RecentItemsBlock(
         override val key: String,
         val title: String,
         val items: List<DashboardProgressItemModel>,
-        val emptyMessage: String = "Nothing is in progress right now."
+        val emptyMessage: String = "Nothing is in progress right now.",
+        val icon: ImageVector? = null
     ) : DashboardWidgetModel
 
     data class JobsBlock(
@@ -95,7 +100,8 @@ sealed interface DashboardWidgetModel {
         val title: String,
         val items: List<DashboardProgressItemModel>,
         val summary: String? = null,
-        val emptyMessage: String = "No jobs are available yet."
+        val emptyMessage: String = "No jobs are available yet.",
+        val icon: ImageVector? = null
     ) : DashboardWidgetModel
 
     data class InventoryBlock(

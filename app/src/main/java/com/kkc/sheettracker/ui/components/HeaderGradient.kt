@@ -6,8 +6,6 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -39,6 +37,7 @@ import coil.compose.rememberAsyncImagePainter
 import coil.decode.SvgDecoder
 import coil.request.ImageRequest
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
+import com.kkc.sheettracker.ui.components.icons.NavSettingsSelected
 import java.io.File
 
 /**
@@ -238,10 +237,10 @@ fun KKCTopAppBar(
                     IconButton(onClick = onOpenSettings, modifier = Modifier.kkcTopBarItem("settings")) {
                         if (hasPendingUpdates) {
                             BadgedBox(badge = { Badge {} }) {
-                                Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                                Icon(NavSettingsSelected, contentDescription = "Settings")
                             }
                         } else {
-                            Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                            Icon(NavSettingsSelected, contentDescription = "Settings")
                         }
                     }
                 }

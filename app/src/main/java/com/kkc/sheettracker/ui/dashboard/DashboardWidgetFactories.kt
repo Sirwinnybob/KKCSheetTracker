@@ -67,6 +67,13 @@ import com.kkc.sheettracker.ui.components.MarkdownText
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.TopBarClock
 import com.kkc.sheettracker.ui.components.headerBackground
+import com.kkc.sheettracker.ui.components.icons.DashboardQualityIcon
+import com.kkc.sheettracker.ui.components.icons.DashboardRemainingIcon
+import com.kkc.sheettracker.ui.components.icons.DashboardSheetCheckIcon
+import com.kkc.sheettracker.ui.components.icons.DashboardSheetCrackIcon
+import com.kkc.sheettracker.ui.components.icons.DashboardSheetSkipIcon
+import com.kkc.sheettracker.ui.components.icons.DashboardSheetStackIcon
+import com.kkc.sheettracker.ui.components.icons.NavJobsSelected
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.supply.supplyStatusColor
 import androidx.compose.foundation.BorderStroke
@@ -108,24 +115,28 @@ fun buildCncDashboardWidgets(
                     label = "Completed",
                     value = dashboard.completedSheets.toString(),
                     supportingText = "${dashboard.totalSheets} total",
-                    accent = DashboardAccent.SUCCESS
+                    accent = DashboardAccent.SUCCESS,
+                    icon = DashboardSheetCheckIcon
                 ),
                 DashboardStatModel(
                     label = "Bad Parts",
                     value = dashboard.badPartsSheets.toString(),
                     accent = if (dashboard.badPartsSheets > 0) DashboardAccent.DANGER else DashboardAccent.NEUTRAL,
-                    action = DashboardStatAction.BAD_PARTS
+                    action = DashboardStatAction.BAD_PARTS,
+                    icon = DashboardSheetCrackIcon
                 ),
                 DashboardStatModel(
                     label = "Skipped",
                     value = dashboard.skippedSheets.toString(),
                     accent = if (dashboard.skippedSheets > 0) DashboardAccent.WARNING else DashboardAccent.NEUTRAL,
-                    action = if (dashboard.skippedSheets > 0) DashboardStatAction.SKIPPED else null
+                    action = if (dashboard.skippedSheets > 0) DashboardStatAction.SKIPPED else null,
+                    icon = DashboardSheetSkipIcon
                 ),
                 DashboardStatModel(
                     label = "Jobs",
                     value = dashboard.totalJobs.toString(),
-                    accent = DashboardAccent.INFO
+                    accent = DashboardAccent.INFO,
+                    icon = NavJobsSelected
                 )
             )
         ),
@@ -137,14 +148,16 @@ fun buildCncDashboardWidgets(
                 skippedCount = dashboard.skippedSheets
             ),
             supportingText = "${remainingCount(dashboard.completedSheets, dashboard.totalSheets)} ${pluralize("sheet", remainingCount(dashboard.completedSheets, dashboard.totalSheets))} remaining",
-            accent = alertAccent
+            accent = alertAccent,
+            icon = DashboardQualityIcon
         ),
         DashboardWidgetModel.RecentItemsBlock(
             key = "cnc-recents",
             title = "Recent In-Progress Materials",
             items = dashboard.recentInProgressMaterials
                 .sortedByDescending(DashboardRecentMaterialItem::lastTouchedAtMs)
-                .map(::toRecentItemModel)
+                .map(::toRecentItemModel),
+            icon = DashboardSheetStackIcon
         )
     )
 }
@@ -178,24 +191,28 @@ fun buildHardwoodsDashboardWidgets(
                     label = "Done",
                     value = totalCounts.donePieces.toString(),
                     supportingText = "${totalCounts.totalPieces} total",
-                    accent = DashboardAccent.SUCCESS
+                    accent = DashboardAccent.SUCCESS,
+                    icon = DashboardSheetCheckIcon
                 ),
                 DashboardStatModel(
                     label = "Bad Pieces",
                     value = totalCounts.badPieces.toString(),
                     accent = if (totalCounts.badPieces > 0) DashboardAccent.DANGER else DashboardAccent.NEUTRAL,
-                    action = if (totalCounts.badPieces > 0) DashboardStatAction.BAD_PARTS else null
+                    action = if (totalCounts.badPieces > 0) DashboardStatAction.BAD_PARTS else null,
+                    icon = DashboardSheetCrackIcon
                 ),
                 DashboardStatModel(
                     label = "Skipped",
                     value = totalCounts.skippedPieces.toString(),
                     accent = if (totalCounts.skippedPieces > 0) DashboardAccent.WARNING else DashboardAccent.NEUTRAL,
-                    action = if (totalCounts.skippedPieces > 0) DashboardStatAction.SKIPPED else null
+                    action = if (totalCounts.skippedPieces > 0) DashboardStatAction.SKIPPED else null,
+                    icon = DashboardSheetSkipIcon
                 ),
                 DashboardStatModel(
                     label = "Jobs",
                     value = totalJobs.toString(),
-                    accent = DashboardAccent.INFO
+                    accent = DashboardAccent.INFO,
+                    icon = NavJobsSelected
                 )
             )
         ),
@@ -207,13 +224,15 @@ fun buildHardwoodsDashboardWidgets(
                 skippedPieces = totalCounts.skippedPieces
             ),
             supportingText = "$remainingPieces ${pluralize("piece", remainingPieces)} remaining",
-            accent = alertAccent
+            accent = alertAccent,
+            icon = DashboardQualityIcon
         ),
         DashboardWidgetModel.RecentItemsBlock(
             key = "hardwoods-recents",
             title = "Recent Jobs",
             items = recentJobs,
-            emptyMessage = "No recent hardwood jobs yet."
+            emptyMessage = "No recent hardwood jobs yet.",
+            icon = NavJobsSelected
         )
     )
 }
@@ -264,7 +283,8 @@ fun buildAssemblyDashboardWidgets(
             key = "assembly-jobs",
             title = "Assembly Jobs",
             items = cards.map(::toAssemblyJobItemModel),
-            summary = "${cards.size} ${pluralize("job", cards.size)} • $totalCabinets ${pluralize("cabinet", totalCabinets)}"
+            summary = "${cards.size} ${pluralize("job", cards.size)} • $totalCabinets ${pluralize("cabinet", totalCabinets)}",
+            icon = NavJobsSelected
         )
     )
 }
@@ -296,17 +316,20 @@ fun buildSpecialtyDashboardWidgets(
                     label = "Complete",
                     value = completedItems.toString(),
                     supportingText = "$totalItems total",
-                    accent = DashboardAccent.SUCCESS
+                    accent = DashboardAccent.SUCCESS,
+                    icon = DashboardSheetCheckIcon
                 ),
                 DashboardStatModel(
                     label = "Remaining",
                     value = remainingItems.toString(),
-                    accent = if (remainingItems > 0) DashboardAccent.WARNING else DashboardAccent.NEUTRAL
+                    accent = if (remainingItems > 0) DashboardAccent.WARNING else DashboardAccent.NEUTRAL,
+                    icon = DashboardRemainingIcon
                 ),
                 DashboardStatModel(
                     label = "Jobs",
                     value = totalJobs.toString(),
-                    accent = DashboardAccent.INFO
+                    accent = DashboardAccent.INFO,
+                    icon = NavJobsSelected
                 )
             )
         ),
@@ -314,20 +337,23 @@ fun buildSpecialtyDashboardWidgets(
             key = "specialty-in-progress",
             title = "Recent In-Progress Items",
             items = inProgressItems,
-            emptyMessage = "No in-progress specialty items yet."
+            emptyMessage = "No in-progress specialty items yet.",
+            icon = DashboardRemainingIcon
         ),
         DashboardWidgetModel.JobsBlock(
             key = "specialty-recents",
             title = "Recent Jobs",
             items = recentJobs,
             summary = "${recentJobs.size} ${pluralize("job", recentJobs.size)} shown",
-            emptyMessage = "No specialty jobs found yet."
+            emptyMessage = "No specialty jobs found yet.",
+            icon = NavJobsSelected
         ),
         DashboardWidgetModel.JobsBlock(
             key = "specialty-jobs",
             title = "All Jobs",
             items = jobItems,
-            summary = "${jobItems.size} ${pluralize("job", jobItems.size)}"
+            summary = "${jobItems.size} ${pluralize("job", jobItems.size)}",
+            icon = NavJobsSelected
         )
     )
 }
@@ -562,11 +588,25 @@ fun DashboardWidgetRenderer(
                                     modifier = androidx.compose.ui.Modifier.padding(12.dp),
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Text(
-                                        stat.value,
-                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                        color = DashboardSurfaceDefaults.accentColor(stat.accent)
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            stat.value,
+                                            modifier = Modifier.weight(1f),
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                            color = DashboardSurfaceDefaults.accentColor(stat.accent)
+                                        )
+                                        stat.icon?.let {
+                                            Icon(
+                                                imageVector = it,
+                                                contentDescription = null,
+                                                tint = DashboardSurfaceDefaults.accentColor(stat.accent),
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                    }
                                     Text(
                                         stat.label,
                                         style = MaterialTheme.typography.labelMedium
@@ -582,7 +622,13 @@ fun DashboardWidgetRenderer(
 
                 is DashboardWidgetModel.AlertBlock -> DashboardSurfaceCard(accent = widget.accent) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(widget.title, style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            widget.icon?.let { DashboardHeaderIcon(it) }
+                            Text(widget.title, style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                        }
                         Text(widget.message)
                         widget.supportingText?.let {
                             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -595,7 +641,7 @@ fun DashboardWidgetRenderer(
 
                 is DashboardWidgetModel.RecentItemsBlock -> DashboardSurfaceCard {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        DashboardSectionHeader(title = widget.title)
+                        DashboardSectionHeader(title = widget.title, icon = widget.icon)
                         if (widget.items.isEmpty()) {
                             Text(widget.emptyMessage, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
@@ -625,7 +671,7 @@ fun DashboardWidgetRenderer(
 
                 is DashboardWidgetModel.JobsBlock -> DashboardSurfaceCard {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        DashboardSectionHeader(title = widget.title, subtitle = widget.summary)
+                        DashboardSectionHeader(title = widget.title, subtitle = widget.summary, icon = widget.icon)
                         if (widget.items.isEmpty()) {
                             Text(widget.emptyMessage, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {

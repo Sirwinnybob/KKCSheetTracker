@@ -5,10 +5,18 @@ import com.kkc.sheettracker.data.models.AssemblyHardwoodsSummary
 import com.kkc.sheettracker.data.models.AssemblyJobCard
 import com.kkc.sheettracker.data.models.DashboardRecentMaterialItem
 import com.kkc.sheettracker.data.models.DashboardUiModel
+import com.kkc.sheettracker.data.models.HardwoodStatusCounts
 import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.data.models.SupplyCategory
 import com.kkc.sheettracker.data.models.SupplyItem
+import com.kkc.sheettracker.ui.components.icons.DashboardQualityIcon
+import com.kkc.sheettracker.ui.components.icons.DashboardRemainingIcon
+import com.kkc.sheettracker.ui.components.icons.DashboardSheetCheckIcon
+import com.kkc.sheettracker.ui.components.icons.DashboardSheetCrackIcon
+import com.kkc.sheettracker.ui.components.icons.DashboardSheetSkipIcon
+import com.kkc.sheettracker.ui.components.icons.DashboardSheetStackIcon
+import com.kkc.sheettracker.ui.components.icons.NavJobsSelected
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -217,6 +225,46 @@ class UnifiedDashboardFactoriesTest {
         val block = widgets.requireSingle<DashboardWidgetModel.InventoryBlock>()
         block.onHeaderAction?.invoke()
         assertTrue(clicked)
+    }
+
+    @Test
+    fun `cnc dashboard stats and card headers carry custom icons`() {
+        val widgets = buildCncDashboardWidgets(
+            DashboardUiModel(totalJobs = 1, totalSheets = 2, completedSheets = 1)
+        )
+        val stats = widgets.requireSingle<DashboardWidgetModel.StatsRow>().stats
+        assertEquals(
+            listOf(DashboardSheetCheckIcon, DashboardSheetCrackIcon, DashboardSheetSkipIcon, NavJobsSelected),
+            stats.map { it.icon }
+        )
+        assertEquals(DashboardQualityIcon, widgets.requireSingle<DashboardWidgetModel.AlertBlock>().icon)
+        assertEquals(DashboardSheetStackIcon, widgets.requireSingle<DashboardWidgetModel.RecentItemsBlock>().icon)
+    }
+
+    @Test
+    fun `hardwoods and specialty stats all carry icons`() {
+        val hardwoods = buildHardwoodsDashboardWidgets(
+            totalJobs = 1,
+            totalCounts = HardwoodStatusCounts(totalPieces = 2, donePieces = 1),
+            recentJobs = emptyList()
+        )
+        assertTrue(hardwoods.requireSingle<DashboardWidgetModel.StatsRow>().stats.all { it.icon != null })
+        assertEquals(DashboardQualityIcon, hardwoods.requireSingle<DashboardWidgetModel.AlertBlock>().icon)
+
+        val specialty = buildSpecialtyDashboardWidgets(
+            totalJobs = 1,
+            totalItems = 2,
+            completedItems = 1,
+            recentJobs = emptyList(),
+            jobItems = emptyList(),
+            inProgressItems = emptyList()
+        )
+        val specialtyStats = specialty.requireSingle<DashboardWidgetModel.StatsRow>().stats
+        assertEquals(
+            listOf(DashboardSheetCheckIcon, DashboardRemainingIcon, NavJobsSelected),
+            specialtyStats.map { it.icon }
+        )
+        assertTrue(specialty.filterIsInstance<DashboardWidgetModel.JobsBlock>().all { it.icon == NavJobsSelected })
     }
 
     private inline fun <reified T : DashboardWidgetModel> List<DashboardWidgetModel>.requireSingle(): T {

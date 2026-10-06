@@ -14,6 +14,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import com.kkc.sheettracker.ui.components.bounceClick
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.kkc.sheettracker.ui.components.icons.DashboardSheetMiscIcon
+import com.kkc.sheettracker.ui.components.icons.DashboardSheetRemakeIcon
+import com.kkc.sheettracker.ui.components.icons.DashboardSheetStackIcon
 import com.kkc.sheettracker.ui.components.ScrollShadowBleed
 import com.kkc.sheettracker.ui.components.scrollShadowBleed
 import androidx.compose.foundation.layout.Arrangement
@@ -252,6 +256,7 @@ private fun CncDashboardContent(
                     jobRepository = jobRepository,
                     onOpenSheet = onOpenSheet,
                     accentColor = KKCThemeColors.statusColors.remakeBg,
+                    icon = DashboardSheetRemakeIcon,
                     title = "Incomplete Remakes",
                     subtitleFor = { count -> "$count remake${if (count == 1) "" else "s"} pending" },
                     thumbnailContentDescription = "Remake material preview",
@@ -265,6 +270,7 @@ private fun CncDashboardContent(
                     jobRepository = jobRepository,
                     onOpenSheet = onOpenSheet,
                     accentColor = KKCThemeColors.statusColors.miscBg,
+                    icon = DashboardSheetMiscIcon,
                     title = "Incomplete Miscellaneous",
                     subtitleFor = { count -> "$count miscellaneous item${if (count == 1) "" else "s"} pending" },
                     thumbnailContentDescription = "Miscellaneous material preview",
@@ -283,6 +289,7 @@ private fun CncDashboardContent(
                     jobRepository = jobRepository,
                     onOpenSheet = onOpenSheet,
                     accentColor = KKCThemeColors.statusColors.remakeBg,
+                    icon = DashboardSheetRemakeIcon,
                     title = "Incomplete Remakes",
                     subtitleFor = { count -> "$count remake${if (count == 1) "" else "s"} pending" },
                     thumbnailContentDescription = "Remake material preview",
@@ -300,6 +307,7 @@ private fun CncDashboardContent(
                     jobRepository = jobRepository,
                     onOpenSheet = onOpenSheet,
                     accentColor = KKCThemeColors.statusColors.miscBg,
+                    icon = DashboardSheetMiscIcon,
                     title = "Incomplete Miscellaneous",
                     subtitleFor = { count -> "$count miscellaneous item${if (count == 1) "" else "s"} pending" },
                     thumbnailContentDescription = "Miscellaneous material preview",
@@ -350,7 +358,8 @@ private fun CncRecentMaterialsSection(
     DashboardSurfaceCard {
         DashboardSectionHeader(
             title = "Recent In-Progress Materials",
-            subtitle = if (items.isEmpty()) null else "${items.size} recent material${if (items.size == 1) "" else "s"}"
+            subtitle = if (items.isEmpty()) null else "${items.size} recent material${if (items.size == 1) "" else "s"}",
+            icon = DashboardSheetStackIcon
         )
         // No animateContentSize: it always clipToBounds(), which cuts the material cards'
         // shadows and defeats scrollShadowBleed below.
@@ -417,26 +426,19 @@ private fun TaggedMaterialSection(
     jobRepository: JobRepository,
     onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit,
     accentColor: androidx.compose.ui.graphics.Color,
+    icon: ImageVector,
     title: String,
     subtitleFor: (count: Int) -> String,
     thumbnailContentDescription: String,
     progressAnimationLabel: String
 ) {
     DashboardSurfaceCard {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .background(accentColor, CircleShape)
-            )
-            DashboardSectionHeader(
-                title = title,
-                subtitle = if (!hasLoadedOnce) null else subtitleFor(items.size)
-            )
-        }
+        DashboardSectionHeader(
+            title = title,
+            subtitle = if (!hasLoadedOnce) null else subtitleFor(items.size),
+            icon = icon,
+            iconTint = accentColor
+        )
         Row(
             modifier = Modifier
                 .scrollShadowBleed()
