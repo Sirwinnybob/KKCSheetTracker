@@ -35,7 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Create
+import com.kkc.sheettracker.ui.components.icons.MarkupPenIcon
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -826,7 +826,7 @@ fun ReferencePdfPane(
                                     )
                             ) {
                                 Icon(
-                                    Icons.Default.Create,
+                                    MarkupPenIcon,
                                     contentDescription = if (markupEnabled) "Disable drawing" else "Enable drawing",
                                     tint = if (markupEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                 )

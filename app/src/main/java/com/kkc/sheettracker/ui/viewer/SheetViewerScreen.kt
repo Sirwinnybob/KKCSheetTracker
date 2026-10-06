@@ -40,7 +40,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Create
+import com.kkc.sheettracker.ui.components.icons.MarkupPenIcon
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
@@ -1386,7 +1386,7 @@ fun SheetViewerScreen(
                             onClick = { markupEnabled = !markupEnabled }
                         ) {
                             Icon(
-                                Icons.Default.Create,
+                                MarkupPenIcon,
                                 contentDescription = if (markupEnabled) "Disable pen mode" else "Enable pen mode",
                                 tint = if (markupEnabled) MaterialTheme.colorScheme.primary else topBarTextColor
                             )

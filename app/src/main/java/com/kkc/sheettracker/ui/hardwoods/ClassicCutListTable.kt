@@ -16,7 +16,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -58,6 +57,12 @@ import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
 import com.kkc.sheettracker.ui.markup.resolveEffectiveDrawingTool
 import com.kkc.sheettracker.ui.markup.shouldAppendStrokePoint
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
+import com.kkc.sheettracker.ui.components.icons.MarkupClearIcon
+import com.kkc.sheettracker.ui.components.icons.MarkupEraserIcon
+import com.kkc.sheettracker.ui.components.icons.MarkupFingerDrawIcon
+import com.kkc.sheettracker.ui.components.icons.MarkupHighlighterIcon
+import com.kkc.sheettracker.ui.components.icons.MarkupPenIcon
+import com.kkc.sheettracker.ui.components.icons.MarkupUndoIcon
 import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.theme.kkcZebraTint
@@ -210,7 +215,7 @@ fun ClassicCutListTable(
                                 containerColor = if (activeTool == DrawingTool.PEN) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
                             )
                         ) {
-                            Icon(Icons.Default.Create, contentDescription = "Pen Tool")
+                            Icon(MarkupPenIcon, contentDescription = "Pen Tool")
                         }
                         IconButton(
                             onClick = { toolState.selectedTool = DrawingTool.HIGHLIGHTER },
@@ -218,7 +223,7 @@ fun ClassicCutListTable(
                                 containerColor = if (activeTool == DrawingTool.HIGHLIGHTER) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
                             )
                         ) {
-                            Icon(Icons.Default.BorderColor, contentDescription = "Highlighter Tool")
+                            Icon(MarkupHighlighterIcon, contentDescription = "Highlighter Tool")
                         }
                         IconButton(
                             onClick = { toolState.selectedTool = DrawingTool.ERASER },
@@ -226,7 +231,7 @@ fun ClassicCutListTable(
                                 containerColor = if (activeTool == DrawingTool.ERASER) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
                             )
                         ) {
-                            Icon(Icons.Default.DeleteOutline, contentDescription = "Eraser Tool")
+                            Icon(MarkupEraserIcon, contentDescription = "Eraser Tool")
                         }
                     }
 
@@ -263,7 +268,7 @@ fun ClassicCutListTable(
                         label = { Text("Draw") },
                         leadingIcon = {
                             Icon(
-                                Icons.Default.Edit,
+                                MarkupPenIcon,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -276,7 +281,7 @@ fun ClassicCutListTable(
                         label = { Text("Finger Draw") },
                         leadingIcon = {
                             Icon(
-                                Icons.Default.Gesture,
+                                MarkupFingerDrawIcon,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -301,7 +306,7 @@ fun ClassicCutListTable(
                             it.docType == docType.name && it.page == classicPage && it.id !in localDeletedIds
                         }
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                        Icon(MarkupUndoIcon, contentDescription = "Undo")
                     }
 
                     IconButton(
@@ -315,11 +320,11 @@ fun ClassicCutListTable(
                             )
                         }
                     ) {
-                        Icon(Icons.Default.LayersClear, contentDescription = "Clear All")
+                        Icon(MarkupClearIcon, contentDescription = "Clear All")
                     }
                 } else {
                     IconButton(onClick = { showNavMarkupControls = true }) {
-                        Icon(Icons.Default.Create, contentDescription = "Show pen controls")
+                        Icon(MarkupPenIcon, contentDescription = "Show pen controls")
                     }
                 }
             }
@@ -387,7 +392,7 @@ fun ClassicCutListTable(
                                 containerColor = if (activeTool == DrawingTool.PEN) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
                             )
                         ) {
-                            Icon(Icons.Default.Create, contentDescription = "Pen Tool")
+                            Icon(MarkupPenIcon, contentDescription = "Pen Tool")
                         }
                         IconButton(
                             onClick = { toolState.selectedTool = DrawingTool.HIGHLIGHTER },
@@ -395,7 +400,7 @@ fun ClassicCutListTable(
                                 containerColor = if (activeTool == DrawingTool.HIGHLIGHTER) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
                             )
                         ) {
-                            Icon(Icons.Default.BorderColor, contentDescription = "Highlighter Tool")
+                            Icon(MarkupHighlighterIcon, contentDescription = "Highlighter Tool")
                         }
                         IconButton(
                             onClick = { toolState.selectedTool = DrawingTool.ERASER },
@@ -403,7 +408,7 @@ fun ClassicCutListTable(
                                 containerColor = if (activeTool == DrawingTool.ERASER) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
                             )
                         ) {
-                            Icon(Icons.Default.DeleteOutline, contentDescription = "Eraser Tool")
+                            Icon(MarkupEraserIcon, contentDescription = "Eraser Tool")
                         }
                     }
 
@@ -444,7 +449,7 @@ fun ClassicCutListTable(
                         label = { Text("Draw") },
                         leadingIcon = {
                             Icon(
-                                Icons.Default.Edit,
+                                MarkupPenIcon,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -457,7 +462,7 @@ fun ClassicCutListTable(
                         label = { Text("Finger Draw") },
                         leadingIcon = {
                             Icon(
-                                Icons.Default.Gesture,
+                                MarkupFingerDrawIcon,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -481,7 +486,7 @@ fun ClassicCutListTable(
                             },
                             enabled = localStrokes.any { it.id !in localDeletedIds }
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                            Icon(MarkupUndoIcon, contentDescription = "Undo")
                         }
 
                         IconButton(
@@ -495,7 +500,7 @@ fun ClassicCutListTable(
                                 )
                             }
                         ) {
-                            Icon(Icons.Default.LayersClear, contentDescription = "Clear All")
+                            Icon(MarkupClearIcon, contentDescription = "Clear All")
                         }
                     }
                 } else {

@@ -13,11 +13,6 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.BorderColor
-import androidx.compose.material.icons.filled.Create
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -51,6 +46,11 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.models.PdfInkStroke
 import com.kkc.sheettracker.ui.components.PdfViewportState
+import com.kkc.sheettracker.ui.components.icons.MarkupEraserIcon
+import com.kkc.sheettracker.ui.components.icons.MarkupFingerDrawIcon
+import com.kkc.sheettracker.ui.components.icons.MarkupHighlighterIcon
+import com.kkc.sheettracker.ui.components.icons.MarkupPenIcon
+import com.kkc.sheettracker.ui.components.icons.MarkupUndoIcon
 import java.util.UUID
 import kotlin.math.abs
 
@@ -99,7 +99,7 @@ fun RowScope.PdfMarkupToolbar(
                 containerColor = if (state.activeTool == DrawingTool.PEN) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
             )
         ) {
-            Icon(Icons.Default.Create, contentDescription = "Pen Tool")
+            Icon(MarkupPenIcon, contentDescription = "Pen Tool")
         }
         IconButton(
             onClick = { state.selectedTool = DrawingTool.HIGHLIGHTER },
@@ -107,7 +107,7 @@ fun RowScope.PdfMarkupToolbar(
                 containerColor = if (state.activeTool == DrawingTool.HIGHLIGHTER) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
             )
         ) {
-            Icon(Icons.Default.BorderColor, contentDescription = "Highlighter Tool")
+            Icon(MarkupHighlighterIcon, contentDescription = "Highlighter Tool")
         }
         IconButton(
             onClick = { state.selectedTool = DrawingTool.ERASER },
@@ -115,7 +115,7 @@ fun RowScope.PdfMarkupToolbar(
                 containerColor = if (state.activeTool == DrawingTool.ERASER) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
             )
         ) {
-            Icon(Icons.Default.DeleteOutline, contentDescription = "Eraser Tool")
+            Icon(MarkupEraserIcon, contentDescription = "Eraser Tool")
         }
     }
 
@@ -147,7 +147,7 @@ fun RowScope.PdfMarkupToolbar(
         label = { androidx.compose.material3.Text("Finger Draw") },
         leadingIcon = {
             Icon(
-                Icons.Default.Gesture,
+                MarkupFingerDrawIcon,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp)
             )
@@ -155,7 +155,7 @@ fun RowScope.PdfMarkupToolbar(
     )
 
     IconButton(onClick = onUndo, enabled = hasUndo) {
-        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+        Icon(MarkupUndoIcon, contentDescription = "Undo")
     }
     IconButton(onClick = onToggleVisibility, enabled = hasUndo || !strokesVisible) {
         Icon(
