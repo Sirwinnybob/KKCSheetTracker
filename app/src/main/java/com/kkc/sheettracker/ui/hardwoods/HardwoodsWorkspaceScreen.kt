@@ -593,7 +593,9 @@ fun HardwoodsWorkspaceScreen(
     LaunchedEffect(documents, jobFolderName, isDarkTheme) {
         val filtered = withContext(Dispatchers.IO) {
             documents.filter { doc ->
-                doc.pdfFilename.isNotBlank() &&
+                // Door lists are retired; legacy jobs may still carry one in their index.
+                doc.docType != HardwoodDocType.DOOR_LIST &&
+                    doc.pdfFilename.isNotBlank() &&
                     jobRepository.getJobRootPdfFile(
                         jobFolderName = jobFolderName,
                         pdfFilename = doc.pdfFilename,
@@ -1582,7 +1584,6 @@ fun HardwoodsWorkspaceScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    val isDoorListDoc = selectedDoc.docType == HardwoodDocType.DOOR_LIST
                     val collapsedPartSections = remember(selectedDoc.docType.name, partSections, collapsedPartSectionsByDoc) {
                         collapsedPartSectionsByDoc[selectedDoc.docType.name]
                             ?: partSections.mapTo(linkedSetOf()) { section ->
@@ -1789,7 +1790,6 @@ fun HardwoodsWorkspaceScreen(
                                         skippedCabs = skippedCabs,
                                         isHighlighted = isHighlighted,
                                         widthBand = widthBand,
-                                        isDoorListDoc = isDoorListDoc,
                                         onIncrement = onIncrement,
                                         onDecrement = onDecrement,
                                         onComplete = onComplete,
@@ -2037,7 +2037,6 @@ private fun HardwoodsPartRow(
     skippedCabs: Set<String>,
     isHighlighted: Boolean,
     widthBand: Color,
-    isDoorListDoc: Boolean,
     onIncrement: () -> Unit,
     onDecrement: () -> Unit,
     onComplete: () -> Unit,
@@ -2175,157 +2174,119 @@ private fun HardwoodsPartRow(
                         if (isChangedPendingRecut) {
                             ChangedBadge()
                         }
-                        if (isDoorListDoc) {
-                            Text(
-                                "$qty pcs • ${cutlistDimensionDisplay(row)}",
-                                style = DimensionTextStyle
-                            )
-                        } else {
-                            Text(
-                                cutlistDimensionDisplay(row),
-                                style = DimensionTextStyle
-                            )
-                            Text(
-                                row.description,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontStyle = FontStyle.Italic,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                        Text(
+                            cutlistDimensionDisplay(row),
+                            style = DimensionTextStyle
+                        )
+                        Text(
+                            row.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontStyle = FontStyle.Italic,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                     Text(
-                        if (isDoorListDoc) {
-                            "Door Type: ${(row.material ?: row.description).ifBlank { "Door" }}"
-                        } else {
-                            "Cab(s) ${rowUi.cabDisplayText}"
-                        },
+                        "Cab(s) ${rowUi.cabDisplayText}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (isDoorListDoc) {
-                        Text(
-                            "Cab(s) ${rowUi.cabDisplayText}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
                 }
-                if (isDoorListDoc) {
-                    ProgressPill(
-                        done = done,
-                        total = qty,
-                        state = rowState.asProgressState(),
-                        skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f),
-                        modifier = Modifier
-                    )
+                TallyStepButton(
+                    icon = Icons.Default.Remove,
+                    contentDescription = "Done -",
+                    containerColor = statusColors.bad,
+                    enabled = true,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onDecrement()
+                    },
+                    onLongClick = {
+                        when (hardwoodsTallyHoldTarget(visuals.skipOn, done, qty, isIncrement = false)) {
+                            HardwoodsTallyHoldTarget.ZERO -> {
+                                onZero()
+                                true
+                            }
+                            HardwoodsTallyHoldTarget.COMPLETE,
+                            HardwoodsTallyHoldTarget.NONE -> false
+                        }
+                    }
+                )
+                ProgressPill(
+                    done = done,
+                    total = qty,
+                    state = rowState.asProgressState(),
+                    skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f),
+                    modifier = Modifier
+                )
+                TallyStepButton(
+                    icon = Icons.Default.Add,
+                    contentDescription = "Done +",
+                    containerColor = statusColors.completeBorder,
+                    enabled = true,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onIncrement()
+                    },
+                    onLongClick = {
+                        when (hardwoodsTallyHoldTarget(visuals.skipOn, done, qty, isIncrement = true)) {
+                            HardwoodsTallyHoldTarget.COMPLETE -> {
+                                onComplete()
+                                true
+                            }
+                            HardwoodsTallyHoldTarget.ZERO,
+                            HardwoodsTallyHoldTarget.NONE -> false
+                        }
+                    }
+                )
+                Button(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onJump()
+                    },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.heightIn(min = 32.dp)
+                ) { Text("View", style = MaterialTheme.typography.labelSmall) }
+                if (visuals.skipOn) {
                     Button(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onJump()
+                            onSkipToggle()
                         },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = statusColors.skipBorder,
+                            contentColor = Color.White
+                        ),
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                         modifier = Modifier.heightIn(min = 32.dp)
-                    ) { Text("Open Ref", style = MaterialTheme.typography.labelSmall) }
+                    ) {
+                        if (rowUi.isMultiCab) {
+                            Icon(Icons.Default.SkipNext, contentDescription = "Skip icon", modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(2.dp))
+                            Text(
+                                "$skippedCabCount/${rowUi.normalizedCabs.size}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        } else {
+                            Text("SKIPPED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 } else {
-                    TallyStepButton(
-                        icon = Icons.Default.Remove,
-                        contentDescription = "Done -",
-                        containerColor = statusColors.bad,
-                        enabled = true,
+                    OutlinedButton(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onDecrement()
+                            onSkipToggle()
                         },
-                        onLongClick = {
-                            when (hardwoodsTallyHoldTarget(visuals.skipOn, done, qty, isIncrement = false)) {
-                                HardwoodsTallyHoldTarget.ZERO -> {
-                                    onZero()
-                                    true
-                                }
-                                HardwoodsTallyHoldTarget.COMPLETE,
-                                HardwoodsTallyHoldTarget.NONE -> false
-                            }
-                        }
-                    )
-                    ProgressPill(
-                        done = done,
-                        total = qty,
-                        state = rowState.asProgressState(),
-                        skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f),
-                        modifier = Modifier
-                    )
-                    TallyStepButton(
-                        icon = Icons.Default.Add,
-                        contentDescription = "Done +",
-                        containerColor = statusColors.completeBorder,
-                        enabled = true,
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onIncrement()
-                        },
-                        onLongClick = {
-                            when (hardwoodsTallyHoldTarget(visuals.skipOn, done, qty, isIncrement = true)) {
-                                HardwoodsTallyHoldTarget.COMPLETE -> {
-                                    onComplete()
-                                    true
-                                }
-                                HardwoodsTallyHoldTarget.ZERO,
-                                HardwoodsTallyHoldTarget.NONE -> false
-                            }
-                        }
-                    )
-                    Button(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onJump()
-                        },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                        border = BorderStroke(1.dp, statusColors.skipBorder.copy(alpha = 0.85f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = statusColors.skipBorder),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                         modifier = Modifier.heightIn(min = 32.dp)
-                    ) { Text("View", style = MaterialTheme.typography.labelSmall) }
-                    if (visuals.skipOn) {
-                        Button(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onSkipToggle()
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = statusColors.skipBorder,
-                                contentColor = Color.White
-                            ),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                            modifier = Modifier.heightIn(min = 32.dp)
-                        ) {
-                            if (rowUi.isMultiCab) {
-                                Icon(Icons.Default.SkipNext, contentDescription = "Skip icon", modifier = Modifier.size(14.dp))
-                                Spacer(Modifier.width(2.dp))
-                                Text(
-                                    "$skippedCabCount/${rowUi.normalizedCabs.size}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            } else {
-                                Text("SKIPPED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                    } else {
-                        OutlinedButton(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onSkipToggle()
-                            },
-                            border = BorderStroke(1.dp, statusColors.skipBorder.copy(alpha = 0.85f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = statusColors.skipBorder),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                            modifier = Modifier.heightIn(min = 32.dp)
-                        ) {
-                            Text("Skip", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                        }
+                    ) {
+                        Text("Skip", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }

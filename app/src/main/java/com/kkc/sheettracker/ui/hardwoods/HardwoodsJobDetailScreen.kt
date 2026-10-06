@@ -210,7 +210,9 @@ fun HardwoodsJobDetailScreen(
     ) {
         value = withContext(Dispatchers.IO) {
             docsByType.filterValues { doc ->
-                doc.pdfFilename.isNotBlank() &&
+                // Door lists are retired; legacy jobs may still carry one in their index.
+                doc.docType != HardwoodDocType.DOOR_LIST &&
+                    doc.pdfFilename.isNotBlank() &&
                     jobRepository.getJobRootPdfFile(
                         jobFolderName = jobFolderName,
                         pdfFilename = doc.pdfFilename,
@@ -412,7 +414,7 @@ fun HardwoodsJobDetailScreen(
                 val available = true
                 val counts = docSummary?.counts ?: com.kkc.sheettracker.data.models.HardwoodStatusCounts()
                 val statusCounts = counts.toStatusCounts()
-                val materialSegments = if (available && docType != HardwoodDocType.DOOR_LIST) {
+                val materialSegments = if (available) {
                     buildHardwoodsMaterialSegments(filteredDoc, rowProgressMap)
                 } else {
                     null
@@ -425,7 +427,6 @@ fun HardwoodsJobDetailScreen(
                     expanded = expanded,
                     segmentedStatusCounts = statusCounts,
                     materialSegments = materialSegments,
-                    hidePrimaryProgressBar = docType == HardwoodDocType.DOOR_LIST,
                     showBottomProgressBar = true,
                     onToggleExpanded = {
                         expandedDocs = if (expanded) {

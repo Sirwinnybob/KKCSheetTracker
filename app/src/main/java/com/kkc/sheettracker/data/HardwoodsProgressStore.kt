@@ -764,7 +764,10 @@ class HardwoodsProgressStore(
         // Fetch the row-progress map once per job; summarizeDocument was previously
         // re-snapshotting it for every document (O(docs) full map copies per summary).
         val states = getRowProgressMap(job.folderName)
-        val docs = index.documents.map { summarizeDocument(states, it) }
+        // Door lists are retired and no longer tallied on tablets; keep legacy ones out of job progress.
+        val docs = index.documents
+            .filter { it.docType != HardwoodDocType.DOOR_LIST }
+            .map { summarizeDocument(states, it) }
         val total = docs.sumOf { it.counts.totalPieces }
         val done = docs.sumOf { it.counts.donePieces }
         val bad = docs.sumOf { it.counts.badPieces }
