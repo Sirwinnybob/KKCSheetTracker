@@ -33,10 +33,12 @@ fun StatusBorderedCard(
     containerColor: Color = MaterialTheme.colorScheme.surface,
     tonalElevation: Dp = 3.dp,
     leftBorderWidth: Dp = 3.dp,
+    // Overrides the status-derived left border (e.g. remake/custom materials keep their own color).
+    borderColorOverride: Color? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
     val colors = KKCThemeColors.statusColors
-    val statusCardColors = when (status) {
+    val baseStatusCardColors = when (status) {
         SheetStatus.NOT_STARTED -> StatusCardColors(
             borderColor = Color.Transparent,
             topGradientColor = null
@@ -61,6 +63,11 @@ fun StatusBorderedCard(
             borderColor = colors.completeBorder.copy(alpha = 0.35f),
             topGradientColor = colors.completeBorder.copy(alpha = 0.08f)
         )
+    }
+    val statusCardColors = if (borderColorOverride != null) {
+        baseStatusCardColors.copy(borderColor = borderColorOverride)
+    } else {
+        baseStatusCardColors
     }
 
     val clickableModifier = if (onClick != null) {

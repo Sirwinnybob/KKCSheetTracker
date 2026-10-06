@@ -501,10 +501,11 @@ internal fun SpecialtyJobDetailScreen(
                     )
                 }
 
-                val sheetRipEntries = specialtySheetRipLazyRowEntries(sheetRipItems)
+                val sheetRipEntries = specialtySheetRipLazyRowEntries(orderKanbanCards(sheetRipItems, sheetRipIsDone))
                 itemsIndexed(items = sheetRipEntries, key = { _, entry -> entry.key }) { index, entry ->
                     val item = entry.item
                     AnimatedVisibility(
+                        modifier = Modifier.animateItem(),
                         visible = sheetExpanded,
                         enter = expandVertically(tween(300)) + fadeIn(tween(300)),
                         exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
@@ -575,11 +576,16 @@ internal fun SpecialtyJobDetailScreen(
                         )
                     }
 
-                    val sectionEntries = specialtyChecklistLazyRowEntries(sectionKey, section.items)
+                    // Open items stay on top in list order; finished ones sink to the bottom.
+                val sectionEntries = specialtyChecklistLazyRowEntries(
+                    sectionKey,
+                    orderKanbanCards(section.items) { isChecklistItemComplete(it, completionOverrides) }
+                )
                     itemsIndexed(items = sectionEntries, key = { _, entry -> entry.key }) { index, entry ->
                         val resolved = entry.item
                         val itemToggles = checklistTogglesForItem(resolved, completionOverrides)
                         AnimatedVisibility(
+                            modifier = Modifier.animateItem(),
                             visible = sectionExpanded,
                             enter = expandVertically(tween(300)) + fadeIn(tween(300)),
                             exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
@@ -627,7 +633,8 @@ internal fun SpecialtyJobDetailScreen(
                                         myTabletId = specialtyStateStore.tabletId,
                                         onPatchDims = { dims, qty, mat -> onPatchItemDims(resolved, dims, qty, mat) },
                                         onCheckedChange = { toggle, next -> onToggleChecked(resolved, toggle, next) },
-                                        readOnly = readOnly
+                                        readOnly = readOnly,
+                                        collapseWhenComplete = true
                                     )
                                 }
                             }
@@ -908,10 +915,27 @@ internal fun SpecialtyChecklistRow(
     onEditItem: ((com.kkc.sheettracker.data.models.SpecialtyItem) -> Unit)? = null,
     onDeleteItem: ((String) -> Unit)? = null,
     myTabletId: String = "",
-    readOnly: Boolean = false
+    readOnly: Boolean = false,
+    /** Shrinks a fully checked item to its checkbox(es) and name so open items stand out; tap to expand. */
+    collapseWhenComplete: Boolean = false
 ) {
     val item = resolved.item
     val title = specialtyItemTitle(item.cabinetLabel, item.cabinetNumbers, item.name)
+    val allChecked = toggles.isNotEmpty() && toggles.all { it.checked }
+    // Keyed on allChecked so a row ticked complete collapses again after it was expanded.
+    var expandedWhenComplete by remember(item.id, allChecked) { mutableStateOf(false) }
+    val collapsed = collapseWhenComplete && allChecked && !expandedWhenComplete
+    if (collapsed) {
+        CollapsedSpecialtyChecklistRow(
+            title = title,
+            toggles = toggles,
+            inFlightUpdates = inFlightUpdates,
+            onCheckedChange = onCheckedChange,
+            onExpand = { expandedWhenComplete = true },
+            readOnly = readOnly
+        )
+        return
+    }
     val completionKeys = completionKeysForItem(item)
     val totalSteps = completionKeys.size.coerceAtLeast(1)
     val completedSteps = toggles.count { it.checked }.coerceAtMost(totalSteps)
@@ -936,38 +960,13 @@ internal fun SpecialtyChecklistRow(
             ?: MaterialTheme.colorScheme.primary,
         segmentedStatusCounts = statusCounts,
         headerLeading = {
-            toggles.forEach { toggle ->
-                val enabled = !readOnly && isToggleEnabled(toggle.controlId, inFlightUpdates)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    androidx.compose.runtime.CompositionLocalProvider(
-                        androidx.compose.material3.LocalMinimumInteractiveComponentSize provides androidx.compose.ui.unit.Dp.Unspecified
-                    ) {
-                        val checkboxLabel = if (toggles.size > 1) {
-                            "$title done at ${toggle.label ?: toggle.completionKey}"
-                        } else {
-                            "$title done"
-                        }
-                        Checkbox(
-                            checked = toggle.checked,
-                            onCheckedChange = { next -> onCheckedChange(toggle, next) },
-                            enabled = enabled,
-                            modifier = Modifier
-                                .scale(0.8f)
-                                .semantics { contentDescription = checkboxLabel }
-                        )
-                    }
-                    if (toggles.size > 1) {
-                        Text(
-                            text = shortDivisionLabel(toggle.label ?: toggle.completionKey),
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
+            SpecialtyToggleCheckboxes(
+                title = title,
+                toggles = toggles,
+                inFlightUpdates = inFlightUpdates,
+                onCheckedChange = onCheckedChange,
+                readOnly = readOnly
+            )
         },
         headerActions = {
             if (!readOnly) IconButton(
@@ -1030,6 +1029,91 @@ internal fun SpecialtyChecklistRow(
             )
         }
     )
+}
+
+/** One checkbox per completion toggle (with a station label when the item has several). */
+@Composable
+private fun SpecialtyToggleCheckboxes(
+    title: String,
+    toggles: List<SpecialtyChecklistToggle>,
+    inFlightUpdates: Map<String, Boolean>,
+    onCheckedChange: (SpecialtyChecklistToggle, Boolean) -> Unit,
+    readOnly: Boolean
+) {
+    toggles.forEach { toggle ->
+        val enabled = !readOnly && isToggleEnabled(toggle.controlId, inFlightUpdates)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.material3.LocalMinimumInteractiveComponentSize provides androidx.compose.ui.unit.Dp.Unspecified
+            ) {
+                val checkboxLabel = if (toggles.size > 1) {
+                    "$title done at ${toggle.label ?: toggle.completionKey}"
+                } else {
+                    "$title done"
+                }
+                Checkbox(
+                    checked = toggle.checked,
+                    onCheckedChange = { next -> onCheckedChange(toggle, next) },
+                    enabled = enabled,
+                    modifier = Modifier
+                        .scale(0.8f)
+                        .semantics { contentDescription = checkboxLabel }
+                )
+            }
+            if (toggles.size > 1) {
+                Text(
+                    text = shortDivisionLabel(toggle.label ?: toggle.completionKey),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+/** A finished item reduced to its checkbox(es) and name; tapping the card expands the full row. */
+@Composable
+private fun CollapsedSpecialtyChecklistRow(
+    title: String,
+    toggles: List<SpecialtyChecklistToggle>,
+    inFlightUpdates: Map<String, Boolean>,
+    onCheckedChange: (SpecialtyChecklistToggle, Boolean) -> Unit,
+    onExpand: () -> Unit,
+    readOnly: Boolean
+) {
+    StatusBorderedCard(
+        status = SheetStatus.COMPLETE,
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 2.dp,
+        onClick = onExpand
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SpecialtyToggleCheckboxes(
+                title = title,
+                toggles = toggles,
+                inFlightUpdates = inFlightUpdates,
+                onCheckedChange = onCheckedChange,
+                readOnly = readOnly
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
 }
 
 /**

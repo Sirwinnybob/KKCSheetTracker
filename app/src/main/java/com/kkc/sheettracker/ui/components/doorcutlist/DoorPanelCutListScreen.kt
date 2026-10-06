@@ -93,21 +93,44 @@ internal fun DoorPanelCutListScreen(source: DoorPanelCutListSource, onPrinted: (
                 ),
                 fillWidth = true
             )
+            SectionHeader("Include")
+            OptionCard {
+                OptionRow(
+                    label = "Slabs",
+                    trailing = "${source.rows.filter(::isDoorSlab).sumOf { it.qtyIn(selection.rooms) }} pcs",
+                    checked = selection.includeSlabs,
+                    dimmed = source.rows.none(::isDoorSlab),
+                    onChange = { checked -> selection = selection.copy(includeSlabs = checked) }
+                )
+                OptionRow(
+                    label = "Panels",
+                    trailing = "${source.rows.filter(::isDoorPanel).sumOf { it.qtyIn(selection.rooms) }} pcs",
+                    checked = selection.includePanels,
+                    dimmed = source.rows.all(::isDoorSlab),
+                    onChange = { checked -> selection = selection.copy(includePanels = checked) }
+                )
+            }
             SectionHeader("Materials")
             OptionCard {
-                materialOpts.forEach { option ->
-                    OptionRow(
-                        label = option.material,
-                        trailing = "${option.pieces} pcs",
-                        checked = option.checked,
-                        dimmed = option.pieces == 0,
-                        onChange = { checked ->
-                            selection = selection.copy(
-                                materials = if (checked) selection.materials + option.material
-                                else selection.materials - option.material
+                MaterialPartGroup.entries.forEach { group ->
+                    val options = materialOpts.filter { it.partGroup == group }
+                    if (options.isNotEmpty()) {
+                        MaterialGroupLabel(group)
+                        options.forEach { option ->
+                            OptionRow(
+                                label = option.material,
+                                trailing = "${option.pieces} pcs",
+                                checked = option.checked,
+                                dimmed = option.pieces == 0,
+                                onChange = { checked ->
+                                    selection = selection.copy(
+                                        materials = if (checked) selection.materials + option.material
+                                        else selection.materials - option.material
+                                    )
+                                }
                             )
                         }
-                    )
+                    }
                 }
             }
             if (showRoomFilter(source)) {
@@ -250,6 +273,21 @@ private fun SectionHeader(text: String) {
         text = text,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary
+    )
+}
+
+@Composable
+private fun MaterialGroupLabel(group: MaterialPartGroup) {
+    val label = when (group) {
+        MaterialPartGroup.SLABS -> "Slabs"
+        MaterialPartGroup.PANELS -> "Panels"
+        MaterialPartGroup.MIXED -> "Mixed slabs and panels"
+    }
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 2.dp)
     )
 }
 

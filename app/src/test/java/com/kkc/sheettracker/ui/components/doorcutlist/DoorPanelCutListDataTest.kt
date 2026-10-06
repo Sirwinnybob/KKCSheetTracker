@@ -272,6 +272,43 @@ class DoorPanelCutListDataTest {
     }
 
     @Test
+    fun `slab and panel filters keep the material picker separate`() {
+        val source = DoorPanelCutListSource(
+            "700 - X",
+            listOf(
+                resolveRow(row(0, 2, "20 (2)", material = "3/4 Plywood", description = "Door Slab"), rooms669),
+                resolveRow(row(1, 3, "20 (3)", material = "1/2 Plywood", description = "Door Flat Panel"), rooms669),
+                resolveRow(row(2, 1, "20", material = "3/4 Shared", description = "Door Slab"), rooms669),
+                resolveRow(row(3, 4, "20 (4)", material = "3/4 Shared", description = "Door Flat Panel"), rooms669),
+            )
+        )
+        val all = defaultSelection(source)
+        assertEquals(10, buildCutListModel(source, all, "d").totalPieces)
+        assertEquals(
+            mapOf(
+                "3/4 Plywood" to MaterialPartGroup.SLABS,
+                "1/2 Plywood" to MaterialPartGroup.PANELS,
+                "3/4 Shared" to MaterialPartGroup.MIXED,
+            ),
+            materialOptions(source, all).associate { it.material to it.partGroup }
+        )
+
+        val slabsOnly = all.copy(includePanels = false)
+        assertEquals(3, buildCutListModel(source, slabsOnly, "d").totalPieces)
+        assertEquals(
+            mapOf("3/4 Plywood" to 2, "1/2 Plywood" to 0, "3/4 Shared" to 1),
+            materialOptions(source, slabsOnly).associate { it.material to it.pieces }
+        )
+
+        val panelsOnly = all.copy(includeSlabs = false)
+        assertEquals(7, buildCutListModel(source, panelsOnly, "d").totalPieces)
+        assertEquals(
+            mapOf("3/4 Plywood" to 0, "1/2 Plywood" to 3, "3/4 Shared" to 4),
+            materialOptions(source, panelsOnly).associate { it.material to it.pieces }
+        )
+    }
+
+    @Test
     fun `room filter hidden for single room job`() {
         val single = DoorPanelCutListSource("690 - X", listOf(resolveRow(row(0, 1, "20"), rooms669)))
         assertFalse(showRoomFilter(single))

@@ -362,8 +362,17 @@ fun JobDetailScreen(
     }
     val mixCatalogs = catalogState.snapshots
     val materialEntries = remember(job?.materials, mixCatalogs) {
+        // Remakes first, then custom (misc), then standard materials. sortedBy is stable, so the
+        // original order is kept within each group.
         job?.materials.orEmpty().flatMap { material ->
             catalogMaterialEntries(material, mixCatalogs[material.materialName])
+        }.sortedBy { entry ->
+            val metadata = entry.material.metadata
+            when {
+                metadata?.remakeLabel != null -> 0
+                metadata?.miscLabel != null -> 1
+                else -> 2
+            }
         }
     }
     val retryJob = {
@@ -674,8 +683,17 @@ fun JobDetailScreen(
                     val pendingBadPartCount = if (useAppState && appMaterialModel != null) {
                         appMaterialModel.pendingBadPartCount
                     } else legacyMaterialProgress.pendingBadPartsByPdfFilename[material.pdfFilename] ?: 0
+                    // Tinted only while sheets remain open, matching the dashboard rails.
+                    val isIncomplete = counts.complete + counts.reNested < counts.total
+                    val tintColor = when {
+                        !isIncomplete -> null
+                        material.metadata?.remakeLabel != null -> statusColors.remakeBg
+                        material.metadata?.miscLabel != null -> statusColors.miscBg
+                        else -> null
+                    }
                     ProgressCard(
                         title = entry.title,
+                        tintColor = tintColor,
                         subtitle = "${counts.complete}/${counts.total} complete",
                         fraction = fraction,
                         expanded = true,

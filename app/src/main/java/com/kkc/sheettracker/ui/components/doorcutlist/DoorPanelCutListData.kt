@@ -146,6 +146,9 @@ data class CutListSelection(
     val roomTags: Boolean,
     val materials: Set<String>,
     val rooms: Set<String>,
+    /** Both types start included so opening the generator preserves the complete cut list. */
+    val includeSlabs: Boolean = true,
+    val includePanels: Boolean = true,
 )
 
 fun isDefaultUncheckedMaterial(material: String): Boolean = material.contains("MDF", ignoreCase = true)
@@ -156,19 +159,47 @@ fun defaultSelection(source: DoorPanelCutListSource): CutListSelection = CutList
     rooms = source.roomKeys.toSet(),
 )
 
-data class MaterialOption(val material: String, val pieces: Int, val checked: Boolean)
+enum class MaterialPartGroup {
+    SLABS,
+    PANELS,
+    MIXED,
+}
+
+data class MaterialOption(
+    val material: String,
+    val pieces: Int,
+    val checked: Boolean,
+    val partGroup: MaterialPartGroup,
+)
 data class RoomOption(val key: String, val displayName: String, val pieces: Int, val checked: Boolean)
 
-private fun ResolvedCutListRow.qtyIn(rooms: Set<String>): Int =
+internal fun ResolvedCutListRow.qtyIn(rooms: Set<String>): Int =
     groups.filter { it.roomKey in rooms }.sumOf { it.qty }
+
+/** Cabinet Vision labels slab doors with “Slab” (for example, “Door Slab 1B-L”). */
+fun isDoorSlab(row: ResolvedCutListRow): Boolean = row.description.contains("SLAB", ignoreCase = true)
+
+/** Sheet-unit door rows are either slabs or panels in the Cabinet Vision metadata. */
+fun isDoorPanel(row: ResolvedCutListRow): Boolean = !isDoorSlab(row)
+
+private fun ResolvedCutListRow.isIncludedByPartType(selection: CutListSelection): Boolean =
+    if (isDoorSlab(this)) selection.includeSlabs else selection.includePanels
+
+private fun materialPartGroup(rows: List<ResolvedCutListRow>): MaterialPartGroup = when {
+    rows.all(::isDoorSlab) -> MaterialPartGroup.SLABS
+    rows.none(::isDoorSlab) -> MaterialPartGroup.PANELS
+    else -> MaterialPartGroup.MIXED
+}
 
 /** Material checkbox rows; piece counts exclude unchecked rooms. */
 fun materialOptions(source: DoorPanelCutListSource, selection: CutListSelection): List<MaterialOption> =
     source.materials.map { material ->
+        val rows = source.rows.filter { it.material == material }
         MaterialOption(
             material = material,
-            pieces = source.rows.filter { it.material == material }.sumOf { it.qtyIn(selection.rooms) },
+            pieces = rows.filter { it.isIncludedByPartType(selection) }.sumOf { it.qtyIn(selection.rooms) },
             checked = material in selection.materials,
+            partGroup = materialPartGroup(rows),
         )
     }
 
@@ -178,7 +209,9 @@ fun roomOptions(source: DoorPanelCutListSource, selection: CutListSelection): Li
         RoomOption(
             key = key,
             displayName = roomDisplayName(key),
-            pieces = source.rows.filter { it.material in selection.materials }.sumOf { it.qtyIn(setOf(key)) },
+            pieces = source.rows
+                .filter { it.material in selection.materials && it.isIncludedByPartType(selection) }
+                .sumOf { it.qtyIn(setOf(key)) },
             checked = key in selection.rooms,
         )
     }
@@ -247,7 +280,7 @@ fun buildCutListModel(
         .filter { it in selection.materials }
         .mapNotNull { material ->
             val rows = source.rows
-                .filter { it.material == material }
+                .filter { it.material == material && it.isIncludedByPartType(selection) }
                 .flatMap { outputRows(it, selection) }
             rows.takeIf { it.isNotEmpty() }?.let { CutListMaterialSection(material, "Sheet", it) }
         }

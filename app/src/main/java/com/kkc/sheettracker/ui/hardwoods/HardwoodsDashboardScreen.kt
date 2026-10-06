@@ -74,6 +74,7 @@ import com.kkc.sheettracker.data.models.ScanStatus
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.ProgressPill
+import com.kkc.sheettracker.ui.components.emptyProgressSegmentColor
 import com.kkc.sheettracker.ui.components.ProgressState
 import com.kkc.sheettracker.ui.components.StatusBorderedCard
 import com.kkc.sheettracker.ui.theme.KKCAlpha
@@ -603,7 +604,7 @@ private fun HardwoodsJobCard(
                 progress = { counts.completionFraction.coerceIn(0f, 1f) },
                 modifier = Modifier.fillMaxWidth(),
                 color = progressColor,
-                trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = KKCAlpha.outlineTrack)
+                trackColor = emptyProgressSegmentColor()
             )
 
             // Doc type pills — DOOR_LIST excluded (no cut quantities); Rips sourced from board stock

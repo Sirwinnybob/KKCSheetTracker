@@ -23,6 +23,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -163,10 +165,14 @@ fun ProgressCard(
     headerLeading: (@Composable ColumnScope.() -> Unit)? = null,
     headerActions: (@Composable RowScope.() -> Unit)? = null,
     inlineContent: (@Composable ColumnScope.() -> Unit)? = null,
+    // Highlights the card (remake / custom material). Filled opaque so the shadow cannot bleed through.
+    tintColor: Color? = null,
     expandedContent: (@Composable ColumnScope.() -> Unit)? = null
 ) {
     val colors = KKCThemeColors.statusColors
     val cardStatus = inferProgressStatus(segmentedStatusCounts = segmentedStatusCounts, fraction = fraction)
+    val surface = MaterialTheme.colorScheme.surface
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
     StatusBorderedCard(
         status = cardStatus,
@@ -174,7 +180,13 @@ fun ProgressCard(
         onClick = onClick,
         useBounceClick = useBounceClick,
         shape = MaterialTheme.shapes.medium,
-        tonalElevation = 3.dp
+        containerColor = if (tintColor != null) {
+            tintColor.copy(alpha = if (dark) 0.28f else 0.30f).compositeOver(surface)
+        } else {
+            surface
+        },
+        tonalElevation = 3.dp,
+        borderColorOverride = tintColor
     ) {
         Column(
             modifier = Modifier
@@ -250,7 +262,7 @@ fun ProgressCard(
                                 .fillMaxWidth()
                                 .height(8.dp),
                             color = colors.completeBorder,
-                            trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = KKCAlpha.outlineTrack)
+                            trackColor = emptyProgressSegmentColor()
                         )
                     }
                 }
@@ -436,7 +448,7 @@ fun SectionProgressHeader(
                                     .weight(1f)
                                     .height(progressBarHeight),
                                 color = if (skipped) skippedBarColor else progressColor,
-                                trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = KKCAlpha.outlineTrack)
+                                trackColor = emptyProgressSegmentColor()
                             )
                             Text(
                                 text = "$safeDone/$safeTotal",
@@ -560,7 +572,7 @@ fun SectionProgressHeader(
                                 .weight(1f)
                                 .height(progressBarHeight),
                             color = if (skipped) skippedBarColor else progressColor,
-                            trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = KKCAlpha.outlineTrack)
+                            trackColor = emptyProgressSegmentColor()
                         )
                         Spacer(Modifier.width(KKCSpacing.inCardSpacing))
                         Text(
@@ -597,6 +609,24 @@ private fun inferProgressStatus(
         (segmentedStatusCounts.complete + segmentedStatusCounts.skipped + segmentedStatusCounts.reNested) <= 0 -> SheetStatus.NOT_STARTED
         else -> SheetStatus.IN_PROGRESS
     }
+}
+
+/** Unfilled progress segment color; outlineVariant nearly vanishes against dark card surfaces. */
+@Composable
+internal fun emptyProgressSegmentColor(): Color {
+    val scheme = MaterialTheme.colorScheme
+    return if (scheme.background.luminance() < 0.5f) {
+        scheme.onSurface.copy(alpha = 0.30f).compositeOver(scheme.surfaceVariant)
+    } else {
+        scheme.outlineVariant
+    }
+}
+
+/** Track behind a tinted progress fill; stronger tint in dark themes so the empty part stays visible. */
+@Composable
+internal fun tintedProgressTrackColor(tint: Color, lightAlpha: Float = 0.20f): Color {
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    return tint.copy(alpha = if (dark) 0.40f else lightAlpha)
 }
 
 @Composable
@@ -663,7 +693,7 @@ private fun StatusCountsProgressBar(
                 modifier = Modifier
                     .fillMaxHeight()
                     .weight(remaining.toFloat())
-                    .background(MaterialTheme.colorScheme.outlineVariant)
+                    .background(emptyProgressSegmentColor())
             )
         }
     }
@@ -711,7 +741,7 @@ private fun MaterialSegmentedProgressBar(
             val remainingColor = when {
                 isRemakeIncomplete -> colors.remakeBg
                 isMiscIncomplete -> colors.miscBg
-                else -> MaterialTheme.colorScheme.outlineVariant
+                else -> emptyProgressSegmentColor()
             }
 
             Row(
@@ -788,6 +818,7 @@ fun PageStatusBar(
     modifier: Modifier = Modifier
 ) {
     val colors = KKCThemeColors.statusColors
+    val emptyColor = emptyProgressSegmentColor()
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(KKCSpacing.textLineGap)
@@ -802,7 +833,7 @@ fun PageStatusBar(
                     SheetStatus.HAS_BAD_PARTS -> colors.badBg
                     SheetStatus.SKIPPED -> colors.skipBg
                     SheetStatus.IN_PROGRESS -> colors.inProgress
-                    SheetStatus.NOT_STARTED -> MaterialTheme.colorScheme.outlineVariant
+                    SheetStatus.NOT_STARTED -> emptyColor
                     SheetStatus.RE_NESTED -> colors.completeBg.copy(alpha = 0.35f)
                 },
                 shape = KKCShapeTokens.pill

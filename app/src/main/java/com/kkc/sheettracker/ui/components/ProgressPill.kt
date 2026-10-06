@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -81,8 +82,14 @@ fun ProgressPill(
     // bleed through as a dark ring (see CLAUDE.md "Frosted Glass Buttons"). Pre-composite onto the
     // surface color so the pill keeps the same look but the compositor never sees an alpha < 1
     // fill to bleed through.
-    val trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-        .compositeOver(MaterialTheme.colorScheme.surface)
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val trackColor = if (isDark) {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.30f)
+            .compositeOver(MaterialTheme.colorScheme.surface)
+    } else {
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+            .compositeOver(MaterialTheme.colorScheme.surface)
+    }
     val shape = RoundedCornerShape(9.dp)
     val label = "$safeDone/$safeTotal"
     val textColor = when {

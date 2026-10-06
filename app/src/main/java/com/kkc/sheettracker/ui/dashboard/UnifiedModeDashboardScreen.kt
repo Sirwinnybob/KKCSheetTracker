@@ -86,6 +86,7 @@ import com.kkc.sheettracker.data.models.SpecialtyJob
 import com.kkc.sheettracker.data.models.SpecialtyScanState
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.ProgressPill
+import com.kkc.sheettracker.ui.components.emptyProgressSegmentColor
 import com.kkc.sheettracker.ui.components.ProgressState
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import java.io.File
@@ -574,7 +575,7 @@ private fun TaggedMaterialCard(
                 progress = { animatedFraction },
                 modifier = Modifier.fillMaxWidth(),
                 color = accentColor,
-                trackColor = accentColor.copy(alpha = 0.2f)
+                trackColor = com.kkc.sheettracker.ui.components.tintedProgressTrackColor(accentColor)
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -779,7 +780,7 @@ private fun CncRecentMaterialCard(
                 progress = { animatedFraction },
                 modifier = Modifier.fillMaxWidth(),
                 color = KKCThemeColors.statusColors.completeBorder,
-                trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                trackColor = emptyProgressSegmentColor()
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),

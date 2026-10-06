@@ -73,22 +73,26 @@ class FlexibleModeWiringTest {
     @Test
     fun dashboardTabStaysReachableInAssemblyOrSpecialtyWhenFlexible() {
         val source = navGraphSource()
-        // Exactly 4 gates carry this guard: visibleDestinations x2 (MultiBackStack + Legacy),
-        // startRoute, and currentNavDest's else-fallback. An exact count (not >=) means dropping
-        // any single one of these four regresses the test, unlike a loose threshold.
+        // Exactly 3 gates carry this guard: visibleDestinations x2 (MultiBackStack + Legacy) and
+        // currentNavDest's else-fallback. An exact count (not >=) means dropping any single one
+        // of these regresses the test, unlike a loose threshold.
         val guardedGateCount = Regex(
             "!flexibleModeEnabled\\s*&&\\s*\\(workMode == WorkMode\\.ASSEMBLY \\|\\| workMode == WorkMode\\.SPECIALTY\\)"
         ).findAll(source).count()
         assertTrue(
-            "expected exactly 4 nav-visibility gates (visibleDestinations x2, startRoute, currentNavDest else-branch) to check !flexibleModeEnabled before hiding Dashboard for Assembly/Specialty, found $guardedGateCount",
-            guardedGateCount == 4
+            "expected exactly 3 nav-visibility gates (visibleDestinations x2, currentNavDest else-branch) to check !flexibleModeEnabled before hiding Dashboard for Assembly/Specialty, found $guardedGateCount",
+            guardedGateCount == 3
         )
-        // homeTab (MultiBackStackNavigation) uses a differently-shaped ternary, not the shared
-        // regex above, so it needs its own check.
-        val homeTabGuarded = Regex(
-            "if \\(flexibleModeEnabled\\) TopLevelTab\\.DASHBOARD else homeTopLevelTabForWorkMode\\(workMode\\)"
+        // Assembly/Specialty have no dashboard of their own, so the start destination ignores
+        // flexibleModeEnabled and opens on Jobs (Dashboard stays reachable from the nav bar).
+        val homeTabIgnoresFlexible = Regex(
+            "val homeTab = homeTopLevelTabForWorkMode\\(workMode\\)"
         ).containsMatchIn(source)
-        assertTrue("homeTab must resolve to DASHBOARD when flexibleModeEnabled, regardless of workMode", homeTabGuarded)
+        assertTrue("homeTab must resolve via homeTopLevelTabForWorkMode regardless of flexibleModeEnabled", homeTabIgnoresFlexible)
+        val startRouteIgnoresFlexible = Regex(
+            "val startRoute = if \\(workMode == WorkMode\\.ASSEMBLY \\|\\| workMode == WorkMode\\.SPECIALTY\\) \"jobs\" else \"dashboard\""
+        ).containsMatchIn(source)
+        assertTrue("startRoute must open Jobs for Assembly/Specialty regardless of flexibleModeEnabled", startRouteIgnoresFlexible)
         // currentNavDest's "dashboard" branch (Legacy) must itself check flexibleModeEnabled, not
         // just its else-fallback — otherwise the nav-highlight can desync from visibleDestinations
         // if flexibleModeEnabled is toggled off while still sitting on the dashboard route.

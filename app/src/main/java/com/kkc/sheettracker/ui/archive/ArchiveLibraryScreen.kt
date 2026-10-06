@@ -481,7 +481,7 @@ private fun ArchiveJobRow(
                                     .padding(top = 8.dp)
                                     .height(8.dp),
                                 color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                                trackColor = com.kkc.sheettracker.ui.components.emptyProgressSegmentColor(),
                             )
                             Text(
                                 "Downloading $percentage%",

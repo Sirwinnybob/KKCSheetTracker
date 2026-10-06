@@ -46,6 +46,8 @@ import com.kkc.sheettracker.ui.components.CountStatusChip
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.components.PinButton
 import com.kkc.sheettracker.ui.components.ProgressCard
+import com.kkc.sheettracker.ui.components.emptyProgressSegmentColor
+import com.kkc.sheettracker.ui.components.tintedProgressTrackColor
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.StatusSummaryRow
 import com.kkc.sheettracker.ui.components.parseJobLabelColor
@@ -349,7 +351,7 @@ fun UnifiedJobCard(
                                 progress = { frac },
                                 modifier = Modifier.fillMaxWidth().height(8.dp),
                                 color = Color(0xFF7C3AED),
-                                trackColor = Color(0xFF7C3AED).copy(alpha = 0.20f)
+                                trackColor = tintedProgressTrackColor(Color(0xFF7C3AED))
                             )
                         }
                     }
@@ -470,7 +472,7 @@ private fun DualModeProgressBars(
                 },
                 modifier = Modifier.fillMaxWidth().height(8.dp),
                 color = cncColor,
-                trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                trackColor = emptyProgressSegmentColor()
             )
         }
 
@@ -507,7 +509,7 @@ private fun AssemblySegmentedHardwoodsBar(
     if (total <= 0) {
         Surface(
             modifier = Modifier.fillMaxWidth().height(8.dp),
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+            color = emptyProgressSegmentColor(),
             shape = RoundedCornerShape(999.dp)
         ) {}
         return
@@ -524,7 +526,7 @@ private fun AssemblySegmentedHardwoodsBar(
         if (skipped > 0) Surface(Modifier.weight(skipped.toFloat()).fillMaxHeight(), color = skippedColor) {}
         if (remaining > 0) Surface(
             Modifier.weight(remaining.toFloat()).fillMaxHeight(),
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+            color = emptyProgressSegmentColor()
         ) {}
     }
 }
@@ -552,7 +554,7 @@ private fun StationProgressBars(stationProgress: List<StationProgress>) {
                     progress = { frac.coerceIn(0f, 1f) },
                     modifier = Modifier.weight(1f).height(8.dp),
                     color = barColor,
-                    trackColor = barColor.copy(alpha = 0.20f)
+                    trackColor = tintedProgressTrackColor(barColor)
                 )
             }
         }

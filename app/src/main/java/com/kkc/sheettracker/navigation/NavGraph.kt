@@ -736,7 +736,9 @@ private fun MultiBackStackNavigation(
     val timecardNavController = rememberNavController()
     val supplyNavController = rememberNavController()
     val standardsNavController = rememberNavController()
-    val homeTab = if (flexibleModeEnabled) TopLevelTab.DASHBOARD else homeTopLevelTabForWorkMode(workMode)
+    // Assembly/Specialty have no dashboard of their own, so they open on Jobs even with Flexible
+    // Mode on (Dashboard stays reachable from the nav bar).
+    val homeTab = homeTopLevelTabForWorkMode(workMode)
     var selectedTab by remember(workMode, flexibleModeEnabled) { mutableStateOf(homeTab) }
     var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
@@ -2669,7 +2671,7 @@ private fun LegacySingleStackNavigation(
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val startRoute = if (!flexibleModeEnabled && (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY)) "jobs" else "dashboard"
+    val startRoute = if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) "jobs" else "dashboard"
     var pendingClockOut by remember { mutableStateOf<PendingClockOut?>(null) }
     var pendingClockIn by remember { mutableStateOf<PendingClockIn?>(null) }
     var showHoursLoginDialog by remember { mutableStateOf(false) }

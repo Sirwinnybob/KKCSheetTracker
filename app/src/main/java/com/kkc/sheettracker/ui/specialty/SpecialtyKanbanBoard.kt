@@ -304,7 +304,7 @@ internal fun SpecialtyKanbanCard(
                     progress = { completedSteps.toFloat() / totalSteps.toFloat() },
                     modifier = Modifier.fillMaxWidth().height(4.dp),
                     color = columnColor,
-                    trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                    trackColor = com.kkc.sheettracker.ui.components.emptyProgressSegmentColor()
                 )
             }
             if (dots.isNotEmpty()) {
