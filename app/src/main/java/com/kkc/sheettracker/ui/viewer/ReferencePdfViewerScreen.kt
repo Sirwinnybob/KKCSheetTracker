@@ -9,10 +9,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.MenuBook
 import com.kkc.sheettracker.ui.components.icons.MarkupPenIcon
-import androidx.compose.material.icons.filled.UnfoldMore
-import androidx.compose.material.icons.filled.ViewDay
+import com.kkc.sheettracker.ui.components.icons.ViewerContinuousIcon
+import com.kkc.sheettracker.ui.components.icons.ViewerSheetListIcon
+import com.kkc.sheettracker.ui.components.icons.ViewerSinglePageIcon
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -185,7 +185,7 @@ fun ReferencePdfViewerScreen(
                             onClick = { tocRequestToken += 1 },
                             enabled = totalPages > 0
                         ) {
-                            Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list")
+                            Icon(ViewerSheetListIcon, contentDescription = "Sheet list")
                         }
                         Text(
                             "$currentPage/${totalPages.coerceAtLeast(0)}",
@@ -195,7 +195,7 @@ fun ReferencePdfViewerScreen(
                     }
                     IconButton(onClick = { continuousScrollEnabled = !continuousScrollEnabled }) {
                         Icon(
-                            if (continuousScrollEnabled) Icons.Default.ViewDay else Icons.AutoMirrored.Filled.MenuBook,
+                            if (continuousScrollEnabled) ViewerContinuousIcon else ViewerSinglePageIcon,
                             contentDescription = if (continuousScrollEnabled) "Switch to single page" else "Switch to continuous scroll",
                             tint = if (continuousScrollEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                         )

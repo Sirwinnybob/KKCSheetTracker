@@ -44,8 +44,8 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.ViewDay
+import com.kkc.sheettracker.ui.components.icons.ViewerContinuousIcon
+import com.kkc.sheettracker.ui.components.icons.ViewerSinglePageIcon
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
@@ -1242,7 +1242,7 @@ fun HardwoodsWorkspaceScreen(
                     if (showReferencePane) {
                         IconButton(onClick = { continuousScrollEnabled = !continuousScrollEnabled }) {
                             Icon(
-                                if (continuousScrollEnabled) Icons.Default.ViewDay else Icons.AutoMirrored.Filled.MenuBook,
+                                if (continuousScrollEnabled) ViewerContinuousIcon else ViewerSinglePageIcon,
                                 contentDescription = if (continuousScrollEnabled) "Switch to single page" else "Switch to continuous scroll",
                                 tint = if (continuousScrollEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )

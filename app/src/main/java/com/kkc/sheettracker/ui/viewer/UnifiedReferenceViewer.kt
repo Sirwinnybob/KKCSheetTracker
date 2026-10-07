@@ -29,7 +29,7 @@ import androidx.compose.ui.graphics.compositeOver
 import com.kkc.sheettracker.ui.theme.kkcZebraTint
 import androidx.compose.material.icons.Icons
 import com.kkc.sheettracker.ui.components.icons.MarkupPenIcon
-import androidx.compose.material.icons.filled.UnfoldMore
+import com.kkc.sheettracker.ui.components.icons.ViewerSheetListIcon
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -890,7 +890,7 @@ fun UnifiedReferenceViewer(
                                 onClick = { showSheetNavigator = true },
                                 enabled = effectiveTotalPages > 0
                             ) {
-                                Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list")
+                                Icon(ViewerSheetListIcon, contentDescription = "Sheet list")
                             }
                         }
                         if (showContinuousMarkupToggle && onToggleMarkupEnabled != null) {

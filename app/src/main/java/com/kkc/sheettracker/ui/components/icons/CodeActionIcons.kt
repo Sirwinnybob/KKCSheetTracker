@@ -1,47 +1,54 @@
 package com.kkc.sheettracker.ui.components.icons
 
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathBuilder
 
-// Manage code: a duotone code sheet with a slim, solid wrench.
+// Manage code: a code page with a solid round badge holding a cut-out open-end wrench.
 val ActionManageCodeIcon: ImageVector by lazy {
     kkcIcon("ActionManageCode") {
-        solid(DUOTONE) {
-            moveTo(4.5f, 3f)
+        val page: PathBuilder.() -> Unit = {
+            moveTo(5.5f, 2.5f)
             horizontalLineTo(13f)
-            lineTo(17f, 7f)
-            verticalLineTo(20.5f)
-            horizontalLineTo(4.5f)
+            lineTo(17f, 6.5f)
+            verticalLineTo(20f)
+            arcTo(1.5f, 1.5f, 0f, false, true, 15.5f, 21.5f)
+            horizontalLineTo(5.5f)
+            arcTo(1.5f, 1.5f, 0f, false, true, 4f, 20f)
+            verticalLineTo(4f)
+            arcTo(1.5f, 1.5f, 0f, false, true, 5.5f, 2.5f)
             close()
         }
-        line {
-            // Leave the lower-right outline open behind the wrench.
-            moveTo(4.5f, 20.5f)
-            verticalLineTo(3f)
-            horizontalLineTo(13f)
-            lineTo(17f, 7f)
-            verticalLineTo(9f)
-            moveTo(13f, 3f)
-            verticalLineTo(7f)
-            horizontalLineTo(17f)
-            moveTo(4.5f, 20.5f)
-            horizontalLineTo(8.5f)
-        }
+        solid(DUOTONE, pathBuilder = page)
+        // Page outline stops short of the badge.
         line(width = 1.5f) {
-            moveTo(7.5f, 8f); horizontalLineTo(10.5f)
-            moveTo(7.5f, 11f); horizontalLineTo(10f)
-            moveTo(7.5f, 14f); horizontalLineTo(8.5f)
+            moveTo(17f, 12.5f)
+            verticalLineTo(6.5f)
+            lineTo(13f, 2.5f)
+            horizontalLineTo(5.5f)
+            arcTo(1.5f, 1.5f, 0f, false, false, 4f, 4f)
+            verticalLineTo(20f)
+            arcTo(1.5f, 1.5f, 0f, false, false, 5.5f, 21.5f)
+            horizontalLineTo(12.5f)
         }
-        solid {
-            moveTo(19.5f, 8.5f)
-            curveTo(17.5f, 8f, 15.5f, 10f, 16f, 12f)
-            lineTo(10.5f, 17.5f)
-            quadTo(9.75f, 18.25f, 10.5f, 19f)
-            lineTo(11f, 19.5f)
-            quadTo(11.75f, 20.25f, 12.5f, 19.5f)
-            lineTo(18f, 14f)
-            curveTo(20f, 14.5f, 22f, 12.5f, 21.5f, 10.5f)
-            lineTo(19f, 13f)
-            lineTo(17f, 11f)
+        // folded corner
+        block(width = 1f) { moveTo(13f, 2.5f); verticalLineTo(6.5f); horizontalLineTo(17f); close() }
+        // code lines
+        line(width = 1.5f) {
+            moveTo(7f, 7.5f); horizontalLineTo(10.5f)
+            moveTo(7f, 10.5f); horizontalLineTo(9.5f)
+        }
+        // badge with the wrench knocked out
+        solid(fillType = PathFillType.EvenOdd) {
+            circle(17.5f, 17.5f, 4.5f)
+            moveTo(15.89f, 18.19f)
+            arcTo(1.75f, 1.75f, 0f, false, true, 18.22f, 15.9f)
+            lineTo(17.43f, 16.69f)
+            arcTo(0.62f, 0.62f, 0f, false, false, 18.31f, 17.57f)
+            lineTo(19.1f, 16.78f)
+            arcTo(1.75f, 1.75f, 0f, false, true, 16.81f, 19.11f)
+            lineTo(14.71f, 21.21f)
+            arcTo(0.65f, 0.65f, 0f, false, true, 13.79f, 20.29f)
             close()
         }
     }

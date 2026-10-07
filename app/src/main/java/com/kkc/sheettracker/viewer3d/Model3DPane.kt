@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Fullscreen
+import com.kkc.sheettracker.ui.components.icons.ViewerFullscreenIcon
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -122,7 +122,7 @@ fun Model3DPane(
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
-                            Icons.Default.Fullscreen,
+                            ViewerFullscreenIcon,
                             contentDescription = "Full screen 3D",
                             modifier = Modifier.size(20.dp)
                         )

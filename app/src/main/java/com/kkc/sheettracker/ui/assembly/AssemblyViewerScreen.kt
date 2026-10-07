@@ -30,11 +30,11 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.FullscreenExit
-import androidx.compose.material.icons.filled.UnfoldMore
-import androidx.compose.material.icons.filled.ViewDay
-import androidx.compose.material.icons.automirrored.filled.MenuBook
+import com.kkc.sheettracker.ui.components.icons.ViewerContinuousIcon
+import com.kkc.sheettracker.ui.components.icons.ViewerExitFullscreenIcon
+import com.kkc.sheettracker.ui.components.icons.ViewerFullscreenIcon
+import com.kkc.sheettracker.ui.components.icons.ViewerSheetListIcon
+import com.kkc.sheettracker.ui.components.icons.ViewerSinglePageIcon
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
@@ -766,7 +766,7 @@ fun AssemblyViewerScreen(
                         }
                         IconButton(onClick = { continuousScrollEnabled = !continuousScrollEnabled }) {
                             Icon(
-                                if (continuousScrollEnabled) Icons.Default.ViewDay else Icons.AutoMirrored.Filled.MenuBook,
+                                if (continuousScrollEnabled) ViewerContinuousIcon else ViewerSinglePageIcon,
                                 contentDescription = if (continuousScrollEnabled) "Switch to single page" else "Switch to continuous scroll",
                                 tint = if (continuousScrollEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
@@ -1055,7 +1055,7 @@ fun AssemblyViewerScreen(
                                 enabled = firstPaneTotalPages > 0,
                                 modifier = Modifier.size(32.dp)
                             ) {
-                                Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list", modifier = Modifier.size(18.dp))
+                                Icon(ViewerSheetListIcon, contentDescription = "Sheet list", modifier = Modifier.size(18.dp))
                             }
                             Text(
                                 text = "${sourcePage(firstPaneSource, firstPanePages)}/${firstPaneTotalPages.coerceAtLeast(0)}",
@@ -1069,7 +1069,7 @@ fun AssemblyViewerScreen(
                             modifier = Modifier.size(32.dp)
                         ) {
                             Icon(
-                                imageVector = if (fullscreenPane == FullscreenPane.FIRST) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                imageVector = if (fullscreenPane == FullscreenPane.FIRST) ViewerExitFullscreenIcon else ViewerFullscreenIcon,
                                 contentDescription = if (fullscreenPane == FullscreenPane.FIRST) "Exit fullscreen" else "Fullscreen",
                                 modifier = Modifier.size(18.dp)
                             )
@@ -1095,7 +1095,7 @@ fun AssemblyViewerScreen(
                                 enabled = secondPaneTotalPages > 0,
                                 modifier = Modifier.size(32.dp)
                             ) {
-                                Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list", modifier = Modifier.size(18.dp))
+                                Icon(ViewerSheetListIcon, contentDescription = "Sheet list", modifier = Modifier.size(18.dp))
                             }
                             Text(
                                 text = "${sourcePage(secondPaneSource, secondPanePages)}/${secondPaneTotalPages.coerceAtLeast(0)}",
@@ -1109,7 +1109,7 @@ fun AssemblyViewerScreen(
                             modifier = Modifier.size(32.dp)
                         ) {
                             Icon(
-                                imageVector = if (fullscreenPane == FullscreenPane.SECOND) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                imageVector = if (fullscreenPane == FullscreenPane.SECOND) ViewerExitFullscreenIcon else ViewerFullscreenIcon,
                                 contentDescription = if (fullscreenPane == FullscreenPane.SECOND) "Exit fullscreen" else "Fullscreen",
                                 modifier = Modifier.size(18.dp)
                             )
@@ -1445,7 +1445,7 @@ private fun PdfPaneWithFloatingControls(
                             enabled = totalPages > 0,
                             modifier = Modifier.size(38.dp)
                         ) {
-                            Icon(Icons.Default.UnfoldMore, contentDescription = "Sheet list", modifier = Modifier.size(20.dp))
+                            Icon(ViewerSheetListIcon, contentDescription = "Sheet list", modifier = Modifier.size(20.dp))
                         }
                         Text(
                             "$currentPage/${totalPages.coerceAtLeast(0)}",
@@ -1457,7 +1457,7 @@ private fun PdfPaneWithFloatingControls(
                         modifier = Modifier.size(38.dp)
                     ) {
                         Icon(
-                            if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                            if (isFullscreen) ViewerExitFullscreenIcon else ViewerFullscreenIcon,
                             contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
                             modifier = Modifier.size(20.dp)
                         )

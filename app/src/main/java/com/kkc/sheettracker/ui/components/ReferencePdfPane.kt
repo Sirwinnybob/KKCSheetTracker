@@ -36,7 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import com.kkc.sheettracker.ui.components.icons.MarkupPenIcon
-import androidx.compose.material.icons.filled.UnfoldMore
+import com.kkc.sheettracker.ui.components.icons.ViewerSheetListIcon
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -963,7 +963,7 @@ internal fun SheetNavigatorPill(
                 modifier = Modifier.size(38.dp)
             ) {
                 Icon(
-                    Icons.Default.UnfoldMore,
+                    ViewerSheetListIcon,
                     contentDescription = "Sheet list",
                     modifier = Modifier.size(20.dp)
                 )
