@@ -69,6 +69,10 @@ Format with `"%.2f"` (two decimal places), never `"%.1f"`. Hub rounds up to near
 - KKC sends the resolved look as `extra_kkc_navbar_*` extras (`navigation/KkcNavBarContract.kt`, built by
   `currentKkcNavBarPayload` in `KkcNavBarPayloadBuilder.kt`). Every `launchTimecardApp(` call must pass
   `navBar = kkcNavBarPayload` (`HoursNavBarMirrorWiringTest`).
+- Contract v2: the bar follows **Hours Tracker's** light/dark mode (live, via its own theme toggle), so KKC
+  sends BOTH resolved color sets (`*_light` / `*_dark` extras; no single `dark` flag) — computed from the
+  active tokens via `toColorScheme(false/true)` and the non-composable `kkcFrostedBaseColor/ContentColor`
+  overloads in `KKCBoldChrome.kt`. HT floats the bar over full-height content (no bottom inset), like KKC.
 - Taps come back as `extra_kkc_nav_destination` → `MainActivity.handleKkcNavIntent` → `ExternalNavRequests`
   → `ExternalNavEffect` in BOTH nav hosts, which call the same `navigateFromBar` their own navbar uses.
 - The payload's `blurDisabled`/`shadowsDisabled` are the user's low-end settings only; KKC's own bar also

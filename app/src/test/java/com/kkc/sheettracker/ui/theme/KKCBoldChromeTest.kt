@@ -91,4 +91,57 @@ class KKCBoldChromeTest {
         )
         assertEquals(Color.White, boldChipTextColor(chiefsLike))
     }
+
+    // --- Non-composable frosted color overloads (used by the Hours Tracker navbar payload builder,
+    // which resolves BOTH light and dark sets regardless of the current KKC mode). ---
+
+    private val boldTokens = BuiltInKKCThemeTokens.copy(
+        boldMode = true,
+        light = KKCThemePalette(
+            primary = Color(0xFFFFB612),
+            secondary = Color(0xFFFFFFFF),
+            background = Color.White,
+            surface = Color.White
+        ),
+        dark = KKCThemePalette(
+            primary = Color(0xFF101820),
+            secondary = Color(0xFF000000),
+            background = Color.Black,
+            surface = Color(0xFF101820)
+        )
+    )
+
+    @Test
+    fun frostedContentColorIsBlackOnBrightBoldGlassInLightMode() {
+        val scheme = boldTokens.toColorScheme(darkTheme = false)
+        assertEquals(Color.Black, kkcFrostedContentColor(boldTokens, scheme, darkTheme = false))
+    }
+
+    @Test
+    fun frostedContentColorIsWhiteOnDarkBoldGlassInDarkMode() {
+        val scheme = boldTokens.toColorScheme(darkTheme = true)
+        assertEquals(Color.White, kkcFrostedContentColor(boldTokens, scheme, darkTheme = true))
+    }
+
+    @Test
+    fun frostedContentColorIsOnSurfaceWhenNotBold() {
+        val tokens = BuiltInKKCThemeTokens
+        listOf(false, true).forEach { dark ->
+            val scheme = tokens.toColorScheme(dark)
+            assertEquals(scheme.onSurface, kkcFrostedContentColor(tokens, scheme, dark))
+        }
+    }
+
+    @Test
+    fun frostedBaseColorIsSurfaceWhenNotBoldAndGlowWhenBold() {
+        val plain = BuiltInKKCThemeTokens
+        val plainScheme = plain.toColorScheme(darkTheme = true)
+        assertEquals(plainScheme.surface, kkcFrostedBaseColor(plain, plainScheme, darkTheme = true))
+
+        val boldScheme = boldTokens.toColorScheme(darkTheme = false)
+        assertEquals(
+            boldGlowColor(boldTokens.palette(false), alpha = 1f),
+            kkcFrostedBaseColor(boldTokens, boldScheme, darkTheme = false)
+        )
+    }
 }

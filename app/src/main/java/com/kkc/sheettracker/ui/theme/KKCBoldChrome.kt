@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.theme
 
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Brush
@@ -56,17 +57,24 @@ fun boldGlowColor(palette: KKCThemePalette, alpha: Float): Color {
  * `AppScaffold.kt`, `TimecardScreen.kt`, and `CalculatorOverlay.kt`.
  */
 @Composable
-fun kkcFrostedBaseColor(): Color {
-    val tokens = LocalKKCThemeTokens.current
-    return if (tokens.boldMode) {
-        boldGlowColor(tokens.palette(LocalKKCIsDarkTheme.current), alpha = 1f)
+fun kkcFrostedBaseColor(): Color =
+    kkcFrostedBaseColor(LocalKKCThemeTokens.current, MaterialTheme.colorScheme, LocalKKCIsDarkTheme.current)
+
+/**
+ * Non-composable form of [kkcFrostedBaseColor] so the Hours Tracker navbar payload builder can
+ * resolve BOTH the light and dark sets (it passes `tokens.toColorScheme(dark)`). The composable
+ * version above delegates here, so the logic lives in one place.
+ */
+fun kkcFrostedBaseColor(tokens: KKCThemeTokens, scheme: ColorScheme, darkTheme: Boolean): Color =
+    if (tokens.boldMode) {
+        boldGlowColor(tokens.palette(darkTheme), alpha = 1f)
     } else {
-        MaterialTheme.colorScheme.surface
+        scheme.surface
     }
-}
 
 // KEEP IN SYNC — Hours Tracker's mirrored navbar does not recompute this: it receives the resolved
-// color via KkcNavBarPayload.frostedContent (see kkcNavBarPayload in KkcNavBarPayloadBuilder.kt and
+// color via KkcNavBarPayload.light/dark.frostedContent (KKC computes BOTH modes with the
+// non-composable overloads below; see currentKkcNavBarPayload in KkcNavBarPayloadBuilder.kt and
 // C:\Scripts\Hours Tracker\AndroidApp\app\src\main\java\com\example\timecard\kkcnav\KkcNavBar.kt).
 // If the frosted base/alpha logic changes, check the mirror. See CLAUDE.md "KKC navbar mirror (Hours Tracker)".
 /**
@@ -77,11 +85,17 @@ fun kkcFrostedBaseColor(): Color {
  * from the glow composited over the app background at the frosted alpha — what the eye actually sees.
  */
 @Composable
-fun kkcFrostedContentColor(): Color {
-    val tokens = LocalKKCThemeTokens.current
-    if (!tokens.boldMode) return MaterialTheme.colorScheme.onSurface
+fun kkcFrostedContentColor(): Color =
+    kkcFrostedContentColor(LocalKKCThemeTokens.current, MaterialTheme.colorScheme, LocalKKCIsDarkTheme.current)
+
+/**
+ * Non-composable form of [kkcFrostedContentColor] (see [kkcFrostedBaseColor] overload): resolves the
+ * color for an explicit [tokens] / [scheme] / [darkTheme] triple so both modes can be computed at once.
+ */
+fun kkcFrostedContentColor(tokens: KKCThemeTokens, scheme: ColorScheme, darkTheme: Boolean): Color {
+    if (!tokens.boldMode) return scheme.onSurface
     val alpha = tokens.frosted.backgroundAlpha.coerceIn(0.5f, 0.95f)
-    val effective = kkcFrostedBaseColor().copy(alpha = alpha).compositeOver(MaterialTheme.colorScheme.background)
+    val effective = kkcFrostedBaseColor(tokens, scheme, darkTheme).copy(alpha = alpha).compositeOver(scheme.background)
     // 0.179 is where black and white give equal WCAG contrast; above it black wins.
     return if (effective.luminance() > 0.179f) Color.Black else Color.White
 }
