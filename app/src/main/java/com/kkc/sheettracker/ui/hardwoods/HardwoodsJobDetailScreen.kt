@@ -90,7 +90,7 @@ import com.kkc.sheettracker.ui.components.icons.HardwoodsNailerIcon
 import com.kkc.sheettracker.ui.components.icons.HardwoodsRipIcon
 import com.kkc.sheettracker.ui.components.icons.HardwoodsDoorPartsIcon
 import com.kkc.sheettracker.ui.components.icons.ReferenceAssemblyIcon
-import com.kkc.sheettracker.ui.components.icons.ReferenceDeliveryIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceDeliverySheetIcon
 import com.kkc.sheettracker.ui.components.icons.ReferencePlansIcon
 import com.kkc.sheettracker.ui.components.icons.ReferencePullsIcon
 import com.kkc.sheettracker.ui.components.icons.ReferenceView3DIcon
@@ -341,7 +341,7 @@ fun HardwoodsJobDetailScreen(
                     add(KKCPillAction("Delivery", {
                         suppressLeavePrompt = true
                         onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1)
-                    }, ReferenceDeliveryIcon))
+                    }, ReferenceDeliverySheetIcon))
                 }
                 if (hasPullsSheet) {
                     add(KKCPillAction("Pulls", {

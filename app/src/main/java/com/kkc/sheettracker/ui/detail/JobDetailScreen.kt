@@ -103,7 +103,7 @@ import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.icons.ActionPrintIcon
 import com.kkc.sheettracker.ui.components.icons.ActionManageCodeIcon
 import com.kkc.sheettracker.ui.components.icons.ReferenceAssemblyIcon
-import com.kkc.sheettracker.ui.components.icons.ReferenceDeliveryIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceDeliverySheetIcon
 import com.kkc.sheettracker.ui.components.icons.ReferencePlansIcon
 import com.kkc.sheettracker.ui.components.icons.ReferencePullsIcon
 import com.kkc.sheettracker.ui.components.icons.ReferenceView3DIcon
@@ -603,7 +603,7 @@ fun JobDetailScreen(
                             add(KKCPillAction("Delivery", {
                                 suppressLeavePrompt = true
                                 onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1)
-                            }, ReferenceDeliveryIcon))
+                            }, ReferenceDeliverySheetIcon))
                         }
                         if (hasPullsSheet) {
                             add(KKCPillAction("Pulls", {

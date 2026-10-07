@@ -226,6 +226,21 @@ private fun delivery() = kkcIcon("ReferenceDelivery") {
     }
 }
 
+// ── Delivery sheets PDF: cover sheet outline — title band + type box, info | picture, footer ──
+private fun deliverySheet() = kkcIcon("ReferenceDeliverySheet") {
+    // rendering area
+    solid(DUOTONE) {
+        moveTo(11f, 8f); horizontalLineTo(22f); verticalLineTo(16.5f); horizontalLineTo(11f); close()
+    }
+    line { roundRect(2f, 4.5f, 22f, 19.5f, 1.25f) }
+    line(width = 1.25f) {
+        moveTo(2f, 8f); horizontalLineTo(22f)
+        moveTo(17f, 4.5f); verticalLineTo(8f)
+        moveTo(11f, 8f); verticalLineTo(16.5f)
+        moveTo(2f, 16.5f); horizontalLineTo(22f)
+    }
+}
+
 // ── Pulls: drawer front with a bar pull over a door with a knob ─────────────────
 private fun pulls() = kkcIcon("ReferencePulls") {
     solid(DUOTONE) {
@@ -287,6 +302,7 @@ val HardwoodsSpecialtyIcon: ImageVector by lazy { specialty() }
 val ReferenceAssemblyIcon: ImageVector by lazy { assembly() }
 val ReferencePlansIcon: ImageVector by lazy { plans() }
 val ReferenceDeliveryIcon: ImageVector by lazy { delivery() }
+val ReferenceDeliverySheetIcon: ImageVector by lazy { deliverySheet() }
 val ReferencePullsIcon: ImageVector by lazy { pulls() }
 val ReferenceView3DIcon: ImageVector by lazy { view3d() }
 val ActionPrintIcon: ImageVector by lazy { print() }

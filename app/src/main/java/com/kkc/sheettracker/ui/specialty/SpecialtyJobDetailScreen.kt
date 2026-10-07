@@ -18,6 +18,7 @@ import com.kkc.sheettracker.ui.components.icons.HardwoodsClosetRodIcon
 import com.kkc.sheettracker.ui.components.icons.HardwoodsRipIcon
 import com.kkc.sheettracker.ui.components.icons.ReferenceAssemblyIcon
 import com.kkc.sheettracker.ui.components.icons.ReferenceDeliveryIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceDeliverySheetIcon
 import com.kkc.sheettracker.ui.components.icons.ReferencePlansIcon
 import com.kkc.sheettracker.ui.components.icons.ReferencePullsIcon
 import com.kkc.sheettracker.ui.components.icons.ReferenceView3DIcon
@@ -307,7 +308,7 @@ internal fun SpecialtyJobDetailScreen(
         buildList {
             if (availability.hasAssemblySheet) add(KKCPillAction("Assembly", { onOpenReferenceDocument(ReferenceDocType.ASSEMBLY, 1) }, ReferenceAssemblyIcon))
             if (availability.hasPlansElevations) add(KKCPillAction("Plans & Elevations", { onOpenReferenceDocument(ReferenceDocType.PLANS_ELEVATIONS, 1) }, ReferencePlansIcon))
-            if (availability.hasDeliverySheet) add(KKCPillAction("Delivery", { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }, ReferenceDeliveryIcon))
+            if (availability.hasDeliverySheet) add(KKCPillAction("Delivery", { onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1) }, ReferenceDeliverySheetIcon))
             if (availability.hasPullsSheet) add(KKCPillAction("Pulls", { onOpenReferenceDocument(ReferenceDocType.PULLS, 1) }, ReferencePullsIcon))
             if (availability.hasThreeDAssets) add(KKCPillAction("3D", onOpenThreeD, ReferenceView3DIcon))
         }
