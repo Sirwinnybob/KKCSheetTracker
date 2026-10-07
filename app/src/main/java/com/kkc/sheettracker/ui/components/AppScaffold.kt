@@ -31,11 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Cached
-import androidx.compose.material.icons.filled.CheckBox
-import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.UnfoldMore
@@ -694,9 +690,9 @@ private fun MorphingNavBar(
                                                     shape = MaterialTheme.shapes.extraLarge
                                                 ) {
                                                     Icon(
-                                                        Icons.Default.Cached,
+                                                        ViewerReNestedIcon,
                                                         contentDescription = null,
-                                                        modifier = Modifier.size(14.dp)
+                                                        modifier = Modifier.size(16.dp)
                                                     )
                                                     Spacer(Modifier.width(3.dp))
                                                     Text(
@@ -716,9 +712,9 @@ private fun MorphingNavBar(
                                                     shape = MaterialTheme.shapes.extraLarge
                                                 ) {
                                                     Icon(
-                                                        Icons.Default.Flag,
+                                                        ViewerSkipIcon,
                                                         contentDescription = null,
-                                                        modifier = Modifier.size(14.dp)
+                                                        modifier = Modifier.size(16.dp)
                                                     )
                                                     Spacer(Modifier.width(3.dp))
                                                     Text(
@@ -736,10 +732,10 @@ private fun MorphingNavBar(
                                                     shape = MaterialTheme.shapes.extraLarge
                                                 ) {
                                                     Icon(
-                                                        if (isComplete) Icons.Default.CheckBox
-                                                        else Icons.Default.CheckBoxOutlineBlank,
+                                                        if (isComplete) ViewerDoneOnIcon
+                                                        else ViewerDoneOffIcon,
                                                         contentDescription = null,
-                                                        modifier = Modifier.size(14.dp)
+                                                        modifier = Modifier.size(16.dp)
                                                     )
                                                     Spacer(Modifier.width(3.dp))
                                                     Text(

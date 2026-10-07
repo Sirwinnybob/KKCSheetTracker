@@ -498,6 +498,10 @@ private fun KanbanStationPillRow(
         KKCSlidingTabRow(
             modifier = Modifier.fillMaxWidth(),
             trackingPosition = { if (board.isScrollInProgress) board.position() else null },
+            // Same height/icon size as the action row above it (KKCPillActionRow).
+            height = 48.dp,
+            pillHeight = 40.dp,
+            iconSize = 24.dp,
             items = columns.map { column ->
                 KKCTabItem(
                     label = column.label.uppercase(),

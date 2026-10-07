@@ -1,125 +1,144 @@
 package com.kkc.sheettracker.ui.components
 
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.AnimationSpec
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import androidx.navigation.NavBackStackEntry
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.kkc.sheettracker.data.ClockInBilling
 import com.kkc.sheettracker.data.ClockInState
-import com.kkc.sheettracker.ui.components.LocalLowEndMode
-import kotlinx.coroutines.delay
+import com.kkc.sheettracker.ui.theme.KKCThemeColors
 
+/**
+ * Top-bar clock control. Idle: "Clock in". While a clock-in is active (this job or another)
+ * it becomes a live chip — tap opens the shared clock details card hosted by [ClockInOverlay].
+ *
+ * [headerVisible] must be false while the hosting top bar is hidden (e.g. alpha-faded in a
+ * fullscreen viewer) so the overlay knows to fall back to its floating pill.
+ */
 @Composable
 fun ClockInButton(
     clockInState: ClockInState,
     isClockedInHere: Boolean,
     onClockInClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    headerVisible: Boolean = true
 ) {
-    val lowEndMode = LocalLowEndMode.current
-    val animateContentSize = remember(lowEndMode.animationsDisabled) {
-        if (lowEndMode.animationsDisabled) snap<IntSize>() else spring<IntSize>()
-    }
-    // ... rest of the function stays the same
     val snapshot = clockInState.snapshot
-    val isMinimized = snapshot.isActive && snapshot.isMinimized
+    val status = KKCThemeColors.statusColors
 
-    if (isClockedInHere && isMinimized) {
-        var elapsedSeconds by remember {
-            mutableLongStateOf((clockInState.elapsedActiveMs() / 1000L).coerceAtLeast(0L))
-        }
-
-        LaunchedEffect(snapshot.isActive, snapshot.isPaused) {
-            while (true) {
-                val live = clockInState.snapshot
-                if (!live.isActive) break
-                elapsedSeconds = (clockInState.elapsedActiveMs() / 1000L).coerceAtLeast(0L)
-                delay(if (live.isPaused) 250L else 1_000L)
-            }
-        }
-
-        val fractionalDisplay = formatFractionalHours(elapsedSeconds)
-        val statusColor = if (snapshot.isPaused) Color(0xFFD69E2E) else Color(0xFF38A169)
-
-        Button(
-            onClick = { clockInState.setMinimized(false) },
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-            ),
-            shape = RoundedCornerShape(9.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-            modifier = modifier.animateContentSize(animationSpec = animateContentSize)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.height(24.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .background(statusColor, RoundedCornerShape(50))
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = fractionalDisplay,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.width(8.dp))
-                Icon(
-                    imageVector = Icons.Default.Fullscreen,
-                    contentDescription = "Expand",
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-        }
-    } else {
+    if (!snapshot.isActive) {
         Button(
             onClick = onClockInClick,
             colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF38A169),
+                containerColor = status.complete,
                 contentColor = Color.White
             ),
             modifier = modifier
         ) {
-            Text(
-                if (isClockedInHere) "● CLOCKED IN" else "CLOCK IN",
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp
+            Text("Clock in", fontWeight = FontWeight.Bold)
+        }
+        return
+    }
+
+    // Inside a NavHost the owner is this screen's back stack entry; the overlay matches it
+    // against the current entry so the pill can leave as soon as navigation starts.
+    val ownerKey = (LocalViewModelStoreOwner.current as? NavBackStackEntry)?.id
+        ?: ClockChipCoordinator.ROOT_OWNER
+    if (headerVisible) {
+        DisposableEffect(ownerKey) {
+            ClockChipCoordinator.registerHeaderChip(ownerKey)
+            onDispose { ClockChipCoordinator.unregisterHeaderChip(ownerKey) }
+        }
+    }
+
+    val elapsedMs = rememberClockElapsedMs(clockInState)
+    val statusColor = clockStatusColor(snapshot.isPaused)
+    val openDetails = { ClockChipCoordinator.detailsOpen = !ClockChipCoordinator.detailsOpen }
+    val padding = PaddingValues(start = 14.dp, end = 16.dp)
+    // Bounds feed the overlay's pill flight; alpha lets the docking pill crossfade into this chip.
+    val chipModifier = modifier
+        .onGloballyPositioned { coords ->
+            if (headerVisible && ClockChipCoordinator.ownsBounds(ownerKey)) {
+                ClockChipCoordinator.lastChipBoundsInWindow = coords.boundsInWindow()
+            }
+        }
+        .graphicsLayer { alpha = ClockChipCoordinator.chipAlpha }
+
+    if (isClockedInHere) {
+        // Clocked in to this job: solid status chip with the live time. The surface ring keeps it
+        // distinct when the header itself is tinted green (sheet viewer on a completed sheet).
+        Button(
+            onClick = openDetails,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = statusColor,
+                contentColor = Color.White
+            ),
+            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.surface),
+            shape = CircleShape,
+            contentPadding = padding,
+            modifier = chipModifier
+        ) {
+            ClockChipContent(
+                label = null,
+                elapsedMs = elapsedMs,
+                dotColor = Color.White
             )
         }
+    } else {
+        // Clocked in somewhere else: quieter chip naming that job. Filled with surface (not
+        // transparent) so it stays legible on status-tinted headers like the sheet viewer's.
+        OutlinedButton(
+            onClick = openDetails,
+            border = BorderStroke(1.5.dp, statusColor),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            ),
+            shape = CircleShape,
+            contentPadding = padding,
+            modifier = chipModifier
+        ) {
+            ClockChipContent(
+                label = snapshot.jobNumber,
+                elapsedMs = elapsedMs,
+                dotColor = statusColor
+            )
+        }
+    }
+}
+
+@Composable
+private fun ClockChipContent(label: String?, elapsedMs: Long, dotColor: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        ClockStatusDot(isPaused = false, color = dotColor)
+        Spacer(Modifier.width(8.dp))
+        if (label != null) {
+            Text(label, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(
+            ClockInBilling.formatElapsed(elapsedMs),
+            style = MaterialTheme.typography.labelLarge.merge(ClockDigits),
+            fontWeight = FontWeight.Bold
+        )
     }
 }

@@ -311,16 +311,18 @@ fun KKCPillToggleButton(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    trailingIcon: (@Composable (Color) -> Unit)? = null
+    trailingIcon: (@Composable (Color) -> Unit)? = null,
+    /** Leading icon, sized like the header pill rows so the toggle matches them. */
+    icon: ImageVector? = null
 ) {
     val style = rememberKKCPillStyle()
     val textColor = if (selected) style.selectedText else style.unselectedText
-    KKCPillContainer(style = style, modifier = modifier.height(36.dp)) {
+    KKCPillContainer(style = style, modifier = modifier.height(HeaderPillHeight + 4.dp)) {
         Box(modifier = Modifier.padding(2.dp)) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .height(32.dp)
+                    .height(HeaderPillHeight)
                     .then(if (selected) Modifier.kkcPillIndicator(style) else Modifier)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -331,8 +333,16 @@ fun KKCPillToggleButton(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    if (icon != null) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = textColor,
+                            modifier = Modifier.size(HeaderPillIconSize)
+                        )
+                    }
                     Text(
                         text = label,
                         style = MaterialTheme.typography.labelMedium,
@@ -346,6 +356,22 @@ fun KKCPillToggleButton(
         }
     }
 }
+
+/** Pill height for the header-style rows ([KKCSlidingPillRow], [KKCPillActionRow]). */
+private val HeaderPillHeight = 40.dp
+
+/** Icon size in the header-style rows; tall enough for the station icons to read at a glance. */
+private val HeaderPillIconSize = 24.dp
+
+/** Icon size the label padding was originally tuned for. */
+private val BaseIconSize = 16.dp
+
+/**
+ * Horizontal label padding for an item that shows an icon of [iconSize]: trimmed by the icon's
+ * growth over [BaseIconSize] so a bigger icon never widens the item.
+ */
+private fun iconItemPadding(itemPadding: Dp, iconSize: Dp): Dp =
+    (itemPadding - (iconSize - BaseIconSize) / 2).coerceAtLeast(0.dp)
 
 /** The sliding pill itself — fill + outline in the resolved [style]. */
 fun Modifier.kkcPillIndicator(style: KKCPillStyle): Modifier {
@@ -367,7 +393,9 @@ data class KKCPillOption(
     val isSelected: Boolean,
     val onClick: () -> Unit,
     val enabled: Boolean = true,
-    val icon: ImageVector? = null
+    val icon: ImageVector? = null,
+    /** Spoken description for icon-only options (empty [label]). */
+    val iconDescription: String? = null
 )
 
 /**
@@ -390,9 +418,10 @@ fun KKCSlidingPillRow(
     if (options.isEmpty()) return
     val style = rememberKKCPillStyle(accent)
     val widthMod = if (fillWidth) Modifier.fillMaxWidth() else Modifier.wrapContentWidth()
+    val trackHeight = HeaderPillHeight + 4.dp
     KKCPillContainer(
         style = style,
-        modifier = modifier.height(36.dp).then(widthMod)
+        modifier = modifier.height(trackHeight).then(widthMod)
     ) {
         KKCSlidingTabRow(
             items = options.map { opt ->
@@ -402,12 +431,15 @@ fun KKCSlidingPillRow(
                     onClick = opt.onClick,
                     accent = accent,
                     enabled = opt.enabled,
-                    icon = opt.icon
+                    icon = opt.icon,
+                    iconDescription = opt.iconDescription
                 )
             },
             modifier = widthMod,
             scrollable = false,
-            height = 36.dp,
+            height = trackHeight,
+            pillHeight = HeaderPillHeight,
+            iconSize = HeaderPillIconSize,
             edgePadding = 2.dp,
             itemPadding = 10.dp,
             fillWidth = fillWidth,
@@ -442,7 +474,9 @@ data class KKCTabItem(
      */
     val prefix: (@Composable (color: Color) -> Unit)? = null,
     /** Small icon before the label, drawn in the label's current color. */
-    val icon: ImageVector? = null
+    val icon: ImageVector? = null,
+    /** Spoken description for the icon; set it for icon-only items (empty [label]). */
+    val iconDescription: String? = null
 )
 
 /**
@@ -470,8 +504,11 @@ fun KKCSlidingTabRow(
      * null the pill springs onto the selected tab.
      */
     trackingPosition: (() -> Float?)? = null,
-    /** Strip height; the pill is 32dp tall, centered in it. */
+    /** Strip height; the pill is [pillHeight] tall, centered in it. */
     height: Dp = 40.dp,
+    pillHeight: Dp = 32.dp,
+    /** Item icon size; label padding shrinks as it grows, so items keep their width. */
+    iconSize: Dp = BaseIconSize,
     /** Space before the first and after the last item. */
     edgePadding: Dp = 4.dp,
     /** Horizontal padding inside each item, around its label. */
@@ -623,7 +660,6 @@ fun KKCSlidingTabRow(
             .padding(horizontal = edgePadding)
     ) {
         if (selectedIndex >= 0) {
-            val pillHeight = 32.dp
             Box(
                 Modifier
                     .align(Alignment.CenterStart)
@@ -657,11 +693,14 @@ fun KKCSlidingTabRow(
                     fillWidth -> Modifier.weight(1f)
                     else -> Modifier
                 }
+                val labelPadding = Modifier.padding(
+                    horizontal = if (item.icon != null) iconItemPadding(itemPadding, iconSize) else itemPadding
+                )
                 Box(
                     contentAlignment = itemAlignment,
                     modifier = Modifier
                         .then(sizeModifier)
-                        .height(32.dp)
+                        .height(pillHeight)
                         .zIndex(1f)
                         .onGloballyPositioned { coordinates ->
                             val left = coordinates.positionInParent().x
@@ -674,7 +713,7 @@ fun KKCSlidingTabRow(
                             indication = null
                         ) { item.onClick() }
                 ) {
-                    KKCTabLabel(item, baseColor, Modifier.padding(horizontal = itemPadding))
+                    KKCTabLabel(item, baseColor, iconSize, labelPadding)
                     // The same label in the on-pill color, clipped to wherever the pill is right
                     // now: each letter flips color the moment the pill's edge crosses it. The clip
                     // layer matches the item's bounds exactly (whatever the label's alignment),
@@ -693,7 +732,7 @@ fun KKCSlidingTabRow(
                                 }
                             }
                     ) {
-                        KKCTabLabel(item, onPill, Modifier.padding(horizontal = itemPadding))
+                        KKCTabLabel(item, onPill, iconSize, labelPadding)
                     }
                 }
                 separator?.invoke(idx)
@@ -704,11 +743,11 @@ fun KKCSlidingTabRow(
 }
 
 @Composable
-private fun KKCTabLabel(item: KKCTabItem, color: Color, modifier: Modifier) {
+private fun KKCTabLabel(item: KKCTabItem, color: Color, iconSize: Dp, modifier: Modifier) {
     if (item.prefix != null) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
             item.prefix.invoke(color)
-            KKCTabLabel(item.copy(prefix = null), color, Modifier)
+            KKCTabLabel(item.copy(prefix = null), color, iconSize, Modifier)
         }
         return
     }
@@ -720,12 +759,14 @@ private fun KKCTabLabel(item: KKCTabItem, color: Color, modifier: Modifier) {
         if (item.icon != null) {
             Icon(
                 imageVector = item.icon,
-                contentDescription = null,
+                contentDescription = item.iconDescription,
                 tint = color,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(iconSize)
             )
         }
-        if (item.alwaysBold) {
+        if (item.label.isEmpty()) {
+            // Icon-only item: no text, so no trailing gap after the icon.
+        } else if (item.alwaysBold) {
             Text(
                 text = item.label,
                 style = MaterialTheme.typography.labelMedium,
@@ -809,7 +850,7 @@ fun KKCPillActionRow(
     val spanWidth = fillWidth || trailingActions.isNotEmpty()
     val containerModifier = if (spanWidth) modifier.fillMaxWidth() else modifier
     val scroll = rememberScrollState()
-    KKCPillContainer(style = style, modifier = containerModifier.height(32.dp + gap * 2)) {
+    KKCPillContainer(style = style, modifier = containerModifier.height(HeaderPillHeight + gap * 2)) {
         // The container (a Surface) passes its width down as the Row's minimum width, and
         // horizontalScroll keeps that minimum, so SpaceBetween pins the two groups to the ends of
         // a full-width row; wider content scrolls instead.
@@ -872,11 +913,13 @@ private fun KKCPillActionButton(action: KKCPillAction, style: KKCPillStyle) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .height(32.dp)
+            .height(HeaderPillHeight)
             .kkcPillIndicator(style)
             .clip(RoundedCornerShape(6.dp))
             .clickable(onClick = action.onClick)
-            .padding(horizontal = 10.dp)
+            .padding(
+                horizontal = if (action.icon != null) iconItemPadding(10.dp, HeaderPillIconSize) else 10.dp
+            )
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -887,7 +930,7 @@ private fun KKCPillActionButton(action: KKCPillAction, style: KKCPillStyle) {
                     imageVector = action.icon,
                     contentDescription = null,
                     tint = style.selectedText,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(HeaderPillIconSize)
                 )
             }
             Text(

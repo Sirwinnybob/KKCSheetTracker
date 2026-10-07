@@ -44,7 +44,11 @@ import com.kkc.sheettracker.ui.components.icons.MarkupPenIcon
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import com.kkc.sheettracker.ui.components.icons.ActionManageCodeIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceAssemblyIcon
+import com.kkc.sheettracker.ui.components.icons.ReferencePlansIcon
+import com.kkc.sheettracker.ui.components.icons.ViewerPopupIcon
+import com.kkc.sheettracker.ui.components.icons.ViewerSheetNestedIcon
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.Warning
@@ -194,7 +198,7 @@ private data class TocSheetInfo(
     val draftBadCount: Int
 )
 
-private fun resolvePageMetadata(material: Material?, page: Int): PageMetadata? {
+internal fun resolvePageMetadata(material: Material?, page: Int): PageMetadata? {
     val pages = material?.metadata?.pages.orEmpty()
     if (pages.isEmpty()) return null
     val byExactPageNumber = pages.firstOrNull { it.pageNumber == page }
@@ -1363,7 +1367,8 @@ fun SheetViewerScreen(
                             ClockInButton(
                                 clockInState = clockInState,
                                 isClockedInHere = isClockedInHere,
-                                onClockInClick = { onClockIn(clockInJob.jobNumber, clockInJob.jobName) }
+                                onClockInClick = { onClockIn(clockInJob.jobNumber, clockInJob.jobName) },
+                                headerVisible = showUi
                             )
                         } else {
                             Button(
@@ -1396,6 +1401,8 @@ fun SheetViewerScreen(
                         onClick = { currentMaterial?.let { onOpenManageCode(it.materialName) } },
                         enabled = currentMaterial != null
                     ) {
+                        Icon(ActionManageCodeIcon, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
                         Text("Manage code")
                     }
                     Box {
@@ -1505,19 +1512,22 @@ fun SheetViewerScreen(
                             KKCPillOption(
                                 label = "Sheet",
                                 isSelected = mainViewRef.snapshot.mode == null,
-                                onClick = { mainViewRef.setMode(null) }
+                                onClick = { mainViewRef.setMode(null) },
+                                icon = ViewerSheetNestedIcon
                             ),
                             KKCPillOption(
                                 label = "Plans & Elev.",
                                 isSelected = mainViewRef.snapshot.mode == ReferenceDocType.PLANS_ELEVATIONS,
                                 enabled = hasPlansReference,
-                                onClick = { mainViewRef.setMode(ReferenceDocType.PLANS_ELEVATIONS) }
+                                onClick = { mainViewRef.setMode(ReferenceDocType.PLANS_ELEVATIONS) },
+                                icon = ReferencePlansIcon
                             ),
                             KKCPillOption(
                                 label = "Assembly",
                                 isSelected = mainViewRef.snapshot.mode == ReferenceDocType.ASSEMBLY,
                                 enabled = hasAssemblyReference,
-                                onClick = { mainViewRef.setMode(ReferenceDocType.ASSEMBLY) }
+                                onClick = { mainViewRef.setMode(ReferenceDocType.ASSEMBLY) },
+                                icon = ReferenceAssemblyIcon
                             )
                         )
                         KKCSlidingPillRow(options = viewModeOptions)
@@ -1526,14 +1536,7 @@ fun SheetViewerScreen(
                                 label = "Popup",
                                 selected = referenceModal.snapshot.isOpen,
                                 onClick = { referenceModal.toggleOpen(hasPlansReference, hasAssemblyReference, defaultModalDoc) },
-                                trailingIcon = { tint ->
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
-                                        tint = tint
-                                    )
-                                }
+                                icon = ViewerPopupIcon
                             )
                         }
                     }
@@ -1875,6 +1878,8 @@ fun SheetViewerScreen(
             sheetPdfFilename = pdfFilename,
             sheetPdfFile = pdfFile,
             currentSheetPage = currentPage,
+            sheetPageMetadata = { page -> resolvePageMetadata(currentMaterial, page) },
+            invertSheetBitmap = invertSheetBitmap,
             hazeState = null,
             modifier = Modifier.fillMaxSize()
         )
@@ -2436,7 +2441,7 @@ internal fun loadSheetThumbnailForToc(
     return resizeThumbnail(generated)
 }
 
-private fun loadCncSidecarBitmap(
+internal fun loadCncSidecarBitmap(
     pdfFile: File,
     imagePath: String?
 ): Bitmap? {
@@ -2457,7 +2462,7 @@ private fun loadCncSidecarBitmap(
  * whole-PDF parse per page turn) and decodes as RGB_565: the drawing is black/white line art,
  * so half the bytes of ARGB_8888 lose nothing.
  */
-private fun loadCncSidecarDiagram(
+internal fun loadCncSidecarDiagram(
     pdfFile: File,
     diagramPath: String?,
     ocrImageWidth: Int?

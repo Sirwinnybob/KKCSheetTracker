@@ -867,7 +867,7 @@ private fun MultiBackStackNavigation(
         val stopTimeMs = System.currentTimeMillis()
         val elapsedMs = clockInState.clockOut()
         ClockInNotificationContract.stopService(context)
-        val elapsedHours = (Math.round(elapsedMs / 3600000.0 * 4) / 4.0).coerceAtLeast(0.25)
+        val elapsedHours = com.kkc.sheettracker.data.ClockInBilling.clockOutPrefillHours(elapsedMs)
         pendingClockOut = PendingClockOut(snap.jobName, snap.jobNumber, elapsedHours, snap.startTimeMs, stopTimeMs, elapsedMs)
     }
     val onReturnToJob: () -> Unit = {
@@ -1211,7 +1211,8 @@ private fun MultiBackStackNavigation(
                     )
                 }
                 pendingClockOut?.let { pending ->
-                    ClockOutEditDialog(
+                    com.kkc.sheettracker.ui.components.ClockOutDialog(
+                        jobNumber = pending.jobNumber,
                         jobName = pending.jobName,
                         initialHours = pending.hours,
                         startTimeMs = pending.startTimeMs,
@@ -2733,7 +2734,7 @@ private fun LegacySingleStackNavigation(
         val stopTimeMs = System.currentTimeMillis()
         val elapsedMs = clockInState.clockOut()
         ClockInNotificationContract.stopService(legacyContext)
-        val elapsedHours = (Math.round(elapsedMs / 3600000.0 * 4) / 4.0).coerceAtLeast(0.25)
+        val elapsedHours = com.kkc.sheettracker.data.ClockInBilling.clockOutPrefillHours(elapsedMs)
         pendingClockOut = PendingClockOut(snap.jobName, snap.jobNumber, elapsedHours, snap.startTimeMs, stopTimeMs, elapsedMs)
     }
     val onReturnToJob: () -> Unit = {
@@ -3975,7 +3976,8 @@ private fun LegacySingleStackNavigation(
                     )
                 }
                 pendingClockOut?.let { pending ->
-                    ClockOutEditDialog(
+                    com.kkc.sheettracker.ui.components.ClockOutDialog(
+                        jobNumber = pending.jobNumber,
                         jobName = pending.jobName,
                         initialHours = pending.hours,
                         startTimeMs = pending.startTimeMs,
@@ -4058,6 +4060,7 @@ private fun LegacySingleStackNavigation(
             isCurrentPageActiveClockIn = isLegacyCurrentPageActiveClockIn,
             edgePrefs = remember { legacyContext.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) },
             hazeState = hazeState,
+            headerOwnerKey = legacyBackStack?.id,
             modifier = Modifier.fillMaxSize()
         )
     }
@@ -4242,72 +4245,6 @@ internal fun resolveClockInGate(
 
 /** Formats the persisted job name for an active clock-in punch: "<jobName> (<employee>)". */
 internal fun formattedClockInJobName(jobName: String, employee: String): String = "$jobName ($employee)"
-
-@Composable
-private fun ClockOutEditDialog(
-    jobName: String,
-    initialHours: Double,
-    startTimeMs: Long,
-    stopTimeMs: Long,
-    actualElapsedMs: Long,
-    onConfirm: (Double) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var hours by remember { mutableStateOf(initialHours) }
-    val timeFmt = remember { java.text.DateFormat.getTimeInstance(java.text.DateFormat.MEDIUM) }
-    val startLabel = remember(startTimeMs) { timeFmt.format(java.util.Date(startTimeMs)) }
-    val stopLabel = remember(stopTimeMs) { timeFmt.format(java.util.Date(stopTimeMs)) }
-    val actualMins = (actualElapsedMs / 60000).toInt()
-    val durationLabel = if (actualMins >= 60) "%dh %dm".format(actualMins / 60, actualMins % 60) else "${actualMins}m"
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Clock Out") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(jobName, style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    "Start: $startLabel   Stop: $stopLabel   ($durationLabel actual)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { if (hours > 0.25) hours = Math.round((hours - 0.25) * 4) / 4.0 },
-                        modifier = Modifier.size(48.dp),
-                        contentPadding = PaddingValues(0.dp),
-                        shape = MaterialTheme.shapes.medium
-                    ) {
-                        Text("−", style = MaterialTheme.typography.titleLarge)
-                    }
-                    Text(
-                        "%.2f hrs".format(hours),
-                        style = MaterialTheme.typography.headlineMedium
-                    )
-                    OutlinedButton(
-                        onClick = { hours = Math.round((hours + 0.25) * 4) / 4.0 },
-                        modifier = Modifier.size(48.dp),
-                        contentPadding = PaddingValues(0.dp),
-                        shape = MaterialTheme.shapes.medium
-                    ) {
-                        Text("+", style = MaterialTheme.typography.titleLarge)
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = { onConfirm(hours) }) { Text("Apply") }
-        },
-        dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onDismiss) { Text("Discard") }
-            }
-        }
-    )
-}
 
 @Composable
 private fun HoursTabHost(

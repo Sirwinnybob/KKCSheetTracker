@@ -33,9 +33,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.foundation.layout.Spacer
+import com.kkc.sheettracker.ui.components.icons.ReferenceAssemblyIcon
+import com.kkc.sheettracker.ui.components.icons.ReferencePlansIcon
+import com.kkc.sheettracker.ui.components.icons.ViewerSheetNestedIcon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -62,6 +63,9 @@ import com.kkc.sheettracker.ui.viewer.DiagramView
 import com.kkc.sheettracker.ui.viewer.ReferenceViewerData
 import com.kkc.sheettracker.ui.viewer.UnifiedReferenceViewer
 import com.kkc.sheettracker.ui.viewer.extractLargestEmbeddedImage
+import com.kkc.sheettracker.ui.viewer.loadCncSidecarBitmap
+import com.kkc.sheettracker.ui.viewer.loadCncSidecarDiagram
+import com.kkc.sheettracker.data.models.PageMetadata
 import com.kkc.sheettracker.ui.viewer.rememberReferenceViewerData
 import dev.chrisbanes.haze.HazeDefaults
 import dev.chrisbanes.haze.HazeState
@@ -281,6 +285,10 @@ fun ReferenceModalHost(
     sheetPdfFilename: String,
     sheetPdfFile: File?,
     currentSheetPage: Int,
+    /** Splitter metadata per sheet page (1-based); supplies the sheet preview image paths. */
+    sheetPageMetadata: (page: Int) -> PageMetadata? = { null },
+    /** Invert the Sheet tab like the main viewer does (dark sheets setting / idle). */
+    invertSheetBitmap: Boolean = false,
     hazeState: HazeState? = null,
     modifier: Modifier = Modifier
 ) {
@@ -330,8 +338,9 @@ fun ReferenceModalHost(
         if (target != null) state.setPage(target) else state.showNoRefNote()
     }
 
-    // Sheet tab bitmap resolution: mirrors the main viewer's diagram crop (extractLargestEmbeddedImage)
-    // with a full-page render fallback for pages with no extractable embedded image. Keyed on
+    // Sheet tab bitmap resolution: same source order as the main viewer — the splitter's sheet
+    // preview PNG (diagramPath), then the PDF's embedded image, then the splitter thumbnail —
+    // with a full-page render as the last resort. See [resolveSheetPreview]. Keyed on
     // sheetPdfFile so switching sheets/jobs resets state instead of showing a stale bitmap; the page
     // count effect is separate from the per-page bitmap effect since it only needs to run once per file.
     var sheetBitmap by remember(sheetPdfFile) { mutableStateOf<Bitmap?>(null) }
@@ -371,8 +380,16 @@ fun ReferenceModalHost(
         // Mirrors SheetViewerScreen's render effect: debounce so a fast page-turn cancels this
         // effect before the expensive extraction/render work even starts.
         kotlinx.coroutines.delay(150L)
+        val pageMeta = sheetPageMetadata(snapshot.sheetPage)
         val resolved = withContext(Dispatchers.IO) {
-            extractLargestEmbeddedImage(file, pageIndex) ?: renderSheetPageFallback(file, pageIndex)
+            resolveSheetPreview(
+                sidecarDiagram = {
+                    loadCncSidecarDiagram(file, pageMeta?.diagramPath, pageMeta?.ocrImageWidth)?.bitmap
+                },
+                embeddedImage = { extractLargestEmbeddedImage(file, pageIndex) },
+                sidecarThumbnail = { loadCncSidecarBitmap(file, pageMeta?.thumbnailPath) },
+                fullPageRender = { renderSheetPageFallback(file, pageIndex) }
+            )
         }
         if (resolved != null) {
             sheetBitmapCache.put(pageIndex, resolved)
@@ -468,29 +485,36 @@ fun ReferenceModalHost(
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
-                            SegmentedButton(
-                                selected = snapshot.docType == ReferenceDocType.SHEET,
-                                onClick = { state.setDocType(ReferenceDocType.SHEET, syncPage = currentSheetPage) },
-                                enabled = true, // Sheet is the CNC PDF already open behind the popup — always available.
-                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
-                                label = { Text("Sheet", maxLines = 1) }
+                        // Icon-only sliding pill, same control as the viewer's Sheet / Plans / Assembly row.
+                        KKCSlidingPillRow(
+                            options = listOf(
+                                KKCPillOption(
+                                    label = "",
+                                    isSelected = snapshot.docType == ReferenceDocType.SHEET,
+                                    // Sheet is the CNC PDF already open behind the popup — always available.
+                                    onClick = { state.setDocType(ReferenceDocType.SHEET, syncPage = currentSheetPage) },
+                                    icon = ViewerSheetNestedIcon,
+                                    iconDescription = "Sheet"
+                                ),
+                                KKCPillOption(
+                                    label = "",
+                                    isSelected = snapshot.docType == ReferenceDocType.PLANS_ELEVATIONS,
+                                    onClick = { state.setDocType(ReferenceDocType.PLANS_ELEVATIONS) },
+                                    enabled = hasPlans,
+                                    icon = ReferencePlansIcon,
+                                    iconDescription = "Plans & Elevations"
+                                ),
+                                KKCPillOption(
+                                    label = "",
+                                    isSelected = snapshot.docType == ReferenceDocType.ASSEMBLY,
+                                    onClick = { state.setDocType(ReferenceDocType.ASSEMBLY) },
+                                    enabled = hasAssembly,
+                                    icon = ReferenceAssemblyIcon,
+                                    iconDescription = "Assembly"
+                                )
                             )
-                            SegmentedButton(
-                                selected = snapshot.docType == ReferenceDocType.PLANS_ELEVATIONS,
-                                onClick = { state.setDocType(ReferenceDocType.PLANS_ELEVATIONS) },
-                                enabled = hasPlans,
-                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
-                                label = { Text("Plans & Elev.", maxLines = 1) }
-                            )
-                            SegmentedButton(
-                                selected = snapshot.docType == ReferenceDocType.ASSEMBLY,
-                                onClick = { state.setDocType(ReferenceDocType.ASSEMBLY) },
-                                enabled = hasAssembly,
-                                shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
-                                label = { Text("Assembly", maxLines = 1) }
-                            )
-                        }
+                        )
+                        Spacer(Modifier.weight(1f))
                         IconButton(onClick = { state.setOpen(false) }) {
                             Icon(Icons.Filled.Close, contentDescription = "Close reference popup")
                         }
@@ -502,6 +526,7 @@ fun ReferenceModalHost(
                             if (bmp != null) {
                                 DiagramView(
                                     bitmap = bmp,
+                                    invertSheetBitmap = invertSheetBitmap,
                                     parts = emptyList(),
                                     selectedPartNumber = null,
                                     diagramBboxes = emptyMap(),
@@ -629,6 +654,18 @@ fun ReferenceModalHost(
  * Full-page render fallback for the popup's Sheet tab, used only when [extractLargestEmbeddedImage]
  * finds no embedded diagram image on the page. Standalone PdfRenderer render — no caching.
  */
+/**
+ * First available sheet preview, in the main viewer's order. Each source is only loaded if every
+ * earlier one came back null, so the expensive PDF parse/render never runs when the splitter
+ * already wrote a preview PNG.
+ */
+internal fun <T> resolveSheetPreview(
+    sidecarDiagram: () -> T?,
+    embeddedImage: () -> T?,
+    sidecarThumbnail: () -> T?,
+    fullPageRender: () -> T?
+): T? = sidecarDiagram() ?: embeddedImage() ?: sidecarThumbnail() ?: fullPageRender()
+
 private fun renderSheetPageFallback(pdfFile: File, pageIndex: Int): Bitmap? {
     if (!pdfFile.exists()) return null
     return try {

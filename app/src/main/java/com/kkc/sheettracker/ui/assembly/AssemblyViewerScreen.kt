@@ -775,7 +775,8 @@ fun AssemblyViewerScreen(
                             ClockInButton(
                                 clockInState = clockInState,
                                 isClockedInHere = isClockedInHere,
-                                onClockInClick = { onClockIn(clockInJobNumber, clockInJobName) }
+                                onClockInClick = { onClockIn(clockInJobNumber, clockInJobName) },
+                                headerVisible = showUi
                             )
                         } else {
                             Button(

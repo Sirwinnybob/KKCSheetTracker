@@ -2,16 +2,10 @@ package com.kkc.sheettracker.ui.components
 
 import android.content.SharedPreferences
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,46 +20,55 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.lerp
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.kkc.sheettracker.data.ClockInBilling
 import com.kkc.sheettracker.data.ClockInState
+import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
 import dev.chrisbanes.haze.HazeDefaults
 import dev.chrisbanes.haze.HazeState
@@ -73,18 +76,88 @@ import dev.chrisbanes.haze.hazeEffect
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
-/** Round elapsed seconds to nearest 0.25 hr, return "N.NN hr" */
-internal fun formatFractionalHours(elapsedSeconds: Long): String {
-    val hours = elapsedSeconds / 3600.0
-    val rounded = (hours * 4).roundToInt() / 4.0
-    return "%.2f hr".format(rounded)
+/**
+ * UI-only coordination between the header clock chip ([ClockInButton]) and [ClockInOverlay].
+ * While any header chip is on screen the overlay stays out of the way; when none is (tabs
+ * without a job header, a hidden viewer top bar) it falls back to a floating pill.
+ */
+internal object ClockChipCoordinator {
+    /** Visible header chips per owner (nav back stack entry id, or [ROOT_OWNER] outside a NavHost). */
+    val chipOwners = mutableStateMapOf<String, Int>()
+    var detailsOpen by mutableStateOf(false)
+
+    /** Header chip alpha; dropped to 0 while the pill flies in to dock, read in a graphicsLayer. */
+    var chipAlpha by mutableFloatStateOf(1f)
+
+    // Plain fields: written by the overlay/chip, only read from effects, coroutines and callbacks.
+    var pillFloating = false
+    var flightsEnabled = false
+    var lastChipBoundsInWindow: Rect? = null
+    /**
+     * The overlay's current nav entry. Only that entry's chip may update [lastChipBoundsInWindow],
+     * so a screen sliding out during its exit transition can't drag the pill's launch point with it.
+     */
+    var currentOwnerKey: String? = null
+
+    const val ROOT_OWNER = "root"
+
+    fun hasChipFor(ownerKey: String?): Boolean =
+        if (ownerKey == null) chipOwners.isNotEmpty() else chipOwners.containsKey(ownerKey)
+
+    fun ownsBounds(ownerKey: String): Boolean = currentOwnerKey.let { it == null || it == ownerKey }
+
+    fun registerHeaderChip(ownerKey: String) {
+        chipOwners[ownerKey] = (chipOwners[ownerKey] ?: 0) + 1
+        // Hide the incoming chip before its first draw so the docking pill can land on it.
+        if (pillFloating && flightsEnabled) chipAlpha = 0f
+    }
+
+    fun unregisterHeaderChip(ownerKey: String) {
+        val remaining = (chipOwners[ownerKey] ?: 1) - 1
+        if (remaining <= 0) chipOwners.remove(ownerKey) else chipOwners[ownerKey] = remaining
+    }
 }
 
-private const val EDGE_PREF_KEY_Y    = "edge_tab_y_fraction"
-private const val EDGE_PREF_KEY_SIDE = "edge_tab_is_right"  // true = right (default)
+private enum class PillPhase { Docked, Undocking, Floating, Docking }
 
-// Matches the CLOCK IN button green
-private val ClockGreen = Color(0xFF38A169)
+private const val FLIGHT_MS = 420
+/** Ignores chip handoffs between two job screens so the pill doesn't pop out and straight back. */
+private const val UNDOCK_DEBOUNCE_MS = 90L
+
+/** Runs [onFrame] with eased progress 0..1 over [durationMs], once per frame. */
+private suspend fun runFlight(durationMs: Int, onFrame: (Float) -> Unit) {
+    val startNanos = withFrameNanos { it }
+    while (true) {
+        val t = withFrameNanos { now -> ((now - startNanos) / 1_000_000f / durationMs).coerceIn(0f, 1f) }
+        onFrame(FastOutSlowInEasing.transform(t))
+        if (t >= 1f) break
+    }
+}
+
+private const val PILL_PREF_KEY_X = "clock_pill_x_fraction"
+private const val PILL_PREF_KEY_Y = "clock_pill_y_fraction"
+
+/** Tabular figures keep the ticking clock from jittering width every second. */
+internal val ClockDigits = TextStyle(fontFeatureSettings = "tnum")
+
+/** Active elapsed ms for the current clock-in, ticking once a second while composed. */
+@Composable
+internal fun rememberClockElapsedMs(clockInState: ClockInState): Long {
+    val snapshot = clockInState.snapshot
+    var elapsedMs by remember { mutableLongStateOf(clockInState.elapsedActiveMs()) }
+    LaunchedEffect(snapshot.isActive, snapshot.isPaused, snapshot.startTimeMs) {
+        while (true) {
+            elapsedMs = clockInState.elapsedActiveMs()
+            if (!clockInState.snapshot.isActive) break
+            delay(1_000L)
+        }
+    }
+    return elapsedMs
+}
+
+@Composable
+internal fun clockStatusColor(isPaused: Boolean): Color =
+    if (isPaused) KKCThemeColors.statusColors.skip else KKCThemeColors.statusColors.complete
 
 @Composable
 fun ClockInOverlay(
@@ -94,312 +167,469 @@ fun ClockInOverlay(
     modifier: Modifier = Modifier,
     isCurrentPageActiveClockIn: Boolean = false,
     edgePrefs: SharedPreferences? = null,
-    hazeState: HazeState? = null
+    hazeState: HazeState? = null,
+    /**
+     * Current nav back stack entry id. When given, only that entry's header chip counts, so the
+     * pill detaches the moment navigation starts instead of after the old screen's exit transition.
+     */
+    headerOwnerKey: String? = null
 ) {
     val snapshot = clockInState.snapshot
-    if (!snapshot.isActive && !snapshot.pendingPrompt) return
-
-    // Floating card offsets (session-only, not persisted)
-    var offsetX by remember { mutableFloatStateOf(24f) }
-    var offsetY by remember { mutableFloatStateOf(100f) }
-
-    // Edge tab state — persisted
-    var edgeTabYFraction by remember {
-        mutableFloatStateOf(edgePrefs?.getFloat(EDGE_PREF_KEY_Y, 0.4f) ?: 0.4f)
-    }
-    var tabOnRight by remember {
-        mutableStateOf(edgePrefs?.getBoolean(EDGE_PREF_KEY_SIDE, true) ?: true)
-    }
-
-    // Container + modal + tab measured sizes (px)
-    var containerHeightPx by remember { mutableFloatStateOf(1f) }
-    var containerWidthPx  by remember { mutableFloatStateOf(1f) }
-    var modalWidthPx      by remember { mutableFloatStateOf(600f) }
-    var modalHeightPx     by remember { mutableFloatStateOf(400f) }
-    var tabWidthPx        by remember { mutableFloatStateOf(60f) }
-    var tabHeightPx       by remember { mutableFloatStateOf(60f) }
-
-    // Live elapsed counter
-    var elapsedSeconds by remember {
-        mutableLongStateOf((clockInState.elapsedActiveMs() / 1000L).coerceAtLeast(0L))
-    }
-    LaunchedEffect(snapshot.isActive, snapshot.isPaused) {
-        while (true) {
-            val live = clockInState.snapshot
-            if (!live.isActive) break
-            elapsedSeconds = (clockInState.elapsedActiveMs() / 1000L).coerceAtLeast(0L)
-            delay(if (live.isPaused) 250L else 1_000L)
-        }
+    if (!snapshot.isActive && !snapshot.pendingPrompt) {
+        LaunchedEffect(Unit) { ClockChipCoordinator.detailsOpen = false }
+        return
     }
 
     // ── Clock-out prompt dialog ───────────────────────────────────────────
     if (snapshot.pendingPrompt) {
+        LaunchedEffect(Unit) { ClockChipCoordinator.detailsOpen = false }
         AlertDialog(
             onDismissRequest = { clockInState.dismissPromptKeepActive() },
             shape = RoundedCornerShape(17.dp),
             containerColor = MaterialTheme.colorScheme.surface,
             tonalElevation = 0.dp,
-            title = { Text("Clock Out?") },
+            title = { Text("Clock out?") },
             text = {
                 Text(
-                    "You are clocked in to job ${snapshot.jobNumber} — ${snapshot.jobName}. " +
+                    "You're clocked in to ${snapshot.jobNumber} — ${snapshot.jobName}. " +
                         "Do you want to clock out?"
                 )
             },
             confirmButton = {
                 Button(
                     onClick = onClockOut,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53E3E))
-                ) { Text("Clock Out", color = Color.White) }
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) { Text("Clock out") }
             },
             dismissButton = {
                 TextButton(onClick = { clockInState.dismissPromptKeepActive() }) {
-                    Text("Keep Clocked In")
+                    Text("Keep clocked in")
                 }
             }
         )
         return
     }
 
-    val fractionalDisplay = formatFractionalHours(elapsedSeconds)
-    val h = elapsedSeconds / 3600
-    val m = (elapsedSeconds % 3600) / 60
-    val s = elapsedSeconds % 60
-    val elapsedHhMmSs = "%02d:%02d:%02d".format(h, m, s)
+    val elapsedMs = rememberClockElapsedMs(clockInState)
+    val headerChipVisible = ClockChipCoordinator.hasChipFor(headerOwnerKey)
+    val detailsOpen = ClockChipCoordinator.detailsOpen
 
-    val statusLabel = if (snapshot.isPaused) "Paused" else "Clocked In"
-    val statusColor = if (snapshot.isPaused) Color(0xFFD69E2E) else ClockGreen
+    // Pill position as fractions of the free space so it always stays on screen.
+    var pillXFraction by remember {
+        mutableFloatStateOf(edgePrefs?.getFloat(PILL_PREF_KEY_X, 1f) ?: 1f)
+    }
+    var pillYFraction by remember {
+        mutableFloatStateOf(edgePrefs?.getFloat(PILL_PREF_KEY_Y, 0.12f) ?: 0.12f)
+    }
+    var containerWidthPx by remember { mutableFloatStateOf(1f) }
+    var containerHeightPx by remember { mutableFloatStateOf(1f) }
+    var pillWidthPx by remember { mutableFloatStateOf(0f) }
+    var pillHeightPx by remember { mutableFloatStateOf(0f) }
+    // Before the pill's first measure (e.g. first undock after launch) use its nominal height.
+    val pillHeightEstimatePx = with(LocalDensity.current) { 48.dp.toPx() }
+    val freeWidthPx = (containerWidthPx - pillWidthPx).coerceAtLeast(1f)
+    val freeHeightPx = (containerHeightPx - pillHeightPx).coerceAtLeast(1f)
+    val pillX = pillXFraction * freeWidthPx
+    val pillY = pillYFraction * freeHeightPx
 
-    // ── Animation progress: 0 = expanded, 1 = fully minimized ─────────────
-    val animProgress by animateFloatAsState(
-        targetValue = if (snapshot.isMinimized) 1f else 0f,
-        animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing),
-        label = "minimizeProgress"
+    // ── Pill ⇄ header chip flight ─────────────────────────────────────────
+    // null phase = not settled yet (first frame), so launching onto a job page never flies.
+    val flightsEnabled = !LocalLowEndMode.current.animationsDisabled
+    var phase by remember { mutableStateOf<PillPhase?>(null) }
+    var overlayOrigin by remember { mutableStateOf(Offset.Zero) }
+    // Pill center in overlay coords while flying; null = sitting at its saved spot.
+    var flightCenter by remember { mutableStateOf<Offset?>(null) }
+    var flightScale by remember { mutableFloatStateOf(1f) }
+    var flightAlpha by remember { mutableFloatStateOf(1f) }
+
+    SideEffect {
+        ClockChipCoordinator.flightsEnabled = flightsEnabled
+        ClockChipCoordinator.pillFloating = phase == PillPhase.Floating || phase == PillPhase.Undocking
+        ClockChipCoordinator.currentOwnerKey = headerOwnerKey
+    }
+
+    val latestPillRestCenter by rememberUpdatedState(
+        Offset(pillX + pillWidthPx / 2f, pillY + (pillHeightPx.takeIf { it > 0f } ?: pillHeightEstimatePx) / 2f)
     )
+    val latestPillHeight by rememberUpdatedState(pillHeightPx.takeIf { it > 0f } ?: pillHeightEstimatePx)
+    LaunchedEffect(headerChipVisible, flightsEnabled) {
+        fun chipCenter(chip: Rect): Offset = chip.center - overlayOrigin
+        fun chipScale(chip: Rect): Float = chip.height / latestPillHeight
+        fun resetFlight() {
+            flightCenter = null
+            flightScale = 1f
+            flightAlpha = 1f
+        }
 
-    // ── Shrink pivot: the tab's center expressed as fraction of the modal ──
-    // Tab top position
-    val tabTopPx = edgeTabYFraction * containerHeightPx
-    // Tab center in container coords
-    val tabCenterX = if (tabOnRight) containerWidthPx - tabWidthPx / 2f
-                     else tabWidthPx / 2f
-    val tabCenterY = tabTopPx + tabHeightPx / 2f
-    // Modal top-left in container coords
-    val modalLeft = offsetX
-    val modalTop  = offsetY
-    // Pivot as fraction of modal size (can be outside 0..1 — that's fine)
-    val pivotFx = if (modalWidthPx  > 0f) (tabCenterX - modalLeft) / modalWidthPx  else 1f
-    val pivotFy = if (modalHeightPx > 0f) (tabCenterY - modalTop)  / modalHeightPx else 0.5f
+        if (phase == null) {
+            withFrameNanos { }
+            phase = if (headerChipVisible) PillPhase.Docked else PillPhase.Floating
+            ClockChipCoordinator.chipAlpha = 1f
+            return@LaunchedEffect
+        }
+
+        if (headerChipVisible) {
+            val from = phase
+            try {
+                if (flightsEnabled && (from == PillPhase.Floating || from == PillPhase.Undocking) && !detailsOpen) {
+                    phase = PillPhase.Docking
+                    ClockChipCoordinator.chipAlpha = 0f
+                    val startCenter = flightCenter ?: latestPillRestCenter
+                    val startScale = flightScale
+                    // Let the incoming screen lay out its chip before reading the target.
+                    withFrameNanos { }
+                    // Target is re-read every frame so the pill tracks a chip that slides in.
+                    runFlight(FLIGHT_MS) { p ->
+                        val chip = ClockChipCoordinator.lastChipBoundsInWindow
+                        val targetCenter = chip?.let(::chipCenter) ?: startCenter
+                        val targetScale = chip?.let(::chipScale) ?: startScale
+                        flightCenter = lerp(startCenter, targetCenter, p)
+                        flightScale = startScale + (targetScale - startScale) * p
+                        // Crossfade into the chip over the last third of the flight.
+                        val fade = ((p - 0.66f) / 0.34f).coerceIn(0f, 1f)
+                        flightAlpha = 1f - fade
+                        ClockChipCoordinator.chipAlpha = fade
+                    }
+                }
+            } finally {
+                ClockChipCoordinator.chipAlpha = 1f
+                resetFlight()
+                phase = PillPhase.Docked
+            }
+        } else {
+            // Snapshot where the chip sat on screen before the debounce, while the old page is
+            // still in place; the pill launches from exactly there.
+            val launchBounds = ClockChipCoordinator.lastChipBoundsInWindow
+            if (phase == PillPhase.Docked) delay(UNDOCK_DEBOUNCE_MS)
+            if (flightsEnabled && phase == PillPhase.Docked && launchBounds != null) {
+                phase = PillPhase.Undocking
+                val startCenter = chipCenter(launchBounds)
+                val startScale = chipScale(launchBounds)
+                flightCenter = startCenter
+                flightScale = startScale
+                flightAlpha = 0.4f
+                try {
+                    runFlight(FLIGHT_MS) { p ->
+                        // Destination is re-read every frame: the pill's measured width lands
+                        // after its first frame and shifts the saved spot slightly.
+                        flightCenter = lerp(startCenter, latestPillRestCenter, p)
+                        flightScale = startScale + (1f - startScale) * p
+                        flightAlpha = 0.4f + 0.6f * (p / 0.25f).coerceAtMost(1f)
+                    }
+                } finally {
+                    resetFlight()
+                }
+            }
+            phase = PillPhase.Floating
+        }
+    }
+    val pillShown = !detailsOpen && phase != null && phase != PillPhase.Docked
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding(12.dp)
             .zIndex(11f)
             .onGloballyPositioned { coords ->
+                containerWidthPx = coords.size.width.toFloat().coerceAtLeast(1f)
                 containerHeightPx = coords.size.height.toFloat().coerceAtLeast(1f)
-                containerWidthPx  = coords.size.width.toFloat().coerceAtLeast(1f)
+                overlayOrigin = coords.positionInWindow()
             }
     ) {
-        // ── Edge Panel tab ────────────────────────────────────────────────
-        if ((snapshot.isMinimized || animProgress > 0f) && !isCurrentPageActiveClockIn) {
-            val infiniteTransition = rememberInfiniteTransition(label = "tabPulse")
-            val pulseAlpha by infiniteTransition.animateFloat(
-                initialValue = 0.55f,
-                targetValue  = 0.82f,
-                animationSpec = infiniteRepeatable(
-                    animation  = tween(3000, easing = LinearEasing),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "tabPulseAlpha"
-            )
-
-            val tabYPx = (edgeTabYFraction * containerHeightPx).roundToInt()
-
-            // Shape: rounded on the "inner" side only
-            val tabShape = if (tabOnRight)
-                RoundedCornerShape(topStart = 11.dp, bottomStart = 11.dp)
-            else
-                RoundedCornerShape(topEnd   = 11.dp, bottomEnd   = 11.dp)
-
-            val tabAlignment = if (tabOnRight) Alignment.TopEnd else Alignment.TopStart
-
-            Box(
+        if (pillShown) {
+            val flying = phase == PillPhase.Docking || phase == PillPhase.Undocking
+            FloatingClockPill(
+                jobNumber = snapshot.jobNumber,
+                isPaused = snapshot.isPaused,
+                elapsedMs = elapsedMs,
+                hazeState = hazeState,
+                onClick = { if (!flying) ClockChipCoordinator.detailsOpen = true },
                 modifier = Modifier
-                    .align(tabAlignment)
-                    .offset { IntOffset(x = 0, y = tabYPx) }
-                    .onGloballyPositioned { coords ->
-                        tabWidthPx  = coords.size.width.toFloat().coerceAtLeast(1f)
-                        tabHeightPx = coords.size.height.toFloat().coerceAtLeast(1f)
+                    .offset {
+                        val center = flightCenter
+                        if (center == null) {
+                            IntOffset(pillX.roundToInt(), pillY.roundToInt())
+                        } else {
+                            val h = pillHeightPx.takeIf { it > 0f } ?: pillHeightEstimatePx
+                            IntOffset(
+                                (center.x - pillWidthPx / 2f).roundToInt(),
+                                (center.y - h / 2f).roundToInt()
+                            )
+                        }
                     }
-                    // Drag to reposition vertically
-                    .pointerInput(Unit) {
+                    .graphicsLayer {
+                        scaleX = flightScale
+                        scaleY = flightScale
+                        alpha = flightAlpha
+                    }
+                    .onGloballyPositioned { coords ->
+                        pillWidthPx = coords.size.width.toFloat()
+                        pillHeightPx = coords.size.height.toFloat()
+                    }
+                    .pointerInput(freeWidthPx, freeHeightPx) {
                         detectDragGestures(
-                            onDrag = { _, dragAmount ->
-                                val newY = edgeTabYFraction + dragAmount.y / containerHeightPx
-                                edgeTabYFraction = newY.coerceIn(0.05f, 0.90f)
+                            onDrag = { change, drag ->
+                                change.consume()
+                                pillXFraction = (pillXFraction + drag.x / freeWidthPx).coerceIn(0f, 1f)
+                                pillYFraction = (pillYFraction + drag.y / freeHeightPx).coerceIn(0f, 1f)
                             },
                             onDragEnd = {
+                                // Dock to the nearer side so the pill never parks over the middle of a sheet.
+                                pillXFraction = if (pillXFraction < 0.5f) 0f else 1f
                                 edgePrefs?.edit()
-                                    ?.putFloat(EDGE_PREF_KEY_Y, edgeTabYFraction)
+                                    ?.putFloat(PILL_PREF_KEY_X, pillXFraction)
+                                    ?.putFloat(PILL_PREF_KEY_Y, pillYFraction)
                                     ?.apply()
                             }
                         )
                     }
-                    // Tap = expand; long-press = swap sides
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = { clockInState.setMinimized(false) },
-                            onLongPress = {
-                                tabOnRight = !tabOnRight
-                                edgePrefs?.edit()
-                                    ?.putBoolean(EDGE_PREF_KEY_SIDE, tabOnRight)
-                                    ?.apply()
-                            }
-                        )
-                    }
-                    .shadow(4.dp, tabShape, clip = false)
-                    .clip(tabShape)
-                    .background(ClockGreen.copy(alpha = pulseAlpha))
-                    .padding(horizontal = 9.dp, vertical = 11.dp)
-            ) {
-                // Arrow points inward (toward screen center)
-                Icon(
-                    imageVector = if (tabOnRight)
-                        Icons.AutoMirrored.Filled.KeyboardArrowLeft
-                    else
-                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = "Expand",
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+            )
         }
 
-        // ── Expanded floating modal ───────────────────────────────────────
-        // Kept in composition during animation (animProgress < 1)
-        if (animProgress < 0.99f) {
-            val modalShape = RoundedCornerShape(12.dp)
-            val frostedTokens = LocalKKCThemeTokens.current.frosted
-            val modalSurfaceModifier = if (hazeState != null && !LocalLowEndMode.current.blurDisabled) {
-                Modifier.hazeEffect(
-                    state = hazeState,
-                    style = HazeDefaults.style(
-                        backgroundColor = MaterialTheme.colorScheme.surface.copy(
-                            alpha = frostedTokens.backgroundAlpha.coerceIn(0.72f, 0.95f)
-                        ),
-                        blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
-                    )
-                )
-            } else {
-                Modifier.background(MaterialTheme.colorScheme.surface)
-            }
+        if (detailsOpen) {
+            // Transparent tap-catcher: tapping anywhere outside the card closes it.
             Box(
-                modifier = Modifier
-                    .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
-                    .widthIn(min = 220.dp, max = 280.dp)
-                    .onGloballyPositioned { coords ->
-                        modalWidthPx  = coords.size.width.toFloat().coerceAtLeast(1f)
-                        modalHeightPx = coords.size.height.toFloat().coerceAtLeast(1f)
-                    }
-                    // Shrink toward the tab's exact center — no translation needed,
-                    // only the correct transformOrigin + scale + fade.
-                    .graphicsLayer {
-                        val scale = 1f - animProgress
-                        scaleX = scale
-                        scaleY = scale
-                        alpha  = 1f - animProgress
-                        transformOrigin = TransformOrigin(pivotFx, pivotFy)
-                    }
-                    .pointerInput(Unit) {
-                        detectDragGestures { _, dragAmount ->
-                            offsetX += dragAmount.x
-                            offsetY += dragAmount.y
-                        }
-                    }
-                    .shadow(10.dp, modalShape, clip = false)
-                    .clip(modalShape)
-                    .then(modalSurfaceModifier)
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // Status row + minimize button
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .background(statusColor, RoundedCornerShape(50))
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                statusLabel,
-                                fontWeight = FontWeight.Bold,
-                                fontSize   = 13.sp,
-                                color      = statusColor
-                            )
-                        }
-                        IconButton(
-                            onClick  = { clockInState.setMinimized(true) },
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Remove,
-                                contentDescription = "Minimize",
-                                tint     = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
+                Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { ClockChipCoordinator.detailsOpen = false }
+            )
+            val cardModifier = if (headerChipVisible) {
+                // Drops down from the header chip at the top-right.
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 52.dp)
+            } else {
+                val density = LocalDensity.current
+                val cardWidthPx = with(density) { ClockDetailsWidth.toPx() }
+                val x = if (pillXFraction < 0.5f) 0f else (containerWidthPx - cardWidthPx).coerceAtLeast(0f)
+                Modifier.offset { IntOffset(x.roundToInt(), pillY.roundToInt()) }
+            }
+            ClockDetailsCard(
+                jobNumber = snapshot.jobNumber,
+                jobName = snapshot.jobName,
+                isPaused = snapshot.isPaused,
+                elapsedMs = elapsedMs,
+                showGoToJob = !isCurrentPageActiveClockIn,
+                onGoToJob = {
+                    ClockChipCoordinator.detailsOpen = false
+                    onReturnToJob()
+                },
+                onClockOut = {
+                    ClockChipCoordinator.detailsOpen = false
+                    onClockOut()
+                },
+                onClose = { ClockChipCoordinator.detailsOpen = false },
+                modifier = cardModifier
+            )
+        }
+    }
+}
 
-                    // Job info
-                    Text(
-                        "${snapshot.jobNumber} — ${snapshot.jobName}",
-                        fontSize   = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color      = MaterialTheme.colorScheme.onSurface,
-                        maxLines   = 2,
-                        overflow   = TextOverflow.Ellipsis
-                    )
+@Composable
+private fun FloatingClockPill(
+    jobNumber: String,
+    isPaused: Boolean,
+    elapsedMs: Long,
+    hazeState: HazeState?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = CircleShape
+    val frostedTokens = LocalKKCThemeTokens.current.frosted
+    // Frosted pattern from CLAUDE.md: external shadow only, then clip, then a hazeEffect fill.
+    val surfaceModifier = if (hazeState != null && !LocalLowEndMode.current.blurDisabled) {
+        Modifier.hazeEffect(
+            state = hazeState,
+            style = HazeDefaults.style(
+                backgroundColor = MaterialTheme.colorScheme.surface.copy(
+                    alpha = frostedTokens.backgroundAlpha.coerceIn(0.72f, 0.95f)
+                ),
+                blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
+            )
+        )
+    } else {
+        Modifier.background(MaterialTheme.colorScheme.surface)
+    }
+    Row(
+        modifier = modifier
+            .shadow(6.dp, shape, clip = false)
+            .clip(shape)
+            .then(surfaceModifier)
+            .clickable(onClick = onClick)
+            .height(48.dp)
+            .padding(start = 14.dp, end = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ClockStatusDot(isPaused)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            jobNumber,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            ClockInBilling.formatElapsed(elapsedMs),
+            style = MaterialTheme.typography.titleMedium.merge(ClockDigits),
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(Modifier.width(4.dp))
+        Icon(
+            Icons.Default.KeyboardArrowDown,
+            contentDescription = "Clock details",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
 
-                    // Fractional hours + precise HH:MM:SS
-                    Text(
-                        fractionalDisplay,
-                        fontSize   = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color      = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        elapsedHhMmSs,
-                        fontSize   = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color      = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+@Composable
+internal fun ClockStatusDot(isPaused: Boolean, color: Color = clockStatusColor(isPaused)) {
+    Box(
+        Modifier
+            .size(9.dp)
+            .background(color, CircleShape)
+    )
+}
 
-                    // Actions
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        TextButton(
-                            onClick  = onReturnToJob,
-                            modifier = Modifier.weight(1f)
-                        ) { Text("← Return", fontSize = 11.sp) }
-                        Button(
-                            onClick  = onClockOut,
-                            colors   = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53E3E)),
-                            modifier = Modifier.weight(1f)
-                        ) { Text("Clock Out", fontSize = 11.sp, color = Color.White) }
-                    }
-                }
+private val ClockDetailsWidth = 320.dp
+
+@Composable
+private fun ClockDetailsCard(
+    jobNumber: String,
+    jobName: String,
+    isPaused: Boolean,
+    elapsedMs: Long,
+    showGoToJob: Boolean,
+    onGoToJob: () -> Unit,
+    onClockOut: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val status = KKCThemeColors.statusColors
+    val shape = RoundedCornerShape(17.dp)
+    val billedHours = ClockInBilling.billedHours(elapsedMs)
+    val counted = elapsedMs >= ClockInBilling.MIN_COUNTED_MS
+    val untilNext = ClockInBilling.formatCountdown(ClockInBilling.msUntilNextChange(elapsedMs))
+    val hint = if (counted) {
+        "Goes to ${ClockInBilling.formatHours(billedHours + 0.25)} in $untilNext"
+    } else {
+        "Under 7 min won't count. Counts in $untilNext"
+    }
+
+    Column(
+        modifier = modifier
+            .width(ClockDetailsWidth)
+            .shadow(10.dp, shape, clip = false)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surface)
+            // Swallow taps so they don't reach the dismiss layer behind the card.
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {}
+            .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ClockStatusDot(isPaused)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (isPaused) "Paused" else "Clocked in",
+                style = MaterialTheme.typography.labelLarge,
+                color = clockStatusColor(isPaused),
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onClose) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
+        Column(modifier = Modifier.padding(end = 8.dp)) {
+            Text(
+                jobNumber,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                jobName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                ClockFigure(label = "Elapsed", value = ClockInBilling.formatElapsed(elapsedMs))
+                ClockFigure(
+                    label = "Counts as",
+                    value = ClockInBilling.formatHours(billedHours),
+                    valueColor = if (counted) status.complete else status.skip
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (counted) MaterialTheme.colorScheme.onSurfaceVariant else status.skip
+            )
+            Spacer(Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (showGoToJob) {
+                    OutlinedButton(
+                        onClick = onGoToJob,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                    ) { Text("Go to job") }
+                }
+                Button(
+                    onClick = onClockOut,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                ) { Text("Clock out", fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClockFigure(
+    label: String,
+    value: String,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface
+) {
+    Column {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.headlineSmall.merge(ClockDigits),
+            fontWeight = FontWeight.SemiBold,
+            color = valueColor
+        )
     }
 }
