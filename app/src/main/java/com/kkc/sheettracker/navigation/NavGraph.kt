@@ -756,6 +756,11 @@ private fun MultiBackStackNavigation(
             }
         }
     }
+    val kkcNavBarPayload = currentKkcNavBarPayload(
+        destinations = visibleDestinations,
+        supplyCount = supplyNotificationCount,
+        safetyCount = safetyNotificationCount
+    )
 
     val jobsBackStack by jobsNavController.currentBackStackEntryAsState()
     val jobsCurrentRoute = jobsBackStack?.destination?.route
@@ -1090,7 +1095,8 @@ private fun MultiBackStackNavigation(
                     HoursTabHost(
                         navController = hoursNavController,
                         employeeName = employeeName,
-                        isTabSelected = selectedTab == TopLevelTab.HOURS
+                        isTabSelected = selectedTab == TopLevelTab.HOURS,
+                        navBar = kkcNavBarPayload
                     )
                 }
 
@@ -1191,7 +1197,7 @@ private fun MultiBackStackNavigation(
                         suggestions = employeeLoginSuggestions(employeeName),
                         onLogin = { name ->
                             showHoursLoginDialog = false
-                            launchTimecardApp(context, EmployeeDirectory.resolveNameOrPin(name))
+                            launchTimecardApp(context, EmployeeDirectory.resolveNameOrPin(name), navBar = kkcNavBarPayload)
                         },
                         onDismiss = { showHoursLoginDialog = false }
                     )
@@ -1220,7 +1226,7 @@ private fun MultiBackStackNavigation(
                         actualElapsedMs = pending.actualElapsedMs,
                         onConfirm = { hours ->
                             pendingClockOut = null
-                            launchTimecardApp(context, employeeName.ifBlank { null }, pending.jobNumber, hours.toString())
+                            launchTimecardApp(context, employeeName.ifBlank { null }, pending.jobNumber, hours.toString(), navBar = kkcNavBarPayload)
                         },
                         onDismiss = { pendingClockOut = null }
                     )
@@ -1250,7 +1256,7 @@ private fun MultiBackStackNavigation(
                 extendedControls = navBarDeco.extendedControls,
                 onNavigate = { dest ->
                     if (dest == NavDestination.HOURS) {
-                        launchTimecardApp(context, employeeName.takeIf { it.isNotBlank() })
+                        launchTimecardApp(context, employeeName.takeIf { it.isNotBlank() }, navBar = kkcNavBarPayload)
                     } else {
                         val targetTab = TopLevelTab.fromDestination(dest)
                         if ((selectedTab == TopLevelTab.JOBS || selectedTab == TopLevelTab.SUPPLY) &&
@@ -2689,6 +2695,11 @@ private fun LegacySingleStackNavigation(
             }
         }
     }
+    val kkcNavBarPayload = currentKkcNavBarPayload(
+        destinations = visibleDestinations,
+        supplyCount = supplyNotificationCount,
+        safetyCount = safetyNotificationCount
+    )
     fun openSheetLegacy(
         jobFolderName: String,
         pdfFilename: String,
@@ -3775,7 +3786,7 @@ private fun LegacySingleStackNavigation(
 
                     androidx.compose.runtime.LaunchedEffect(Unit) {
                         if (legacySessionName != null) {
-                            launchTimecardApp(context, legacySessionName)
+                            launchTimecardApp(context, legacySessionName, navBar = kkcNavBarPayload)
                         } else {
                             legacyShowDialog = true
                         }
@@ -3786,7 +3797,7 @@ private fun LegacySingleStackNavigation(
                             onLogin = { name ->
                                 legacySessionName = name
                                 legacyShowDialog = false
-                                launchTimecardApp(context, name)
+                                launchTimecardApp(context, name, navBar = kkcNavBarPayload)
                             },
                             onDismiss = { legacyShowDialog = false }
                         )
@@ -3956,7 +3967,7 @@ private fun LegacySingleStackNavigation(
                         suggestions = employeeLoginSuggestions(employeeName),
                         onLogin = { name ->
                             showHoursLoginDialog = false
-                            launchTimecardApp(legacyContext, EmployeeDirectory.resolveNameOrPin(name))
+                            launchTimecardApp(legacyContext, EmployeeDirectory.resolveNameOrPin(name), navBar = kkcNavBarPayload)
                         },
                         onDismiss = { showHoursLoginDialog = false }
                     )
@@ -3985,7 +3996,7 @@ private fun LegacySingleStackNavigation(
                         actualElapsedMs = pending.actualElapsedMs,
                         onConfirm = { hours ->
                             pendingClockOut = null
-                            launchTimecardApp(legacyContext, employeeName.ifBlank { null }, pending.jobNumber, hours.toString())
+                            launchTimecardApp(legacyContext, employeeName.ifBlank { null }, pending.jobNumber, hours.toString(), navBar = kkcNavBarPayload)
                         },
                         onDismiss = { pendingClockOut = null }
                     )
@@ -4015,7 +4026,7 @@ private fun LegacySingleStackNavigation(
                 extendedControls = navBarDeco.extendedControls,
                 onNavigate = { dest ->
                     if (dest == NavDestination.HOURS) {
-                        launchTimecardApp(legacyContext, employeeName.takeIf { it.isNotBlank() })
+                        launchTimecardApp(legacyContext, employeeName.takeIf { it.isNotBlank() }, navBar = kkcNavBarPayload)
                         return@AppBottomNavBar
                     }
                     if (currentRoute == dest.route) return@AppBottomNavBar
@@ -4250,13 +4261,14 @@ internal fun formattedClockInJobName(jobName: String, employee: String): String 
 private fun HoursTabHost(
     navController: NavHostController,
     employeeName: String,
-    isTabSelected: Boolean
+    isTabSelected: Boolean,
+    navBar: KkcNavBarPayload
 ) {
     val context = LocalContext.current
 
     LaunchedEffect(isTabSelected) {
         if (isTabSelected) {
-            launchTimecardApp(context, employeeName.takeIf { it.isNotBlank() })
+            launchTimecardApp(context, employeeName.takeIf { it.isNotBlank() }, navBar = navBar)
         }
     }
 
@@ -4280,7 +4292,8 @@ private fun launchTimecardApp(
     context: android.content.Context,
     autoLoginInput: String?,
     jobNumber: String? = null,
-    hours: String? = null
+    hours: String? = null,
+    navBar: KkcNavBarPayload? = null
 ) {
     val intent = android.content.Intent().apply {
         setClassName("com.example.timecard", "com.example.timecard.MainActivity")
@@ -4288,6 +4301,14 @@ private fun launchTimecardApp(
         if (autoLoginInput != null) putExtra("extra_auto_login", autoLoginInput)
         if (jobNumber != null) putExtra("extra_job_number", jobNumber)
         if (hours != null) putExtra("extra_hours", hours)
+        if (navBar != null) putKkcNavBarExtras(navBar)
     }
-    context.startActivity(intent)
+    // Cross-fade so the identical navbar in both apps reads as staying put; instant in low-end mode.
+    val animationsDisabled = navBar?.animDisabled == true
+    val options = android.app.ActivityOptions.makeCustomAnimation(
+        context,
+        if (animationsDisabled) 0 else android.R.anim.fade_in,
+        if (animationsDisabled) 0 else android.R.anim.fade_out
+    )
+    context.startActivity(intent, options.toBundle())
 }
