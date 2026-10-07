@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.navigation
 
 import android.content.Intent
+import androidx.compose.runtime.Immutable
 
 /**
  * Intent contract between KKCSheetTracker and Hours Tracker (com.example.timecard) for the
@@ -40,6 +41,9 @@ object KkcNavBarContract {
 }
 
 /** Resolved navbar look sent to Hours Tracker. Colors are ARGB ints. Same class exists in HT. */
+// @Immutable: stable so lambdas capturing it (and the Legacy NavHost builder) aren't recreated
+// every recomposition; equality is data-class equals.
+@Immutable
 data class KkcNavBarPayload(
     val destinations: List<String>,
     val supplyCount: Int,
