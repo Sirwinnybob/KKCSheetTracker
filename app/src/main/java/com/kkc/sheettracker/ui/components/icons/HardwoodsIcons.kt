@@ -137,22 +137,22 @@ private fun plank() = kkcIcon("HardwoodsPlank") {
     }
 }
 
-// ── Specialty / stock-custom: two sparkles ──────────────────────────────────────
+// ── Specialty / stock-custom: solid square + pencil (custom layout work) ────────
 private fun specialty() = kkcIcon("HardwoodsSpecialty") {
-    block(width = 1f) {
-        moveTo(10f, 6f)
-        quadTo(10f, 13f, 17f, 13f)
-        quadTo(10f, 13f, 10f, 20f)
-        quadTo(10f, 13f, 3f, 13f)
-        quadTo(10f, 13f, 10f, 6f)
-        close()
-        moveTo(18f, 3f)
-        quadTo(18f, 6.5f, 21.5f, 6.5f)
-        quadTo(18f, 6.5f, 18f, 10f)
-        quadTo(18f, 6.5f, 14.5f, 6.5f)
-        quadTo(18f, 6.5f, 18f, 3f)
+    // framing square
+    block(width = 1.25f) {
+        moveTo(3f, 3.5f); horizontalLineTo(7f); verticalLineTo(16.5f); horizontalLineTo(20.5f)
+        verticalLineTo(20.5f); horizontalLineTo(4f)
+        arcTo(1f, 1f, 0f, false, true, 3f, 19.5f)
         close()
     }
+    // pencil: light body, solid tip
+    val body: PathBuilder.() -> Unit = {
+        moveTo(19f, 2.5f); lineTo(21.5f, 5f); lineTo(12.75f, 13.75f); lineTo(10.25f, 11.25f); close()
+    }
+    solid(DUOTONE, pathBuilder = body)
+    line(width = 1.5f, pathBuilder = body)
+    block(width = 1.25f) { moveTo(10.25f, 11.25f); lineTo(12.75f, 13.75f); lineTo(9f, 15f); close() }
 }
 
 // ── Assembly reference: exploded cabinet — top lifted off, side panel pulled out ──

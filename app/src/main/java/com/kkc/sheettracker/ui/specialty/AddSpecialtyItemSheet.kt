@@ -1,6 +1,11 @@
 package com.kkc.sheettracker.ui.specialty
 
 import androidx.compose.foundation.BorderStroke
+import com.kkc.sheettracker.ui.components.icons.FormInfoIcon
+import com.kkc.sheettracker.ui.components.icons.FormNotesIcon
+import com.kkc.sheettracker.ui.components.icons.FormRoutingIcon
+import com.kkc.sheettracker.ui.components.icons.FormSpecsIcon
+import com.kkc.sheettracker.ui.components.icons.NavSupplySelected
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -221,7 +226,7 @@ fun AddSpecialtyItemSheet(
             }
 
             // Card 1: Basic Details
-            SectionCard(title = "Basic Information", icon = Icons.Default.Info) {
+            SectionCard(title = "Basic Information", icon = FormInfoIcon) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -271,7 +276,7 @@ fun AddSpecialtyItemSheet(
             }
 
             // Card 2: Station Routing
-            SectionCard(title = "Station Routing", icon = Icons.Default.Place) {
+            SectionCard(title = "Station Routing", icon = FormRoutingIcon) {
                 Text(
                     text = "Select all manufacturing stations required for this line item",
                     style = MaterialTheme.typography.bodySmall,
@@ -325,7 +330,7 @@ fun AddSpecialtyItemSheet(
 
             // Card 3: Specifications (for CUSTOM)
             if (category == SpecialtyItemCategory.CUSTOM) {
-                SectionCard(title = "Specifications", icon = Icons.Default.Straighten) {
+                SectionCard(title = "Specifications", icon = FormSpecsIcon) {
                     OutlinedTextField(
                         value = dimensions,
                         onValueChange = { dimensions = it },
@@ -365,7 +370,7 @@ fun AddSpecialtyItemSheet(
 
             // Card 4: Order Details (for TO_ORDER)
             if (category == SpecialtyItemCategory.TO_ORDER) {
-                SectionCard(title = "Order & Supply Details", icon = Icons.Default.ShoppingCart) {
+                SectionCard(title = "Order & Supply Details", icon = NavSupplySelected) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -426,7 +431,7 @@ fun AddSpecialtyItemSheet(
             }
 
             // Card 5: Notes
-            SectionCard(title = "Notes & Instructions", icon = Icons.AutoMirrored.Filled.Notes) {
+            SectionCard(title = "Notes & Instructions", icon = FormNotesIcon) {
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },

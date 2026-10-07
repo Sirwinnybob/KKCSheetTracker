@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.components
 
 import android.content.Context
+import com.kkc.sheettracker.ui.components.icons.CalcHistoryIcon
 import android.content.SharedPreferences
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -449,7 +450,7 @@ private fun FullscreenCalculator(
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(onClick = onShowHistory) {
-                    Icon(Icons.Filled.History, contentDescription = "Calculator history")
+                    Icon(CalcHistoryIcon, contentDescription = "Calculator history")
                 }
                 IconButton(onClick = onClose) {
                     Icon(Icons.Filled.Close, contentDescription = "Close calculator")
@@ -569,7 +570,7 @@ private fun ResizableModalCalculator(
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = onShowHistory) {
-                        Icon(Icons.Filled.History, contentDescription = "Calculator history")
+                        Icon(CalcHistoryIcon, contentDescription = "Calculator history")
                     }
                     IconButton(onClick = onClose) {
                         Icon(Icons.Filled.Close, contentDescription = "Close calculator")

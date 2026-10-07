@@ -1,6 +1,9 @@
 package com.kkc.sheettracker.ui.components
 
 import android.content.ClipData
+import com.kkc.sheettracker.ui.components.icons.ActionCopyIcon
+import com.kkc.sheettracker.ui.components.icons.ActionSaveIcon
+import com.kkc.sheettracker.ui.components.icons.LocationPinIcon
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.activity.compose.BackHandler
@@ -813,7 +816,7 @@ private fun DeliveryJobDetailSheet(
                         enabled = dirty && editJobNumber.isNotBlank() && editDescription.isNotBlank(),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.Save, contentDescription = null)
+                        Icon(ActionSaveIcon, contentDescription = null)
                         Spacer(Modifier.width(KKCSpacing.xxs))
                         Text("Save")
                     }
@@ -850,7 +853,7 @@ private fun DeliveryAddressActionsRow(address: String, context: Context) {
         TextButton(onClick = {
             openDeliveryMapsSafely(context, address)
         }) {
-            Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(18.dp))
+            Icon(LocationPinIcon, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(KKCSpacing.xxs))
             Text("Open in Maps")
         }
@@ -858,7 +861,7 @@ private fun DeliveryAddressActionsRow(address: String, context: Context) {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText("address", address))
         }) {
-            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+            Icon(ActionCopyIcon, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(KKCSpacing.xxs))
             Text("Copy")
         }

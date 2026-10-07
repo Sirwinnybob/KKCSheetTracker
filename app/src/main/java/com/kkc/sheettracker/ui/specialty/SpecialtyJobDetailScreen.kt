@@ -5,6 +5,8 @@ import com.kkc.sheettracker.ui.jobs.stationBarColor
 import com.kkc.sheettracker.ui.components.KKCPillAction
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.kkc.sheettracker.ui.components.icons.ActionPrintIcon
+import com.kkc.sheettracker.ui.components.icons.ViewKanbanIcon
+import com.kkc.sheettracker.ui.components.icons.ViewListIcon
 import com.kkc.sheettracker.ui.components.icons.ActionSplitViewIcon
 import com.kkc.sheettracker.ui.components.icons.HardwoodsPlankIcon
 import com.kkc.sheettracker.ui.components.icons.HardwoodsSpecialtyIcon
@@ -395,7 +397,7 @@ internal fun SpecialtyJobDetailScreen(
                         uiPrefs.setSpecialtyKanbanLayout(kanbanLayout)
                     }) {
                         Icon(
-                            imageVector = if (kanbanLayout) Icons.AutoMirrored.Filled.ViewList else Icons.Filled.ViewKanban,
+                            imageVector = if (kanbanLayout) ViewListIcon else ViewKanbanIcon,
                             contentDescription = if (kanbanLayout) "List layout" else "Kanban layout"
                         )
                     }

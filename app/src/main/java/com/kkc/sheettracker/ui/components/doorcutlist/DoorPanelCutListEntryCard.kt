@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.ContentCut
+import com.kkc.sheettracker.ui.components.icons.SpecialtyDoorPanelsIcon
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -99,7 +99,7 @@ internal fun DoorPanelCutListEntryCard(load: CutListLoad, onOpen: () -> Unit) {
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.ContentCut,
+                            imageVector = SpecialtyDoorPanelsIcon,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )

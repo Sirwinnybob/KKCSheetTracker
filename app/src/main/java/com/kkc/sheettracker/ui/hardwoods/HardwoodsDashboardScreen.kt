@@ -1,6 +1,9 @@
 package com.kkc.sheettracker.ui.hardwoods
 
 import androidx.compose.foundation.background
+import com.kkc.sheettracker.ui.components.icons.NavJobsSelected
+import com.kkc.sheettracker.ui.components.icons.StatusOkIcon
+import com.kkc.sheettracker.ui.components.icons.StatusWarningIcon
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -353,7 +356,7 @@ private fun HardwoodsOverviewCard(
                     onClick = onNavigateToJobs,
                     modifier = Modifier.padding(start = KKCSpacing.inCardSpacing)
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = "List icon")
+                    Icon(NavJobsSelected, contentDescription = "Jobs")
                     Spacer(Modifier.width(KKCSpacing.tightSpacing))
                     Text("Open Jobs")
                 }
@@ -465,7 +468,7 @@ private fun HardwoodsQualityAlertCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = if (hasIssues) Icons.Default.Warning else Icons.Default.CheckCircle,
+                    imageVector = if (hasIssues) StatusWarningIcon else StatusOkIcon,
                     contentDescription = "Status icon",
                     tint = accentColor
                 )

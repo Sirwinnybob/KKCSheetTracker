@@ -57,6 +57,8 @@ import com.kkc.sheettracker.ui.hardwoods.toStatusCounts
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.components.kkcCardDepth
 import com.kkc.sheettracker.ui.components.icons.ReferenceDeliveryIcon
+import com.kkc.sheettracker.ui.components.icons.DragGripIcon
+import com.kkc.sheettracker.ui.components.icons.JobLabelsIcon
 
 @Composable
 fun UnifiedJobCard(
@@ -220,10 +222,10 @@ fun UnifiedJobCard(
 
         if (adminMode) {
             IconButton(onClick = onEditLabels) {
-                Icon(Icons.Filled.Sell, contentDescription = "Edit Labels")
+                Icon(JobLabelsIcon, contentDescription = "Edit Labels")
             }
             IconButton(modifier = dragModifier, onClick = {}) {
-                Icon(Icons.Filled.DragHandle, contentDescription = "Reorder")
+                Icon(DragGripIcon, contentDescription = "Reorder")
             }
         }
     }

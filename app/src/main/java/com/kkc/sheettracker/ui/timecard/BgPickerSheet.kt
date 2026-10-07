@@ -1,6 +1,9 @@
 package com.kkc.sheettracker.ui.timecard
 
 import android.content.Context
+import com.kkc.sheettracker.ui.components.icons.BgColorIcon
+import com.kkc.sheettracker.ui.components.icons.BgVideoIcon
+import com.kkc.sheettracker.ui.components.icons.SupplyGalleryIcon
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts.GetContent
@@ -118,21 +121,21 @@ private fun BgOptionsContent(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             BgOptionCard(
-                icon = Icons.Default.Palette,
+                icon = BgColorIcon,
                 label = "Color",
                 selected = currentType == TimecardBgType.COLOR,
                 onClick = onColorTap,
                 modifier = Modifier.weight(1f)
             )
             BgOptionCard(
-                icon = Icons.Default.Image,
+                icon = SupplyGalleryIcon,
                 label = "Photo / GIF",
                 selected = currentType == TimecardBgType.IMAGE,
                 onClick = onImageTap,
                 modifier = Modifier.weight(1f)
             )
             BgOptionCard(
-                icon = Icons.Default.PlayCircle,
+                icon = BgVideoIcon,
                 label = "Video",
                 selected = currentType == TimecardBgType.VIDEO,
                 onClick = onVideoTap,

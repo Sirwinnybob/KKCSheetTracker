@@ -1,6 +1,12 @@
 package com.kkc.sheettracker.ui.standards
 
 import android.content.Context
+import com.kkc.sheettracker.ui.components.icons.SafetyKeyIcon
+import com.kkc.sheettracker.ui.components.icons.SafetyLockIcon
+import com.kkc.sheettracker.ui.components.icons.SafetySdsIcon
+import com.kkc.sheettracker.ui.components.icons.SupplyCameraIcon
+import com.kkc.sheettracker.ui.components.icons.SupplyGalleryIcon
+import com.kkc.sheettracker.ui.components.icons.SupplySendIcon
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -224,7 +230,7 @@ fun SafetyDocumentsScreen(basePath: String, onBack: () -> Unit) {
                                 verticalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
                                 Icon(
-                                    Icons.Filled.Lock,
+                                    SafetyLockIcon,
                                     contentDescription = null,
                                     modifier = Modifier.size(48.dp),
                                     tint = MaterialTheme.colorScheme.primary
@@ -238,7 +244,7 @@ fun SafetyDocumentsScreen(basePath: String, onBack: () -> Unit) {
                                 Button(
                                     onClick = { showPasswordDialog = true }
                                 ) {
-                                    Icon(Icons.Filled.Key, contentDescription = null)
+                                    Icon(SafetyKeyIcon, contentDescription = null)
                                     Spacer(Modifier.width(8.dp))
                                     Text("Subscribe with Password")
                                 }
@@ -417,7 +423,7 @@ private fun SafetyPdfList(
                             color = MaterialTheme.colorScheme.primaryContainer
                         ) {
                             Icon(
-                                Icons.Filled.PictureAsPdf,
+                                SafetySdsIcon,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
                                 modifier = Modifier.padding(8.dp).size(22.dp)
@@ -639,12 +645,12 @@ private fun ReportConcernDialog(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(onClick = { launchCamera() }) {
-                        Icon(Icons.Filled.PhotoCamera, contentDescription = null)
+                        Icon(SupplyCameraIcon, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text("Take Photo")
                     }
                     OutlinedButton(onClick = { galleryLauncher.launch("image/*") }) {
-                        Icon(Icons.Filled.PhotoLibrary, contentDescription = null)
+                        Icon(SupplyGalleryIcon, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text("Gallery")
                     }
@@ -675,7 +681,7 @@ private fun ReportConcernDialog(
                                             .background(MaterialTheme.colorScheme.surfaceVariant),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(Icons.Filled.Image, contentDescription = null)
+                                        Icon(SupplyGalleryIcon, contentDescription = null)
                                     }
                                 }
                                 IconButton(
@@ -1023,7 +1029,7 @@ private fun ConcernDetailDialog(
                             },
                             enabled = commentText.isNotBlank()
                         ) {
-                            Icon(Icons.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(SupplySendIcon, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Post Comment")
                         }
