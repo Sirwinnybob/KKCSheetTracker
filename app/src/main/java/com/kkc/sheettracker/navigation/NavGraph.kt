@@ -4302,6 +4302,9 @@ internal fun employeeLoginSuggestions(query: String): List<Pair<String, String>>
     }
 }
 
+// KEEP IN SYNC — every Hours Tracker launch passes navBar = kkcNavBarPayload so Hours Tracker can
+// draw the mirrored KKC navbar (HoursNavBarMirrorWiringTest enforces it). Return taps arrive in
+// MainActivity.handleKkcNavIntent → ExternalNavRequests → ExternalNavEffect in both nav hosts.
 private fun launchTimecardApp(
     context: android.content.Context,
     autoLoginInput: String?,

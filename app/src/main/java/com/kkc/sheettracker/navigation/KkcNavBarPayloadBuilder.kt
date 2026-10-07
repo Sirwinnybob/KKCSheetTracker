@@ -13,6 +13,9 @@ import com.kkc.sheettracker.ui.theme.boldGradientColors
 import com.kkc.sheettracker.ui.theme.kkcFrostedBaseColor
 import com.kkc.sheettracker.ui.theme.kkcFrostedContentColor
 
+// KEEP IN SYNC — reads the same values AppScaffold.kt MorphingNavBar/MorphingNavIconRow read.
+// If the navbar starts reading a new theme value, add it here, to KkcNavBarContract (both repos)
+// and to Hours Tracker kkcnav/KkcNavBar.kt.
 /**
  * Resolves the bottom navbar's current look from the live KKC theme, exactly as
  * AppScaffold.kt MorphingNavBar / MorphingNavIconRow read it, so Hours Tracker never has to parse

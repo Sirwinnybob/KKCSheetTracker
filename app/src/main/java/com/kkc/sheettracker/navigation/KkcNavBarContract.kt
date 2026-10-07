@@ -4,9 +4,14 @@ import android.content.Intent
 import androidx.compose.runtime.Immutable
 
 /**
- * Intent contract between KKCSheetTracker and Hours Tracker (com.example.timecard) for the
- * mirrored bottom navbar. KKC sends the navbar's resolved look; Hours Tracker draws a copy and
- * sends the tapped destination back. Sync header is expanded in Task 9.
+ * KEEP IN SYNC — byte-identical keys, VERSION and payload fields with Hours Tracker
+ * C:\Scripts\Hours Tracker\AndroidApp\app\src\main\java\com\example\timecard\kkcnav\KkcNavBarContract.kt
+ * Tests pin both sides to the same CANONICAL_KEYS list:
+ *   KKC  app/src/test/java/com/kkc/sheettracker/navigation/KkcNavBarContractTest.kt
+ *   HT   app/src/test/java/com/example/timecard/kkcnav/KkcNavBarContractTest.kt
+ * Adding/removing/renaming a key or changing a value's type: update both files AND both tests,
+ * and bump VERSION on both sides (an HT build that sees an unknown VERSION shows no bar, so old
+ * and new builds stay safe in either order).
  */
 object KkcNavBarContract {
     const val VERSION = 1
