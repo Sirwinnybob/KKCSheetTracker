@@ -1236,6 +1236,24 @@ private fun MultiBackStackNavigation(
         }
         } // CompositionLocalProvider
 
+        val navigateFromBar: (NavDestination) -> Unit = { dest ->
+            if (dest == NavDestination.HOURS) {
+                launchTimecardApp(context, employeeName.takeIf { it.isNotBlank() }, navBar = kkcNavBarPayload)
+            } else {
+                val targetTab = TopLevelTab.fromDestination(dest)
+                if ((selectedTab == TopLevelTab.JOBS || selectedTab == TopLevelTab.SUPPLY) &&
+                    (targetTab == TopLevelTab.JOBS || targetTab == TopLevelTab.SUPPLY)) {
+                    navBarDeco.keepSearchDeco = true
+                }
+                coordinator.navigateTopLevel(targetTab)
+            }
+        }
+        ExternalNavEffect(
+            visibleDestinations = visibleDestinations,
+            navigate = navigateFromBar,
+            openCalculator = { calculatorState.setOpen(true) }
+        )
+
         // Nav bar as true overlay — hazeSource extends behind it so frosted glass works correctly
         Box(modifier = Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.BottomCenter) {
             AppBottomNavBar(
@@ -1254,18 +1272,7 @@ private fun MultiBackStackNavigation(
                 specialtyDecoration = navBarDeco.specialtyDecoration,
                 penDecoration = navBarDeco.penDecoration,
                 extendedControls = navBarDeco.extendedControls,
-                onNavigate = { dest ->
-                    if (dest == NavDestination.HOURS) {
-                        launchTimecardApp(context, employeeName.takeIf { it.isNotBlank() }, navBar = kkcNavBarPayload)
-                    } else {
-                        val targetTab = TopLevelTab.fromDestination(dest)
-                        if ((selectedTab == TopLevelTab.JOBS || selectedTab == TopLevelTab.SUPPLY) &&
-                            (targetTab == TopLevelTab.JOBS || targetTab == TopLevelTab.SUPPLY)) {
-                            navBarDeco.keepSearchDeco = true
-                        }
-                        coordinator.navigateTopLevel(targetTab)
-                    }
-                }
+                onNavigate = navigateFromBar
             )
         }
 
@@ -4006,6 +4013,33 @@ private fun LegacySingleStackNavigation(
         }
         } // CompositionLocalProvider
 
+        val navigateFromBar: (NavDestination) -> Unit = navigateFromBar@{ dest ->
+            if (dest == NavDestination.HOURS) {
+                launchTimecardApp(legacyContext, employeeName.takeIf { it.isNotBlank() }, navBar = kkcNavBarPayload)
+                return@navigateFromBar
+            }
+            if (currentRoute == dest.route) return@navigateFromBar
+            check(dest.route in visibleDestinations.map { it.route }) {
+                "Invalid top-level destination route: ${dest.route}"
+            }
+            if ((currentNavDest == NavDestination.JOBS || currentNavDest == NavDestination.SUPPLY) &&
+                (dest == NavDestination.JOBS || dest == NavDestination.SUPPLY)) {
+                navBarDeco.keepSearchDeco = true
+            }
+            navController.navigate(dest.route) {
+                popUpTo(navController.graph.findStartDestination().id) {
+                    saveState = false
+                }
+                launchSingleTop = true
+                restoreState = false
+            }
+        }
+        ExternalNavEffect(
+            visibleDestinations = visibleDestinations,
+            navigate = navigateFromBar,
+            openCalculator = { calculatorState.setOpen(true) }
+        )
+
         // Nav bar as true overlay — hazeSource extends behind it so frosted glass works correctly
         Box(modifier = Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.BottomCenter) {
             AppBottomNavBar(
@@ -4024,27 +4058,7 @@ private fun LegacySingleStackNavigation(
                 specialtyDecoration = navBarDeco.specialtyDecoration,
                 penDecoration = navBarDeco.penDecoration,
                 extendedControls = navBarDeco.extendedControls,
-                onNavigate = { dest ->
-                    if (dest == NavDestination.HOURS) {
-                        launchTimecardApp(legacyContext, employeeName.takeIf { it.isNotBlank() }, navBar = kkcNavBarPayload)
-                        return@AppBottomNavBar
-                    }
-                    if (currentRoute == dest.route) return@AppBottomNavBar
-                    check(dest.route in visibleDestinations.map { it.route }) {
-                        "Invalid top-level destination route: ${dest.route}"
-                    }
-                    if ((currentNavDest == NavDestination.JOBS || currentNavDest == NavDestination.SUPPLY) &&
-                        (dest == NavDestination.JOBS || dest == NavDestination.SUPPLY)) {
-                        navBarDeco.keepSearchDeco = true
-                    }
-                    navController.navigate(dest.route) {
-                        popUpTo(navController.graph.findStartDestination().id) {
-                            saveState = false
-                        }
-                        launchSingleTop = true
-                        restoreState = false
-                    }
-                }
+                onNavigate = navigateFromBar
             )
         }
 

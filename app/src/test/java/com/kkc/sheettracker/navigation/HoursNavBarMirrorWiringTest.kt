@@ -39,6 +39,25 @@ class HoursNavBarMirrorWiringTest {
         assertTrue(body.contains("ActivityOptions.makeCustomAnimation"))
     }
 
+    private val mainActivity by lazy { source("MainActivity.kt") }
+
+    @Test
+    fun bothNavHostsRouteExternalRequestsThroughTheBarNavigator() {
+        assertEquals(2, Regex("ExternalNavEffect\\(").findAll(navGraph).count())
+        assertEquals(2, Regex("onNavigate = navigateFromBar").findAll(navGraph).count())
+        assertEquals(2, Regex("openCalculator = \\{ calculatorState\\.setOpen\\(true\\) \\}").findAll(navGraph).count())
+    }
+
+    @Test
+    fun mainActivityReadsTheReturnExtraOnColdStartAndNewIntent() {
+        assertTrue(mainActivity.contains("private fun handleKkcNavIntent("))
+        assertTrue(mainActivity.contains("KkcNavBarContract.EXTRA_NAV_DESTINATION"))
+        assertTrue(mainActivity.contains("removeExtra(KkcNavBarContract.EXTRA_NAV_DESTINATION)"))
+        assertEquals(2, Regex("handleKkcNavIntent\\(intent\\)").findAll(mainActivity).count())
+        // Recreation after a configuration change re-delivers the original intent; never replay it.
+        assertTrue(mainActivity.contains("if (savedInstanceState == null) handleKkcNavIntent(intent)"))
+    }
+
     companion object {
         fun source(relative: String): String {
             var dir = File(System.getProperty("user.dir") ?: ".").absoluteFile

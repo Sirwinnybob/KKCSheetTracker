@@ -68,7 +68,10 @@ import com.kkc.sheettracker.ui.components.LocalScrollPreviewLabelOnly
 import com.kkc.sheettracker.ui.components.LocalIdlePhase
 import com.kkc.sheettracker.ui.components.LocalIdlePollIntervalOverrideMs
 import com.kkc.sheettracker.ui.components.LocalIdleReset
+import com.kkc.sheettracker.logging.AppLog
 import com.kkc.sheettracker.navigation.AppNavigation
+import com.kkc.sheettracker.navigation.ExternalNavRequests
+import com.kkc.sheettracker.navigation.KkcNavBarContract
 import com.kkc.sheettracker.navigation.WorkMode
 import com.kkc.sheettracker.onboarding.OnboardingStep
 import com.kkc.sheettracker.onboarding.PermissionFlowController
@@ -324,6 +327,7 @@ class MainActivity : ComponentActivity() {
             ClockInNotificationContract.stopService(this)
         }
         handleNotificationIntent(intent)
+        if (savedInstanceState == null) handleKkcNavIntent(intent)
         scanCoordinator.refresh(RefreshReason.APP_START, force = true)
 
         setContent {
@@ -673,6 +677,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleNotificationIntent(intent)
+        handleKkcNavIntent(intent)
     }
 
     override fun onResume() {
@@ -772,6 +777,15 @@ class MainActivity : ComponentActivity() {
             if (File(path).isDirectory) return path
         }
         return candidates.first()
+    }
+
+    /** Hours Tracker's mirrored navbar sends the tapped destination here (see KkcNavBarContract). */
+    private fun handleKkcNavIntent(intent: Intent?) {
+        val route = intent?.getStringExtra(KkcNavBarContract.EXTRA_NAV_DESTINATION) ?: return
+        intent.removeExtra(KkcNavBarContract.EXTRA_NAV_DESTINATION)
+        if (!ExternalNavRequests.postFromRoute(route)) {
+            AppLog.d("KKC_NAV", "external_nav_rejected route=$route")
+        }
     }
 
     private fun handleNotificationIntent(intent: Intent?) {
