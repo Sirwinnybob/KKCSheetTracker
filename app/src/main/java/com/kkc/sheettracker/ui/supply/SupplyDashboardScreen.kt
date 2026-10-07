@@ -36,8 +36,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.outlined.Notifications
+import com.kkc.sheettracker.ui.components.icons.SupplyBellOffIcon
+import com.kkc.sheettracker.ui.components.icons.SupplyBellOnIcon
+import com.kkc.sheettracker.ui.components.icons.SupplyOrderedOffIcon
+import com.kkc.sheettracker.ui.components.icons.SupplyOrderedOnIcon
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -121,8 +123,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.data.SupplyBarcodeStore
 import com.kkc.sheettracker.data.ScanMode
@@ -787,7 +787,7 @@ fun SupplyDashboardScreen(
                         }
                     }) {
                         Icon(
-                            imageVector = if (isSubscribed) Icons.Filled.Notifications else Icons.Outlined.Notifications,
+                            imageVector = if (isSubscribed) SupplyBellOnIcon else SupplyBellOffIcon,
                             contentDescription = if (isSubscribed) "Unsubscribe from notifications" else "Subscribe to notifications",
                             tint = if (isSubscribed) MaterialTheme.colorScheme.primary else LocalContentColor.current
                         )
@@ -1749,14 +1749,14 @@ private fun ToOrderItemRow(
                     onClick = { onToggleComplete(jobFolderName, resolvedItem, !resolvedItem.isComplete) }
                 ) {
                     Icon(
-                        imageVector = if (resolvedItem.isComplete) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                        imageVector = if (resolvedItem.isComplete) SupplyOrderedOnIcon else SupplyOrderedOffIcon,
                         contentDescription = if (resolvedItem.isComplete) "Mark not ordered" else "Mark ordered",
                         tint = baseColor
                     )
                 }
             } else {
                 Icon(
-                    imageVector = if (resolvedItem.isComplete) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                    imageVector = if (resolvedItem.isComplete) SupplyOrderedOnIcon else SupplyOrderedOffIcon,
                     contentDescription = if (resolvedItem.isComplete) "Ordered" else "Not yet ordered",
                     tint = baseColor,
                     modifier = Modifier.padding(12.dp)
@@ -2251,7 +2251,7 @@ private fun CategoryBoardColumn(
                         modifier = Modifier.size(28.dp)
                     ) {
                         Icon(
-                            imageVector = if (isSubscribed) Icons.Filled.Notifications else Icons.Outlined.Notifications,
+                            imageVector = if (isSubscribed) SupplyBellOnIcon else SupplyBellOffIcon,
                             contentDescription = if (isSubscribed) "Unsubscribe from category" else "Subscribe to category",
                             tint = onHeader.copy(alpha = 0.85f),
                             modifier = Modifier.size(18.dp)

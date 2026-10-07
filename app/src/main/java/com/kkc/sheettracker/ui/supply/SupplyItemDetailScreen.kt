@@ -31,8 +31,10 @@ import com.kkc.sheettracker.ui.dashboard.DashboardSurfaceCard
 import com.kkc.sheettracker.ui.dashboard.DashboardAccent
 import com.kkc.sheettracker.ui.dashboard.getSoftStatusColors
 import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.Image
+import com.kkc.sheettracker.ui.components.icons.SupplyCameraIcon
+import com.kkc.sheettracker.ui.components.icons.SupplyGalleryIcon
+import com.kkc.sheettracker.ui.components.icons.SupplyScanIcon
+import com.kkc.sheettracker.ui.components.icons.SupplySendIcon
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,7 +53,6 @@ import kotlinx.coroutines.flow.drop
 import com.kkc.sheettracker.data.SupplySubscriptionManager
 import com.kkc.sheettracker.data.SupplyBarcodeStore
 import com.kkc.sheettracker.data.ScanMode
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.AlertDialog
@@ -81,12 +82,10 @@ import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.automirrored.filled.Send
 
 private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp")
 
@@ -529,7 +528,7 @@ fun SupplyItemDetailScreen(
                                                 strokeWidth = 2.dp
                                             )
                                         } else {
-                                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Post comment")
+                                            Icon(SupplySendIcon, contentDescription = "Post comment")
                                         }
                                     }
                                 }
@@ -710,7 +709,7 @@ fun SupplyItemDetailScreen(
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Filled.PhotoCamera,
+                                                    imageVector = SupplyCameraIcon,
                                                     contentDescription = "Camera",
                                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     modifier = Modifier.size(28.dp)
@@ -740,7 +739,7 @@ fun SupplyItemDetailScreen(
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Filled.Image,
+                                                    imageVector = SupplyGalleryIcon,
                                                     contentDescription = "Gallery",
                                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     modifier = Modifier.size(28.dp)
@@ -761,7 +760,7 @@ fun SupplyItemDetailScreen(
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                         ) {
                                             Icon(
-                                                Icons.Filled.PhotoCamera,
+                                                SupplyCameraIcon,
                                                 contentDescription = "Camera icon",
                                                 modifier = Modifier.size(16.dp)
                                             )
@@ -773,7 +772,7 @@ fun SupplyItemDetailScreen(
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                         ) {
                                             Icon(
-                                                Icons.Filled.Image,
+                                                SupplyGalleryIcon,
                                                 contentDescription = "Gallery icon",
                                                 modifier = Modifier.size(16.dp)
                                             )
@@ -1026,7 +1025,7 @@ fun SupplyItemDetailScreen(
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Filled.PhotoCamera,
+                                                    imageVector = SupplyCameraIcon,
                                                     contentDescription = "Camera",
                                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     modifier = Modifier.size(28.dp)
@@ -1056,7 +1055,7 @@ fun SupplyItemDetailScreen(
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Filled.Image,
+                                                    imageVector = SupplyGalleryIcon,
                                                     contentDescription = "Gallery",
                                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     modifier = Modifier.size(28.dp)
@@ -1077,7 +1076,7 @@ fun SupplyItemDetailScreen(
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                         ) {
                                             Icon(
-                                                Icons.Filled.PhotoCamera,
+                                                SupplyCameraIcon,
                                                 contentDescription = "Camera icon",
                                                 modifier = Modifier.size(16.dp)
                                             )
@@ -1089,7 +1088,7 @@ fun SupplyItemDetailScreen(
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                         ) {
                                             Icon(
-                                                Icons.Filled.Image,
+                                                SupplyGalleryIcon,
                                                 contentDescription = "Gallery icon",
                                                 modifier = Modifier.size(16.dp)
                                             )
@@ -1474,7 +1473,7 @@ private fun ItemBarcodeSection(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Icon(
-                        Icons.Filled.QrCodeScanner, null,
+                        SupplyScanIcon, null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp)
                     )

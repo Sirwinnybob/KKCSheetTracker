@@ -36,7 +36,6 @@ import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flag
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.UnfoldMore
@@ -598,7 +597,7 @@ private fun MorphingNavBar(
                                                     modifier = Modifier.size(40.dp)
                                                 ) {
                                                     Icon(
-                                                        Icons.Filled.QrCodeScanner,
+                                                        SupplyScanIcon,
                                                         contentDescription = "Scan barcode",
                                                         modifier = Modifier.size(20.dp)
                                                     )

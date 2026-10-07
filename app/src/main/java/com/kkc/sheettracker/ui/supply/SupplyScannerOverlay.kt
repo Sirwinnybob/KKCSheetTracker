@@ -17,8 +17,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FlashOff
-import androidx.compose.material.icons.filled.FlashOn
+import com.kkc.sheettracker.ui.components.icons.SupplyFlashOffIcon
+import com.kkc.sheettracker.ui.components.icons.SupplyFlashOnIcon
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -351,7 +351,7 @@ fun SupplyScannerOverlay(
                             scope.launch { scannerSettingsStore.setTorchOn(isTorchOn) }
                         }) {
                             Icon(
-                                if (isTorchOn) Icons.Filled.FlashOn else Icons.Filled.FlashOff,
+                                if (isTorchOn) SupplyFlashOnIcon else SupplyFlashOffIcon,
                                 "Toggle flashlight",
                                 tint = if (isTorchOn) Color.Yellow else Color.White
                             )
