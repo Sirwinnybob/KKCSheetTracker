@@ -166,8 +166,8 @@ so Hours Tracker's theme/accent cannot change its look.
   (`hazeSource(hazeState)`) and the `KkcNavBar` is drawn as an overlay aligned bottom-center, on top of
   every screen, including the login `NameCard`.
 - Content receives bottom padding equal to the measured bar height (via a `CompositionLocal` /
-  `onSizeChanged`) so no Hours Tracker controls are hidden behind it. Content may still scroll behind the
-  glass, matching KKC.
+  `onSizeChanged`) so no Hours Tracker controls are hidden behind it. The root background brush still
+  paints full-height, so the glass frosts that background.
 - Existing "← KKC" buttons stay as a fallback, unchanged.
 
 ### 5. App-switch transition
@@ -188,7 +188,7 @@ Large `KEEP IN SYNC` header comments are added at:
 
 Each header lists the exact counterpart file path(s) in the other repo and the specific values that must
 match (margins, radii, padding, icon sizes, tint rules, badge rules, animation specs, extra keys, contract
-version). Both repos' `CLAUDE.md` gain a "KKC navbar mirror" section with the same file map and the rule:
+version). KKC `CLAUDE.md` and Hours Tracker `AGENTS.md` (its agent doc; it has no CLAUDE.md) gain a "KKC navbar mirror" section with the same file map and the rule:
 any change to KKC's full-state navbar or icons must be mirrored in Hours Tracker in the same session, and
 a change to the extras must bump `version` on both sides.
 
