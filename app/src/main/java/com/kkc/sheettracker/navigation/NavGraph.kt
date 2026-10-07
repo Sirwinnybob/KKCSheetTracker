@@ -52,6 +52,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -2707,6 +2708,9 @@ private fun LegacySingleStackNavigation(
         supplyCount = supplyNotificationCount,
         safetyCount = safetyNotificationCount
     )
+    // The "hours" composable lives in the NavHost builder; reading the payload through this state keeps
+    // that builder lambda stable so badge-count changes don't rebuild the whole graph.
+    val latestKkcNavBarPayload by rememberUpdatedState(kkcNavBarPayload)
     fun openSheetLegacy(
         jobFolderName: String,
         pdfFilename: String,
@@ -3793,7 +3797,7 @@ private fun LegacySingleStackNavigation(
 
                     androidx.compose.runtime.LaunchedEffect(Unit) {
                         if (legacySessionName != null) {
-                            launchTimecardApp(context, legacySessionName, navBar = kkcNavBarPayload)
+                            launchTimecardApp(context, legacySessionName, navBar = latestKkcNavBarPayload)
                         } else {
                             legacyShowDialog = true
                         }
@@ -3804,7 +3808,7 @@ private fun LegacySingleStackNavigation(
                             onLogin = { name ->
                                 legacySessionName = name
                                 legacyShowDialog = false
-                                launchTimecardApp(context, name, navBar = kkcNavBarPayload)
+                                launchTimecardApp(context, name, navBar = latestKkcNavBarPayload)
                             },
                             onDismiss = { legacyShowDialog = false }
                         )

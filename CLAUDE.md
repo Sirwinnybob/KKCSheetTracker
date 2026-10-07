@@ -71,6 +71,9 @@ Format with `"%.2f"` (two decimal places), never `"%.1f"`. Hub rounds up to near
   `navBar = kkcNavBarPayload` (`HoursNavBarMirrorWiringTest`).
 - Taps come back as `extra_kkc_nav_destination` → `MainActivity.handleKkcNavIntent` → `ExternalNavRequests`
   → `ExternalNavEffect` in BOTH nav hosts, which call the same `navigateFromBar` their own navbar uses.
+- The payload's `blurDisabled`/`shadowsDisabled` are the user's low-end settings only; KKC's own bar also
+  folds in the transient `webViewBlurSuppressed` (3D pane) flag, the mirror intentionally does not.
+- A return tap resets KKC's `IdleActivityTracker` (`handleKkcNavIntent`) so KKC doesn't wake up dimmed.
 - Any change to `AppScaffold.kt` `MorphingNavBar`/`MorphingNavIconRow` (full state), `NavIcons.kt`,
   `IconDsl.kt`, nav entries in `Spacing.kt`, or `labelSmall` in `Type.kt` must be mirrored in HT `kkcnav/`
   in the same session. Contract changes update both `KkcNavBarContract.kt` files and both

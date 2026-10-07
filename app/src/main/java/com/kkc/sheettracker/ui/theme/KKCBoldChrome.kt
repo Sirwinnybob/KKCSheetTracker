@@ -18,6 +18,10 @@ fun boldGradientColors(palette: KKCThemePalette): List<Color> {
     return listOf(palette.primary, end)
 }
 
+// KEEP IN SYNC — Hours Tracker's mirrored navbar rebuilds this brush as `Brush.linearGradient(stops)`
+// from the payload stops in C:\Scripts\Hours Tracker\AndroidApp\app\src\main\java\com\example\timecard\kkcnav\KkcNavBar.kt.
+// If this brush changes (gradient type, direction, stops), check that mirror. See CLAUDE.md
+// "KKC navbar mirror (Hours Tracker)".
 /** A `Brush` built from [boldGradientColors] — the actual fill used by bold-mode chrome. */
 fun boldGradientBrush(palette: KKCThemePalette): Brush = Brush.linearGradient(boldGradientColors(palette))
 
@@ -61,6 +65,10 @@ fun kkcFrostedBaseColor(): Color {
     }
 }
 
+// KEEP IN SYNC — Hours Tracker's mirrored navbar does not recompute this: it receives the resolved
+// color via KkcNavBarPayload.frostedContent (see kkcNavBarPayload in KkcNavBarPayloadBuilder.kt and
+// C:\Scripts\Hours Tracker\AndroidApp\app\src\main\java\com\example\timecard\kkcnav\KkcNavBar.kt).
+// If the frosted base/alpha logic changes, check the mirror. See CLAUDE.md "KKC navbar mirror (Hours Tracker)".
 /**
  * Legible content color for text/icons sitting on a frosted surface tinted by [kkcFrostedBaseColor].
  * Outside bold mode the surface is the neutral `colorScheme.surface`, so `onSurface` is correct.

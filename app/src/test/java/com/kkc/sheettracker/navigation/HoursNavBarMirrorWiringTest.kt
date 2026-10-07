@@ -56,6 +56,9 @@ class HoursNavBarMirrorWiringTest {
         assertEquals(2, Regex("handleKkcNavIntent\\(intent\\)").findAll(mainActivity).count())
         // Recreation after a configuration change re-delivers the original intent; never replay it.
         assertTrue(mainActivity.contains("if (savedInstanceState == null) handleKkcNavIntent(intent)"))
+        // A return tap is user activity: it must wake KKC from DIMMED / SYNC_PAUSED.
+        val handlerBody = mainActivity.substringAfter("private fun handleKkcNavIntent(").substringBefore("private fun handleNotificationIntent(")
+        assertTrue(handlerBody.contains("idleActivityTracker.reset()"))
     }
 
     companion object {

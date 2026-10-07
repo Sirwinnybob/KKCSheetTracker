@@ -783,7 +783,12 @@ class MainActivity : ComponentActivity() {
     private fun handleKkcNavIntent(intent: Intent?) {
         val route = intent?.getStringExtra(KkcNavBarContract.EXTRA_NAV_DESTINATION) ?: return
         intent.removeExtra(KkcNavBarContract.EXTRA_NAV_DESTINATION)
-        if (!ExternalNavRequests.postFromRoute(route)) {
+        if (ExternalNavRequests.postFromRoute(route)) {
+            // A navbar tap in Hours Tracker is user activity: without this, KKC returns DIMMED /
+            // SYNC_PAUSED (forced dark) after >idle timeout because only KKC touches reset the tracker.
+            // Null before onCreate builds it; a fresh tracker starts ACTIVE.
+            if (::idleActivityTracker.isInitialized) idleActivityTracker.reset()
+        } else {
             AppLog.d("KKC_NAV", "external_nav_rejected route=$route")
         }
     }
