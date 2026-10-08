@@ -233,6 +233,18 @@ private fun Material.resolveHeadPage(page: Int): Int {
     return if (head in 1..pageCount) head else page
 }
 
+internal fun resolveSheetViewerRequestedPage(
+    material: Material,
+    visiblePages: List<Int>,
+    localTouchPage: Int?,
+    startPage: Int,
+    isMixScoped: Boolean
+): Int {
+    val resumePage = material.resolveHeadPage(localTouchPage ?: startPage)
+    // The material's last touch may belong to a different mix. Keep this selection scoped.
+    return if (!isMixScoped || resumePage in visiblePages) resumePage else material.resolveHeadPage(startPage)
+}
+
 private data class TableLayoutPrefs(
     val numberDp: Float = 30f,
     val widthDp: Float = 55f,
@@ -815,8 +827,13 @@ fun SheetViewerScreen(
                 val resolved = (localTouchPage ?: startPage).coerceIn(1, nextMaterial.pageCount.coerceAtLeast(1))
                 currentPage = resolved
             } else {
-                val requestedPage = if (selectedMixPages == null) localTouchPage ?: startPage else startPage
-                val requested = nextMaterial.resolveHeadPage(requestedPage)
+                val requested = resolveSheetViewerRequestedPage(
+                    material = nextMaterial,
+                    visiblePages = visiblePages,
+                    localTouchPage = localTouchPage,
+                    startPage = startPage,
+                    isMixScoped = selectedMixPages != null
+                )
                 val identityChanged = oldIdentity != nextIdentity
                 currentPage = when {
                     !identityChanged && currentPage in visiblePages -> currentPage

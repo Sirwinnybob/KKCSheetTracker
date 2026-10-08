@@ -4,6 +4,9 @@ import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import com.kkc.sheettracker.data.IdlePhase
+import com.kkc.sheettracker.data.models.Material
+import com.kkc.sheettracker.data.models.MaterialMetadata
+import com.kkc.sheettracker.data.models.PageMetadata
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -16,6 +19,58 @@ import java.io.File
 import kotlin.math.abs
 
 class SheetViewerScreenTest {
+
+    private val preFinishedMaterial = Material(
+        pdfFilename = "684 - 19mm Pre_Finished.pdf",
+        materialName = "19mm Pre-Finished",
+        pageCount = 8
+    )
+
+    @Test
+    fun requestedPage_restoresSavedSheetInActiveMix() {
+        assertEquals(6, resolveSheetViewerRequestedPage(
+            preFinishedMaterial, listOf(3, 6, 1), localTouchPage = 6, startPage = 3, isMixScoped = true
+        ))
+    }
+
+    @Test
+    fun requestedPage_keepsMixStartWhenSavedSheetIsOutsideMix() {
+        assertEquals(3, resolveSheetViewerRequestedPage(
+            preFinishedMaterial, listOf(3, 6, 1), localTouchPage = 8, startPage = 3, isMixScoped = true
+        ))
+    }
+
+    @Test
+    fun requestedPage_usesStartWhenNoSheetHasBeenSaved() {
+        assertEquals(3, resolveSheetViewerRequestedPage(
+            preFinishedMaterial, listOf(3, 6, 1), localTouchPage = null, startPage = 3, isMixScoped = true
+        ))
+    }
+
+    @Test
+    fun requestedPage_preservesUnscopedMaterialResume() {
+        assertEquals(6, resolveSheetViewerRequestedPage(
+            preFinishedMaterial, (1..8).toList(), localTouchPage = 6, startPage = 1, isMixScoped = false
+        ))
+    }
+
+    @Test
+    fun requestedPage_resolvesSavedContinuationToVisibleMixSheet() {
+        val material = preFinishedMaterial.copy(metadata = MaterialMetadata(pages = listOf(
+            PageMetadata(pageNumber = 6),
+            PageMetadata(pageNumber = 7, isPartListContinuation = true, continuationHeadPage = 6)
+        )))
+        assertEquals(6, resolveSheetViewerRequestedPage(
+            material, listOf(3, 6, 1), localTouchPage = 7, startPage = 3, isMixScoped = true
+        ))
+    }
+
+    @Test
+    fun requestedPage_doesNotResumeIntoEmptyMix() {
+        assertEquals(3, resolveSheetViewerRequestedPage(
+            preFinishedMaterial, emptyList(), localTouchPage = 6, startPage = 3, isMixScoped = true
+        ))
+    }
 
     @Test
     fun shouldInvertCncSheetBitmap_matchesTimeoutAndDarkSheetRules() {
