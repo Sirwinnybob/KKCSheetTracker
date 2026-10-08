@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.os.SystemClock
 import com.kkc.sheettracker.KKCApplication
 import com.kkc.sheettracker.data.JobRepository
 import com.kkc.sheettracker.data.ProgressStore
@@ -66,6 +67,7 @@ import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import sh.calvin.reorderable.ReorderableItem
@@ -536,9 +538,25 @@ internal fun manageCodeScreenPresentation(
     )
 }
 
+/** Time spent compiling the current operation, ticking once a second; null when not compiling. */
+@Composable
+private fun rememberCompileElapsedMs(compiling: Boolean, operationId: String?): Long? {
+    if (!compiling) return null
+    val startedAt = remember(operationId) { SystemClock.elapsedRealtime() }
+    var now by remember(operationId) { mutableLongStateOf(startedAt) }
+    LaunchedEffect(operationId) {
+        while (true) {
+            delay(1_000L)
+            now = SystemClock.elapsedRealtime()
+        }
+    }
+    return now - startedAt
+}
+
 internal fun manageCodeOperationLabel(
     state: ManageCodeOperationUiState,
     session: ManageCodeSession?,
+    compileElapsedMs: Long? = null,
 ): String {
     val completed = session?.completedMaterials ?: 0
     val total = session?.totalMaterials ?: 0
@@ -556,7 +574,13 @@ internal fun manageCodeOperationLabel(
             }
             listOfNotNull(count, programs).joinToString(" — ")
         }
-        ManageCodeOperationUiState.Compiling -> listOfNotNull(count, "Compiling").joinToString(" — ")
+        ManageCodeOperationUiState.Compiling -> {
+            val elapsed = compileElapsedMs?.let { ms ->
+                val seconds = ms / 1_000
+                "%d:%02d".format(seconds / 60, seconds % 60)
+            }
+            listOfNotNull(count, listOfNotNull("Compiling", elapsed).joinToString(" ")).joinToString(" — ")
+        }
         is ManageCodeOperationUiState.Syncing -> listOfNotNull(count, "Syncing").joinToString(" — ")
         ManageCodeOperationUiState.Completed -> {
             val stage = if (session?.warnings?.isNotEmpty() == true || session?.current?.warning != null) {
@@ -1090,20 +1114,24 @@ fun ManageCodeScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            when (operationUiState) {
-                                is ManageCodeOperationUiState.Preparing -> LinearProgressIndicator(
+                            // Compiling has no progress to report; an indeterminate bar would redraw
+                            // every vsync for the whole compile, so it shows an elapsed timer instead.
+                            if (operationUiState is ManageCodeOperationUiState.Preparing) {
+                                LinearProgressIndicator(
                                     progress = { operationUiState.fraction }, modifier = Modifier.fillMaxWidth()
                                 )
-                                ManageCodeOperationUiState.Compiling -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                                else -> Unit
                             }
+                            val compileElapsedMs = rememberCompileElapsedMs(
+                                compiling = operationUiState == ManageCodeOperationUiState.Compiling,
+                                operationId = operationSession?.current?.id,
+                            )
                             Text(
                                 when {
                                     restoreState == MixOperationRestoreState.Restoring -> "Restoring prior session…"
                                     screenPresentation.canRetryRestore -> "Retry session restore"
                                     catalogChangedFailure -> "Refresh catalog and choose again"
                                     isRetryable -> "Retry — ${manageCodeOperationLabel(operationUiState, operationSession)}"
-                                    else -> manageCodeOperationLabel(operationUiState, operationSession)
+                                    else -> manageCodeOperationLabel(operationUiState, operationSession, compileElapsedMs)
                                 },
                             )
                         }

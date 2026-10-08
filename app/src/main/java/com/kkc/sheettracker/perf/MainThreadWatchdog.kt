@@ -21,7 +21,8 @@ data class MainThreadStall(
  * Detects a blocked main thread, which CPU% can never see: a hang on I/O or a lock costs no CPU.
  * Once a second it posts a no-op to the main looper; if that has not run within [stallMs] the main
  * thread is stuck, and its stack is captured right then so the log names the blocking call.
- * Uses uptime rather than wall time, so a suspended device does not read as a stall.
+ * Uses uptime rather than wall time, so a suspended device does not read as a stall; see
+ * [StallTimeline] for the process-freeze case uptime alone does not cover.
  */
 class MainThreadWatchdog(
     private val scope: CoroutineScope,
@@ -39,22 +40,19 @@ class MainThreadWatchdog(
     fun start() {
         scope.launch {
             var probe = post()
-            var pendingSince = SystemClock.uptimeMillis()
-            var stallReported = false
+            val timeline = StallTimeline(stallMs, probeIntervalMs, startMs = SystemClock.uptimeMillis())
             while (isActive) {
                 delay(probeIntervalMs)
-                val now = SystemClock.uptimeMillis()
-                val ranAt = probe.ranAtMs
-                if (ranAt != 0L) {
-                    if (stallReported) {
-                        onStall(MainThreadStall(blockedMs = ranAt - pendingSince, stack = emptyList(), ended = true))
-                        stallReported = false
+                when (val step = timeline.onTick(SystemClock.uptimeMillis(), probe.ranAtMs)) {
+                    is StallTimeline.Step.ProbeAnswered -> {
+                        step.endedStallMs?.let {
+                            onStall(MainThreadStall(blockedMs = it, stack = emptyList(), ended = true))
+                        }
+                        probe = post()
                     }
-                    probe = post()
-                    pendingSince = now
-                } else if (!stallReported && now - pendingSince >= stallMs) {
-                    stallReported = true
-                    onStall(MainThreadStall(blockedMs = now - pendingSince, stack = captureMainThreadStack(), ended = false))
+                    is StallTimeline.Step.StallDetected ->
+                        onStall(MainThreadStall(blockedMs = step.blockedMs, stack = captureMainThreadStack(), ended = false))
+                    StallTimeline.Step.Waiting -> Unit
                 }
             }
         }
@@ -66,6 +64,59 @@ class MainThreadWatchdog(
         return probe
     }
 
+}
+
+/**
+ * The watchdog's bookkeeping, one call per tick, kept free of Android so it can be unit tested.
+ *
+ * Android's cached-app freezer stops every thread in the process, the watchdog's included, while
+ * uptime keeps counting. On thaw the old probe is still unanswered and the gap looks like a
+ * main-thread stall (field log: a "15 s stall" at 0.5% CPU while backgrounded). A tick that
+ * arrives far later than [probeIntervalMs] means the watchdog itself was not running, so the time
+ * since the last tick is not blamed on the main thread.
+ */
+internal class StallTimeline(
+    private val stallMs: Long,
+    private val probeIntervalMs: Long,
+    startMs: Long
+) {
+    sealed interface Step {
+        /** The main thread ran the probe; post a new one. [endedStallMs] closes a reported stall. */
+        data class ProbeAnswered(val endedStallMs: Long?) : Step
+        /** The main thread has been stuck for [blockedMs]; capture its stack now. */
+        data class StallDetected(val blockedMs: Long) : Step
+        data object Waiting : Step
+    }
+
+    private var pendingSince = startMs
+    private var lastTickAt = startMs
+    private var stallReported = false
+
+    /** [probeRanAtMs] is when the main thread ran the current probe, or 0 if it has not yet. */
+    fun onTick(nowMs: Long, probeRanAtMs: Long): Step {
+        val overslept = nowMs - lastTickAt > probeIntervalMs + stallMs
+        val previousTickAt = lastTickAt
+        lastTickAt = nowMs
+        if (probeRanAtMs != 0L) {
+            val ended = if (stallReported) {
+                if (overslept) previousTickAt - pendingSince else probeRanAtMs - pendingSince
+            } else {
+                null
+            }
+            stallReported = false
+            pendingSince = nowMs
+            return Step.ProbeAnswered(ended)
+        }
+        if (overslept && !stallReported) {
+            pendingSince = nowMs
+            return Step.Waiting
+        }
+        if (!stallReported && nowMs - pendingSince >= stallMs) {
+            stallReported = true
+            return Step.StallDetected(nowMs - pendingSince)
+        }
+        return Step.Waiting
+    }
 }
 
 private const val MAX_STACK_FRAMES = 30

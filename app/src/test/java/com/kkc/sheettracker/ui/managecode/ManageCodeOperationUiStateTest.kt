@@ -62,6 +62,17 @@ class ManageCodeOperationUiStateTest {
     }
 
     @Test
+    fun `compiling copy shows elapsed time once it is known`() {
+        val compiling = session(stage = "compiling")
+        val state = ManageCodeOperationUiState.from(compiling, "648")
+
+        assertEquals("0 / 2 — Compiling", manageCodeOperationLabel(state, compiling))
+        assertEquals("0 / 2 — Compiling 0:00", manageCodeOperationLabel(state, compiling, compileElapsedMs = 400L))
+        assertEquals("0 / 2 — Compiling 1:05", manageCodeOperationLabel(state, compiling, compileElapsedMs = 65_900L))
+        assertEquals("0 / 2 — Compiling 12:00", manageCodeOperationLabel(state, compiling, compileElapsedMs = 720_000L))
+    }
+
+    @Test
     fun `unreachable service keeps persisted job session state visible`() {
         val persisted = session(stage = "compiling")
 
