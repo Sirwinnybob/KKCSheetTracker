@@ -83,4 +83,3 @@ try {
     }
     Write-Output "Published $PackageName $VersionName ($VersionCode): $target"
 } finally { $publishLock.Dispose() }
-
