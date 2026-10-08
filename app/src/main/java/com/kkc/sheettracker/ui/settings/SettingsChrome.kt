@@ -210,7 +210,9 @@ internal fun SettingsRail(
         modifier = modifier
             .width(240.dp)
             .verticalScroll(rememberScrollState())
-            .padding(bottom = bottomClearance)
+            // Inside the scroll container: verticalScroll clips to its bounds, so the card's
+            // shadow needs this inset to render instead of being cut at the viewport edge.
+            .padding(start = 4.dp, top = 4.dp, end = 4.dp, bottom = bottomClearance + 4.dp)
     ) {
         Column(
             modifier = Modifier

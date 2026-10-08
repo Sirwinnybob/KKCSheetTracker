@@ -17,6 +17,16 @@ class SettingsIconsTest {
     }
 
     @Test
+    fun selectedVariantAddsGeometryOverUnselected() {
+        // Each selected icon adds a DUOTONE body path, so it must have more root nodes.
+        SettingsSection.entries.forEach {
+            val selected = it.icon(true).root.size
+            val unselected = it.icon(false).root.size
+            assertTrue("${it.name}: selected=$selected unselected=$unselected", selected > unselected)
+        }
+    }
+
+    @Test
     fun iconsBelongToTheSettingsFamily() {
         all.forEach { assertTrue(it.name, it.name.startsWith("Settings")) }
     }
