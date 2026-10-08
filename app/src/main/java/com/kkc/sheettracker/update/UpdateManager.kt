@@ -113,17 +113,12 @@ class UpdateManager(
     /** Background: directory walks + APK parsing only — no Compose state writes, no dialogs. */
     private fun scanForUpdates(checkSelf: Boolean): UpdateScanResult {
         val selfUpdateDir = findUpdateDirectory()
-        val releaseUpdateDir = findReleaseUpdateDirectory()
         val selfApk = if (checkSelf && selfUpdateDir != null) {
             computeSelfUpdateApk(selfUpdateDir)
         } else {
             null
         }
-        val externalUpdates = if (releaseUpdateDir != null) {
-            computeExternalUpdates(releaseUpdateDir)
-        } else {
-            emptyList()
-        }
+        val externalUpdates = computeExternalUpdates()
         return UpdateScanResult(selfUpdateDir, selfApk, externalUpdates)
     }
 
@@ -144,7 +139,7 @@ class UpdateManager(
             return
         }
 
-        val apkFiles = updateDir.listFiles { _, name -> name.lowercase().endsWith(".apk") }
+        val apkFiles = UpdateDirectories.apks(updateDir)
         if (apkFiles.isNullOrEmpty()) {
             Toast.makeText(activity, "No APK files found", Toast.LENGTH_SHORT).show()
             return
@@ -171,54 +166,34 @@ class UpdateManager(
         }
     }
 
-    /**
-     * Shared custom-path read + JOB_FOLDER_NAMES walk for both finders.
-     * [subfolders] selects the update-folder set (debug `.Testing_Updates` vs release `.Updates`/
-     * `Updates`). When [recordResolved] is true (self-update path) the match is stored in
-     * resolvedUpdatePath and a stale custom path is cleared — matching the prior
-     * findUpdateDirectory behavior; the release finder passes false (record/clear neither).
-     */
-    private fun resolveUpdateDir(subfolders: Array<String>, recordResolved: Boolean): File? {
+    /** Package-specific canonical feed, with a legacy fallback during tablet migration. */
+    private fun resolveUpdateDir(debug: Boolean, packageName: String, recordResolved: Boolean): File? {
         val prefs = activity.getSharedPreferences(PREFS_NAME, Activity.MODE_PRIVATE)
         val customPath = prefs.getString(PREF_CUSTOM_UPDATE_PATH, null)
-        if (customPath != null) {
-            val customDir = File(customPath)
-            if (customDir.exists() && customDir.isDirectory) {
-                if (recordResolved) resolvedUpdatePath = customPath
-                return customDir
-            } else if (recordResolved) {
+        val directory = UpdateDirectories.find(
+            Environment.getExternalStorageDirectory(), packageName, debug, customPath
+        )
+        if (recordResolved) {
+            resolvedUpdatePath = directory?.absolutePath
+            if (customPath != null && !File(customPath).isDirectory) {
                 prefs.edit().remove(PREF_CUSTOM_UPDATE_PATH).apply()
             }
         }
-
-        val storageRoot = Environment.getExternalStorageDirectory()
-        for (jobFolder in JOB_FOLDER_NAMES) {
-            val jobDir = File(storageRoot, jobFolder)
-            if (!jobDir.exists() || !jobDir.isDirectory) continue
-            for (updateSubfolder in subfolders) {
-                val updateDir = File(jobDir, updateSubfolder)
-                if (updateDir.exists() && updateDir.isDirectory) {
-                    if (recordResolved) resolvedUpdatePath = updateDir.absolutePath
-                    return updateDir
-                }
-            }
-        }
-        return null
+        return directory
     }
 
     private fun findUpdateDirectory(): File? {
         val isDebug = (activity.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-        val subfolders = if (isDebug) arrayOf(".Testing_Updates") else arrayOf(".Updates", "Updates")
-        return resolveUpdateDir(subfolders, recordResolved = true)
+        return resolveUpdateDir(isDebug, activity.packageName, recordResolved = true)
     }
 
-    private fun findReleaseUpdateDirectory(): File? =
-        resolveUpdateDir(arrayOf(".Updates", "Updates"), recordResolved = false)
+    private fun findReleaseUpdateDirectory(packageName: String): File? =
+        resolveUpdateDir(debug = false, packageName = packageName, recordResolved = false)
 
     /** Pure: returns the newest valid self-update APK in [updateDir], or null. No state writes. */
     private fun computeSelfUpdateApk(updateDir: File): File? {
         if (!updateDir.exists() || !updateDir.isDirectory) return null
-        val apkFiles = updateDir.listFiles { _, name -> name.lowercase().endsWith(".apk") }
+        val apkFiles = UpdateDirectories.apks(updateDir)
         if (apkFiles.isNullOrEmpty()) return null
 
         val currentVersionCode = getCurrentVersionCode()
@@ -238,49 +213,19 @@ class UpdateManager(
         return newestApk
     }
 
-    /** Pure: returns the list of pending external-app updates in [updateDir]. No state writes. */
-    private fun computeExternalUpdates(updateDir: File): List<ExternalAppUpdate> {
-        if (!updateDir.exists() || !updateDir.isDirectory) {
-            return emptyList()
-        }
-        val apkFiles = updateDir.listFiles { _, name -> name.lowercase().endsWith(".apk") }
-        if (apkFiles.isNullOrEmpty()) {
-            return emptyList()
-        }
-
-        val newestMap = mutableMapOf<String, ApkInfo>()
-        for (apk in apkFiles) {
-            val info = getApkInfo(apk) ?: continue
-            val existing = newestMap[info.packageName]
-            if (existing == null || 
-                info.versionCode > existing.versionCode ||
-                (info.versionCode == existing.versionCode && apk.lastModified() > existing.file.lastModified())
-            ) {
-                newestMap[info.packageName] = info
-            }
-        }
-
-        val externalList = mutableListOf<ExternalAppUpdate>()
-        for (app in externalApps) {
+    /** Each external app is scanned only in its own package feed (or the legacy shared folder). */
+    private fun computeExternalUpdates(): List<ExternalAppUpdate> {
+        return externalApps.mapNotNull { app ->
             val installedVersion = getInstalledVersionCode(app.packageName)
-            if (installedVersion == -1L) {
-                continue
-            }
-
-            val appInfo = newestMap[app.packageName]
-            if (appInfo != null && appInfo.versionCode > installedVersion) {
-                externalList.add(
-                    ExternalAppUpdate(
-                        packageName = app.packageName,
-                        appName = app.appName,
-                        apkFile = appInfo.file,
-                        versionCode = appInfo.versionCode,
-                        versionName = appInfo.versionName
-                    )
-                )
-            }
+            if (installedVersion == -1L) return@mapNotNull null
+            val directory = findReleaseUpdateDirectory(app.packageName) ?: return@mapNotNull null
+            val newest = UpdateDirectories.apks(directory)
+                .mapNotNull { getApkInfo(it) }
+                .filter { it.packageName == app.packageName && it.versionCode > installedVersion }
+                .maxWithOrNull(compareBy<ApkInfo> { it.versionCode }.thenBy { it.file.lastModified() })
+                ?: return@mapNotNull null
+            ExternalAppUpdate(app.packageName, app.appName, newest.file, newest.versionCode, newest.versionName)
         }
-        return externalList
     }
 
     private fun getApkInfo(apkFile: File): ApkInfo? {
@@ -330,7 +275,7 @@ class UpdateManager(
             inputType = InputType.TYPE_CLASS_TEXT
             setText(basePath)
             setSelection(basePath.length)
-            hint = "e.g., ${basePath}Ready Jobs/.Updates"
+            hint = "e.g., ${basePath}Ready Jobs/.appupdates/apps/com.kkc.sheettracker"
         }
 
         AlertDialog.Builder(activity)
@@ -338,7 +283,7 @@ class UpdateManager(
             .setMessage(
                 "Could not find the updates folder.\n\n" +
                     "Searched for (based on build type):\n" +
-                    "• Ready Jobs/.Updates\n" +
+                    "• Ready Jobs/.appupdates/apps/com.kkc.sheettracker\n" +
                     "• Ready Jobs/.Testing_Updates\n" +
                     "• Jobs/.Updates\n\n" +
                     "Please enter the full path to your updates folder:"
