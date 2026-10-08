@@ -29,7 +29,8 @@ data class ExternalAppUpdate(
     val appName: String,
     val apkFile: File,
     val versionCode: Long,
-    val versionName: String
+    val versionName: String,
+    val isInstalled: Boolean = true
 )
 
 data class ApkInfo(
@@ -216,16 +217,10 @@ class UpdateManager(
 
     /** Each external app is scanned only in its own package feed (or the legacy shared folder). */
     private fun computeExternalUpdates(): List<ExternalAppUpdate> {
-        return externalApps.mapNotNull { app ->
-            val installedVersion = getInstalledVersionCode(app.packageName)
-            if (installedVersion == -1L) return@mapNotNull null
-            val directory = findReleaseUpdateDirectory(app.packageName) ?: return@mapNotNull null
-            val newest = UpdateDirectories.apks(directory)
-                .mapNotNull { getApkInfo(it) }
-                .filter { it.packageName == app.packageName && it.versionCode > installedVersion }
-                .maxWithOrNull(compareBy<ApkInfo> { it.versionCode }.thenBy { it.file.lastModified() })
-                ?: return@mapNotNull null
-            ExternalAppUpdate(app.packageName, app.appName, newest.file, newest.versionCode, newest.versionName)
+        return findExternalAppUpdates(externalApps, ::getInstalledVersionCode) { packageName ->
+            val directory = findReleaseUpdateDirectory(packageName)
+            if (directory == null) emptyList()
+            else UpdateDirectories.apks(directory).mapNotNull { getApkInfo(it) }
         }
     }
 
@@ -254,7 +249,7 @@ class UpdateManager(
         }
     }
 
-    private fun getInstalledVersionCode(packageName: String): Long {
+    private fun getInstalledVersionCode(packageName: String): Long? {
         return try {
             val pInfo = activity.packageManager.getPackageInfo(packageName, 0)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) pInfo.longVersionCode
@@ -266,7 +261,7 @@ class UpdateManager(
             -1L
         } catch (e: Exception) {
             Log.e(TAG, "Error checking if package $packageName is installed", e)
-            -1L
+            null
         }
     }
 

@@ -8,6 +8,12 @@ Settings detects and installs updates for all four packages as of 8.7.12; Hours
 Tracker, Assimp, and VNC Cast also resolve their own package folder. Each app still
 validates the APK's actual package and version. This does not require updater-agent.
 
+As of Sheet Tracker 8.7.13, Settings also offers **Install** for missing Assimp
+(Room Viewer), Hours Tracker, and VNC Cast apps when a matching APK is available.
+Installed apps receive an **Update** offer only for newer versions. An unexpected
+package lookup failure skips that app until a later scan; it is not treated as a
+missing installation. Each action uses Android's existing installer confirmation.
+
 The release publishers are `KKCSheetTracker/deploy_update.ps1`,
 `Hours Tracker/AndroidApp/deploy_release.ps1`, and
 `Assimp/AssimpAndroid/deploy_update.ps1`, and `VNCCast/deploy-android.ps1`.

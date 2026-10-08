@@ -260,7 +260,7 @@ fun SettingsScreen(
                         ) {
                             Text("${update.appName} ${update.versionName} available")
                             Button(onClick = { onInstallExternalUpdate(update) }) {
-                                Text("Update")
+                                Text(if (update.isInstalled) "Update" else "Install")
                             }
                         }
                     }
