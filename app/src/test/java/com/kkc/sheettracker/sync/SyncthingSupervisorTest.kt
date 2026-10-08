@@ -354,10 +354,13 @@ class SyncthingSupervisorTest {
     fun `foreground check reconciles the current idle phase`() = runBlocking {
         val controller = FakeSyncController(running = true)
         val phase = MutableStateFlow(IdlePhase.SYNC_PAUSED)
-        val dispatcher = PausingCoroutineDispatcher()
+        val dispatcher = PausingCoroutineDispatcher(object : CoroutineDispatcher() {
+            override fun dispatch(context: CoroutineContext, block: Runnable) = block.run()
+        })
         val supervisor = foregroundTestSupervisor(
             controller = controller,
-            scope = CoroutineScope(SupervisorJob() + dispatcher)
+            scope = CoroutineScope(SupervisorJob() + dispatcher),
+            ioDispatcher = dispatcher
         )
 
         supervisor.startMonitoring()
@@ -376,9 +379,10 @@ class SyncthingSupervisorTest {
             supervisor.setAppForeground(true)
             supervisor.checkNow()
 
+            // Keep both phase observers queued while the health check reads the current phase.
+            // Sharing the controlled dispatcher for I/O avoids a real-thread resume race.
             dispatcher.runNewest()
-            waitUntil(2_000L) { dispatcher.queuedCount() == 3 }
-            dispatcher.runNewest()
+            assertEquals(2, dispatcher.queuedCount())
 
             assertEquals(1, controller.pauseCalls)
         } finally {
@@ -390,7 +394,8 @@ class SyncthingSupervisorTest {
 
 private fun foregroundTestSupervisor(
     controller: FakeSyncController,
-    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) = SyncthingSupervisor(
     context = null,
     runtimeConfig = SyncthingRuntimeConfig(
@@ -398,6 +403,7 @@ private fun foregroundTestSupervisor(
     ),
     preferencesStore = FakeSyncthingPreferencesStore("api-key"),
     scope = scope,
+    ioDispatcher = ioDispatcher,
     managerFactory = { controller }
 )
 

@@ -1002,7 +1002,7 @@ class MixOperationCoordinatorTest {
         coordinator.restore()
         withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
         coordinator.start(session())
-        withTimeout(1_000) { coordinator.sessions.first { it["648"]?.currentAction == null } }
+        withTimeout(1_000) { coordinator.sessions.first { it["648"]?.isCompletedSuccessfully == true } }
         assertEquals(1, service.submitCount)
 
         val replacement = session().copy(
