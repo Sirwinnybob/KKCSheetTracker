@@ -144,18 +144,10 @@ fun SettingsScreen(
     var idleTimeoutSecondsText by remember(idlePowerSaveConfig.idleTimeoutSeconds) {
         mutableStateOf(idlePowerSaveConfig.idleTimeoutSeconds.toString())
     }
-    var syncthingPauseTimeoutSecondsText by remember(idlePowerSaveConfig.syncthingPauseTimeoutSeconds) {
-        mutableStateOf(idlePowerSaveConfig.syncthingPauseTimeoutSeconds.toString())
-    }
     LaunchedEffect(idleTimeoutSecondsText) {
         val seconds = idleTimeoutSecondsText.toIntOrNull() ?: return@LaunchedEffect
         delay(500L)
         idlePowerSaveStore.setIdleTimeoutSeconds(seconds)
-    }
-    LaunchedEffect(syncthingPauseTimeoutSecondsText) {
-        val seconds = syncthingPauseTimeoutSecondsText.toIntOrNull() ?: return@LaunchedEffect
-        delay(500L)
-        idlePowerSaveStore.setSyncthingPauseTimeoutSeconds(seconds)
     }
 
     LaunchedEffect(tabletSaved) {
@@ -686,17 +678,6 @@ fun SettingsScreen(
                         onValueChange = { text -> idleTimeoutSecondsText = text },
                         label = { Text("Dim after (seconds)") },
                         supportingText = { Text("Lower values (e.g. 5) are useful for testing. Default 300 (5 min).") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        colors = filledFieldColors(),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    OutlinedTextField(
-                        value = syncthingPauseTimeoutSecondsText,
-                        onValueChange = { text -> syncthingPauseTimeoutSecondsText = text },
-                        label = { Text("Pause Syncthing after (seconds)") },
-                        supportingText = { Text("Default 1800 (30 min).") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         colors = filledFieldColors(),
                         modifier = Modifier.fillMaxWidth(),

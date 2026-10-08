@@ -296,7 +296,6 @@ class MainActivity : ComponentActivity() {
         )
         idleActivityTracker = IdleActivityTracker(config = idlePowerSaveConfig)
         idleActivityTracker.start()
-        syncthingSupervisor.observeIdlePhase(idleActivityTracker.phase)
 
         val baseDir = File(basePath)
         val jobRepository = JobRepository(baseDir, isDebugBuild = BuildConfig.DEBUG)
