@@ -1,5 +1,10 @@
 package com.kkc.sheettracker.update
 
+internal fun hasPendingUpdateNotification(
+    hasSelfUpdate: Boolean,
+    externalOffers: List<ExternalAppUpdate>
+): Boolean = hasSelfUpdate || externalOffers.any { it.isInstalled }
+
 /** A version of -1 means absent; null means the installed version could not be determined. */
 internal fun findExternalAppUpdates(
     apps: List<ExternalApp>,

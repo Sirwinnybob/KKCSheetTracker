@@ -93,6 +93,7 @@ import com.kkc.sheettracker.ui.theme.KKCTheme
 import com.kkc.sheettracker.ui.theme.SharedPreferencesKKCThemePreferenceStore
 import com.kkc.sheettracker.update.UpdateManager
 import com.kkc.sheettracker.update.ExternalAppUpdate
+import com.kkc.sheettracker.update.hasPendingUpdateNotification
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -453,7 +454,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onReinstallLatest = { updateManager.reinstallLatest() },
                         onCheckForUpdates = { updateManager.checkForUpdates(checkSelf = true) },
-                        hasPendingUpdates = updateManager.pendingUpdateApk != null || updateManager.pendingExternalUpdates.isNotEmpty(),
+                        hasPendingUpdates = hasPendingUpdateNotification(updateManager.pendingUpdateApk != null, updateManager.pendingExternalUpdates),
                         pendingSelfUpdate = updateManager.pendingUpdateApk,
                         pendingExternalUpdates = updateManager.pendingExternalUpdates,
                         onInstallSelfUpdate = { updateManager.installPendingUpdate() },

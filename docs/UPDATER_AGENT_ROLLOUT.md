@@ -13,6 +13,8 @@ As of Sheet Tracker 8.7.13, Settings also offers **Install** for missing Assimp
 Installed apps receive an **Update** offer only for newer versions. An unexpected
 package lookup failure skips that app until a later scan; it is not treated as a
 missing installation. Each action uses Android's existing installer confirmation.
+Install offers for missing apps do not trigger the Settings notification dot;
+the dot indicates updates for Sheet Tracker or an already installed companion app.
 
 The release publishers are `KKCSheetTracker/deploy_update.ps1`,
 `Hours Tracker/AndroidApp/deploy_release.ps1`, and

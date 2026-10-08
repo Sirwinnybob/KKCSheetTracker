@@ -84,4 +84,36 @@ class ExternalAppUpdatesTest {
 
         assertEquals(newer.file, offer.apkFile)
     }
+
+    @Test fun missingAppInstallOffersDoNotShowTheNotificationDot() {
+        val offers = findExternalAppUpdates(apps, { -1L }, { listOf(apk(it, 5)) })
+
+        assertEquals(3, offers.size)
+        assertFalse(hasPendingUpdateNotification(false, offers))
+    }
+
+    @Test fun anInstalledAppUpdateShowsTheNotificationDot() {
+        val offers = findExternalAppUpdates(listOf(apps[1]), { 162L }, { listOf(apk(it, 163)) })
+
+        assertTrue(hasPendingUpdateNotification(false, offers))
+    }
+
+    @Test fun aSelfUpdateShowsTheDotEvenWhenAllCompanionAppsAreMissing() {
+        val offers = findExternalAppUpdates(apps, { -1L }, { listOf(apk(it, 5)) })
+
+        assertTrue(hasPendingUpdateNotification(true, offers))
+    }
+
+    @Test fun anInstalledUpdateStillShowsTheDotAlongsideAMissingAppOffer() {
+        val offers = findExternalAppUpdates(apps.take(2), {
+            if (it == apps[0].packageName) -1L else 162L
+        }, { listOf(apk(it, 163)) })
+
+        assertEquals(2, offers.size)
+        assertTrue(hasPendingUpdateNotification(false, offers))
+    }
+
+    @Test fun noUpdatesOrInstallOffersDoNotShowTheNotificationDot() {
+        assertFalse(hasPendingUpdateNotification(false, emptyList()))
+    }
 }

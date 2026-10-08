@@ -44,7 +44,7 @@ class MainActivityUpdateWiringTest {
     fun realUpdateStateIsWiredIntoAppNavigation() {
         val mainActivitySource = SourceFiles.mainSource("com/kkc/sheettracker/MainActivity.kt").readText()
 
-        assertTrue("MainActivity.kt must pass hasPendingUpdates into AppNavigation", mainActivitySource.contains("hasPendingUpdates = updateManager.pendingUpdateApk != null || updateManager.pendingExternalUpdates.isNotEmpty()"))
+        assertTrue("MainActivity.kt must pass the update-only notification state into AppNavigation", mainActivitySource.contains("hasPendingUpdates = hasPendingUpdateNotification(updateManager.pendingUpdateApk != null, updateManager.pendingExternalUpdates)"))
         assertTrue("MainActivity.kt must pass pendingSelfUpdate into AppNavigation", mainActivitySource.contains("pendingSelfUpdate = updateManager.pendingUpdateApk"))
         assertTrue("MainActivity.kt must pass pendingExternalUpdates into AppNavigation", mainActivitySource.contains("pendingExternalUpdates = updateManager.pendingExternalUpdates"))
         assertTrue("MainActivity.kt must wire onInstallAll to install Hours Tracker before itself", mainActivitySource.contains("onInstallAll = {"))
