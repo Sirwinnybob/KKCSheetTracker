@@ -63,6 +63,30 @@ Format with `"%.2f"` (two decimal places), never `"%.1f"`. Hub rounds up to near
 - Punches under 7 minutes are deleted silently (accidental clock-in/out)
 - Hub timezone: `TZ=America/Los_Angeles` in docker-compose — handles DST automatically
 
+### KKC navbar mirror (Hours Tracker)
+- Hours Tracker (`com.example.timecard`, repo `C:\Scripts\Hours Tracker\AndroidApp`) draws a copy of
+  this app's bottom navbar when KKC launches it. Copy lives in HT `app/src/main/java/com/example/timecard/kkcnav/`.
+- KKC sends the resolved look as `extra_kkc_navbar_*` extras (`navigation/KkcNavBarContract.kt`, built by
+  `currentKkcNavBarPayload` in `KkcNavBarPayloadBuilder.kt`). Every `launchTimecardApp(` call must pass
+  `navBar = kkcNavBarPayload` (`HoursNavBarMirrorWiringTest`).
+- Contract v2: the bar follows **Hours Tracker's** light/dark mode (live, via its own theme toggle), so KKC
+  sends BOTH resolved color sets (`*_light` / `*_dark` extras; no single `dark` flag) — computed from the
+  active tokens via `toColorScheme(false/true)` and the non-composable `kkcFrostedBaseColor/ContentColor`
+  overloads in `KKCBoldChrome.kt`. HT floats the bar over full-height content (no bottom inset), like KKC.
+- HT-only styling (no KKC counterpart, do NOT mirror into KKC): KKC's colors are used only for HT's standard
+  theme; an equipped HT immersive theme colors the bar from that theme, and the LCARS theme replaces the bar
+  with destination blocks in its LCARS frame band. HT also picks bold-mode on-glass text against its own
+  canvas, so the payload's `frostedContent` is not what HT draws. See HT `AGENTS.md` "KKC navbar mirror".
+- Taps come back as `extra_kkc_nav_destination` → `MainActivity.handleKkcNavIntent` → `ExternalNavRequests`
+  → `ExternalNavEffect` in BOTH nav hosts, which call the same `navigateFromBar` their own navbar uses.
+- The payload's `blurDisabled`/`shadowsDisabled` are the user's low-end settings only; KKC's own bar also
+  folds in the transient `webViewBlurSuppressed` (3D pane) flag, the mirror intentionally does not.
+- A return tap resets KKC's `IdleActivityTracker` (`handleKkcNavIntent`) so KKC doesn't wake up dimmed.
+- Any change to `AppScaffold.kt` `MorphingNavBar`/`MorphingNavIconRow` (full state), `NavIcons.kt`,
+  `IconDsl.kt`, nav entries in `Spacing.kt`, or `labelSmall` in `Type.kt` must be mirrored in HT `kkcnav/`
+  in the same session. Contract changes update both `KkcNavBarContract.kt` files and both
+  `KkcNavBarContractTest` CANONICAL_KEYS lists, and bump `VERSION` on both sides.
+
 ## Build
 
 **Tablet deployment (release build — default for production tablets):**

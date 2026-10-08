@@ -52,6 +52,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -756,6 +757,11 @@ private fun MultiBackStackNavigation(
             }
         }
     }
+    val kkcNavBarPayload = currentKkcNavBarPayload(
+        destinations = visibleDestinations,
+        supplyCount = supplyNotificationCount,
+        safetyCount = safetyNotificationCount
+    )
 
     val jobsBackStack by jobsNavController.currentBackStackEntryAsState()
     val jobsCurrentRoute = jobsBackStack?.destination?.route
@@ -1090,7 +1096,8 @@ private fun MultiBackStackNavigation(
                     HoursTabHost(
                         navController = hoursNavController,
                         employeeName = employeeName,
-                        isTabSelected = selectedTab == TopLevelTab.HOURS
+                        isTabSelected = selectedTab == TopLevelTab.HOURS,
+                        navBar = kkcNavBarPayload
                     )
                 }
 
@@ -1191,7 +1198,7 @@ private fun MultiBackStackNavigation(
                         suggestions = employeeLoginSuggestions(employeeName),
                         onLogin = { name ->
                             showHoursLoginDialog = false
-                            launchTimecardApp(context, EmployeeDirectory.resolveNameOrPin(name))
+                            launchTimecardApp(context, EmployeeDirectory.resolveNameOrPin(name), navBar = kkcNavBarPayload)
                         },
                         onDismiss = { showHoursLoginDialog = false }
                     )
@@ -1220,7 +1227,7 @@ private fun MultiBackStackNavigation(
                         actualElapsedMs = pending.actualElapsedMs,
                         onConfirm = { hours ->
                             pendingClockOut = null
-                            launchTimecardApp(context, employeeName.ifBlank { null }, pending.jobNumber, hours.toString())
+                            launchTimecardApp(context, employeeName.ifBlank { null }, pending.jobNumber, hours.toString(), navBar = kkcNavBarPayload)
                         },
                         onDismiss = { pendingClockOut = null }
                     )
@@ -1229,6 +1236,24 @@ private fun MultiBackStackNavigation(
             } // hazeSource Box
         }
         } // CompositionLocalProvider
+
+        val navigateFromBar: (NavDestination) -> Unit = { dest ->
+            if (dest == NavDestination.HOURS) {
+                launchTimecardApp(context, employeeName.takeIf { it.isNotBlank() }, navBar = kkcNavBarPayload)
+            } else {
+                val targetTab = TopLevelTab.fromDestination(dest)
+                if ((selectedTab == TopLevelTab.JOBS || selectedTab == TopLevelTab.SUPPLY) &&
+                    (targetTab == TopLevelTab.JOBS || targetTab == TopLevelTab.SUPPLY)) {
+                    navBarDeco.keepSearchDeco = true
+                }
+                coordinator.navigateTopLevel(targetTab)
+            }
+        }
+        ExternalNavEffect(
+            visibleDestinations = visibleDestinations,
+            navigate = navigateFromBar,
+            openCalculator = { calculatorState.setOpen(true) }
+        )
 
         // Nav bar as true overlay — hazeSource extends behind it so frosted glass works correctly
         Box(modifier = Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.BottomCenter) {
@@ -1248,18 +1273,7 @@ private fun MultiBackStackNavigation(
                 specialtyDecoration = navBarDeco.specialtyDecoration,
                 penDecoration = navBarDeco.penDecoration,
                 extendedControls = navBarDeco.extendedControls,
-                onNavigate = { dest ->
-                    if (dest == NavDestination.HOURS) {
-                        launchTimecardApp(context, employeeName.takeIf { it.isNotBlank() })
-                    } else {
-                        val targetTab = TopLevelTab.fromDestination(dest)
-                        if ((selectedTab == TopLevelTab.JOBS || selectedTab == TopLevelTab.SUPPLY) &&
-                            (targetTab == TopLevelTab.JOBS || targetTab == TopLevelTab.SUPPLY)) {
-                            navBarDeco.keepSearchDeco = true
-                        }
-                        coordinator.navigateTopLevel(targetTab)
-                    }
-                }
+                onNavigate = navigateFromBar
             )
         }
 
@@ -2689,6 +2703,14 @@ private fun LegacySingleStackNavigation(
             }
         }
     }
+    val kkcNavBarPayload = currentKkcNavBarPayload(
+        destinations = visibleDestinations,
+        supplyCount = supplyNotificationCount,
+        safetyCount = safetyNotificationCount
+    )
+    // The "hours" composable lives in the NavHost builder; reading the payload through this state keeps
+    // that builder lambda stable so badge-count changes don't rebuild the whole graph.
+    val latestKkcNavBarPayload by rememberUpdatedState(kkcNavBarPayload)
     fun openSheetLegacy(
         jobFolderName: String,
         pdfFilename: String,
@@ -3775,7 +3797,7 @@ private fun LegacySingleStackNavigation(
 
                     androidx.compose.runtime.LaunchedEffect(Unit) {
                         if (legacySessionName != null) {
-                            launchTimecardApp(context, legacySessionName)
+                            launchTimecardApp(context, legacySessionName, navBar = latestKkcNavBarPayload)
                         } else {
                             legacyShowDialog = true
                         }
@@ -3786,7 +3808,7 @@ private fun LegacySingleStackNavigation(
                             onLogin = { name ->
                                 legacySessionName = name
                                 legacyShowDialog = false
-                                launchTimecardApp(context, name)
+                                launchTimecardApp(context, name, navBar = latestKkcNavBarPayload)
                             },
                             onDismiss = { legacyShowDialog = false }
                         )
@@ -3956,7 +3978,7 @@ private fun LegacySingleStackNavigation(
                         suggestions = employeeLoginSuggestions(employeeName),
                         onLogin = { name ->
                             showHoursLoginDialog = false
-                            launchTimecardApp(legacyContext, EmployeeDirectory.resolveNameOrPin(name))
+                            launchTimecardApp(legacyContext, EmployeeDirectory.resolveNameOrPin(name), navBar = kkcNavBarPayload)
                         },
                         onDismiss = { showHoursLoginDialog = false }
                     )
@@ -3985,7 +4007,7 @@ private fun LegacySingleStackNavigation(
                         actualElapsedMs = pending.actualElapsedMs,
                         onConfirm = { hours ->
                             pendingClockOut = null
-                            launchTimecardApp(legacyContext, employeeName.ifBlank { null }, pending.jobNumber, hours.toString())
+                            launchTimecardApp(legacyContext, employeeName.ifBlank { null }, pending.jobNumber, hours.toString(), navBar = kkcNavBarPayload)
                         },
                         onDismiss = { pendingClockOut = null }
                     )
@@ -3994,6 +4016,33 @@ private fun LegacySingleStackNavigation(
             } // hazeSource Box
         }
         } // CompositionLocalProvider
+
+        val navigateFromBar: (NavDestination) -> Unit = navigateFromBar@{ dest ->
+            if (dest == NavDestination.HOURS) {
+                launchTimecardApp(legacyContext, employeeName.takeIf { it.isNotBlank() }, navBar = kkcNavBarPayload)
+                return@navigateFromBar
+            }
+            if (currentRoute == dest.route) return@navigateFromBar
+            check(dest.route in visibleDestinations.map { it.route }) {
+                "Invalid top-level destination route: ${dest.route}"
+            }
+            if ((currentNavDest == NavDestination.JOBS || currentNavDest == NavDestination.SUPPLY) &&
+                (dest == NavDestination.JOBS || dest == NavDestination.SUPPLY)) {
+                navBarDeco.keepSearchDeco = true
+            }
+            navController.navigate(dest.route) {
+                popUpTo(navController.graph.findStartDestination().id) {
+                    saveState = false
+                }
+                launchSingleTop = true
+                restoreState = false
+            }
+        }
+        ExternalNavEffect(
+            visibleDestinations = visibleDestinations,
+            navigate = navigateFromBar,
+            openCalculator = { calculatorState.setOpen(true) }
+        )
 
         // Nav bar as true overlay — hazeSource extends behind it so frosted glass works correctly
         Box(modifier = Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.BottomCenter) {
@@ -4013,27 +4062,7 @@ private fun LegacySingleStackNavigation(
                 specialtyDecoration = navBarDeco.specialtyDecoration,
                 penDecoration = navBarDeco.penDecoration,
                 extendedControls = navBarDeco.extendedControls,
-                onNavigate = { dest ->
-                    if (dest == NavDestination.HOURS) {
-                        launchTimecardApp(legacyContext, employeeName.takeIf { it.isNotBlank() })
-                        return@AppBottomNavBar
-                    }
-                    if (currentRoute == dest.route) return@AppBottomNavBar
-                    check(dest.route in visibleDestinations.map { it.route }) {
-                        "Invalid top-level destination route: ${dest.route}"
-                    }
-                    if ((currentNavDest == NavDestination.JOBS || currentNavDest == NavDestination.SUPPLY) &&
-                        (dest == NavDestination.JOBS || dest == NavDestination.SUPPLY)) {
-                        navBarDeco.keepSearchDeco = true
-                    }
-                    navController.navigate(dest.route) {
-                        popUpTo(navController.graph.findStartDestination().id) {
-                            saveState = false
-                        }
-                        launchSingleTop = true
-                        restoreState = false
-                    }
-                }
+                onNavigate = navigateFromBar
             )
         }
 
@@ -4250,13 +4279,14 @@ internal fun formattedClockInJobName(jobName: String, employee: String): String 
 private fun HoursTabHost(
     navController: NavHostController,
     employeeName: String,
-    isTabSelected: Boolean
+    isTabSelected: Boolean,
+    navBar: KkcNavBarPayload
 ) {
     val context = LocalContext.current
 
     LaunchedEffect(isTabSelected) {
         if (isTabSelected) {
-            launchTimecardApp(context, employeeName.takeIf { it.isNotBlank() })
+            launchTimecardApp(context, employeeName.takeIf { it.isNotBlank() }, navBar = navBar)
         }
     }
 
@@ -4276,11 +4306,15 @@ internal fun employeeLoginSuggestions(query: String): List<Pair<String, String>>
     }
 }
 
+// KEEP IN SYNC — every Hours Tracker launch passes navBar = kkcNavBarPayload so Hours Tracker can
+// draw the mirrored KKC navbar (HoursNavBarMirrorWiringTest enforces it). Return taps arrive in
+// MainActivity.handleKkcNavIntent → ExternalNavRequests → ExternalNavEffect in both nav hosts.
 private fun launchTimecardApp(
     context: android.content.Context,
     autoLoginInput: String?,
     jobNumber: String? = null,
-    hours: String? = null
+    hours: String? = null,
+    navBar: KkcNavBarPayload? = null
 ) {
     val intent = android.content.Intent().apply {
         setClassName("com.example.timecard", "com.example.timecard.MainActivity")
@@ -4288,6 +4322,14 @@ private fun launchTimecardApp(
         if (autoLoginInput != null) putExtra("extra_auto_login", autoLoginInput)
         if (jobNumber != null) putExtra("extra_job_number", jobNumber)
         if (hours != null) putExtra("extra_hours", hours)
+        if (navBar != null) putKkcNavBarExtras(navBar)
     }
-    context.startActivity(intent)
+    // Cross-fade so the identical navbar in both apps reads as staying put; instant in low-end mode.
+    val animationsDisabled = navBar?.animDisabled == true
+    val options = android.app.ActivityOptions.makeCustomAnimation(
+        context,
+        if (animationsDisabled) 0 else android.R.anim.fade_in,
+        if (animationsDisabled) 0 else android.R.anim.fade_out
+    )
+    context.startActivity(intent, options.toBundle())
 }

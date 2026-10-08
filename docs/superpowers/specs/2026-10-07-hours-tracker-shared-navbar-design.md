@@ -11,7 +11,9 @@ KKC navbar disappears and the only way back is Hours Tracker's "← KKC" button,
 whatever KKC page was showing before.
 
 After this change, when Hours Tracker is launched by KKC it shows a navbar that is visually identical to
-KKC's (same layout, colors, theme, bold mode, frosted glass, badges, low-end behavior). Tapping any other
+KKC's (same layout, KKC's theme colors, bold mode, frosted glass, badges, low-end behavior). The one
+deliberate difference (decided after the first on-tablet check): the bar follows **Hours Tracker's**
+light/dark mode, live, instead of KKC's. Tapping any other
 destination on it closes Hours Tracker and lands KKC on that destination, exactly as if the user had
 tapped it inside KKC.
 
@@ -74,24 +76,35 @@ A new contract object exists in both repos with identical keys and values:
 
 Extras added by `launchTimecardApp()` (all prefixed `extra_kkc_navbar_`):
 
+**Contract version 2** (v1 sent a single color set plus a `dark` flag and followed KKC's mode; v2 sends
+both sets so the bar can follow Hours Tracker's mode). 27 keys: 11 theme-independent + 16 per-theme.
+
+Theme-independent:
+
 | Key | Type | Value |
 |---|---|---|
-| `version` | Int | Contract version, starts at `1` |
+| `version` | Int | Contract version, currently `2` |
 | `destinations` | String[] | Visible destination routes in bar order (e.g. `jobs, hours, timecard, supply, standards`) |
 | `supply_count` | Int | Supply badge count at launch |
 | `safety_count` | Int | Safety badge count at launch (shown on Library/`standards`) |
-| `dark` | Boolean | KKC is in dark theme |
-| `primary`, `on_surface_variant`, `surface_variant` | Int (ARGB) | Resolved `MaterialTheme.colorScheme` values |
-| `frosted_base`, `frosted_content` | Int (ARGB) | `kkcFrostedBaseColor()`, `kkcFrostedContentColor()` |
 | `frosted_alpha`, `frosted_blur_dp` | Float | Theme frosted tokens (same coercions applied on the Hours side as KKC applies) |
 | `bold_mode` | Boolean | Theme tokens `boldMode` |
-| `bold_gradient` | Int[] (ARGB) | `boldGradientColors(palette)` |
-| `badge_container`, `badge_content` | Int (ARGB) | Resolved Material3 `Badge` colors (`error` / `onError`) |
 | `indicator_corner_dp` | Float | `shapes.medium` corner radius (theme `shape.mediumDp`) |
 | `anim_disabled`, `blur_disabled`, `shadows_disabled` | Boolean | `LowEndModeFlags` derived values |
 
-Colors are resolved **inside KKC composition** where the theme is live, so Hours Tracker never needs to
-parse KKC theme JSON. The launch call sites that open Hours from the navbar (both nav hosts) build the
+Per-theme — each key exists twice, with suffix `_light` and `_dark` (e.g. `primary_light`,
+`primary_dark`); the old `dark` key is gone:
+
+| Key (+ `_light` / `_dark`) | Type | Value |
+|---|---|---|
+| `primary`, `on_surface_variant`, `surface_variant` | Int (ARGB) | `tokens.toColorScheme(dark)` values |
+| `frosted_base`, `frosted_content` | Int (ARGB) | `kkcFrostedBaseColor(tokens, scheme, dark)`, `kkcFrostedContentColor(tokens, scheme, dark)` |
+| `bold_gradient` | Int[] (ARGB) | `boldGradientColors(tokens.palette(dark))` |
+| `badge_container`, `badge_content` | Int (ARGB) | Material3 `Badge` colors (`scheme.error` / `scheme.onError`) |
+
+Colors are resolved **inside KKC composition** from the live theme tokens (which already reflect a theme
+override or synced theme), for BOTH modes regardless of which mode KKC is currently in, so Hours Tracker
+never needs to parse KKC theme JSON. The launch call sites that open Hours from the navbar (both nav hosts) build the
 payload; the clock-out and login-dialog launch paths also pass it so the bar appears no matter how Hours
 was opened from KKC.
 
@@ -140,6 +153,10 @@ New file `app/src/main/java/com/example/timecard/kkcnav/KkcNavBar.kt` — a copy
 - Icon row: `heightIn(min = 44.dp)`, `padding(horizontal = 24.dp, vertical = 4.dp)`,
   `Arrangement.SpaceEvenly`, every slot `weight(1f)`; Calc slot inserted before Hours; item padding
   14 dp × 8 dp; `spacedBy(3.dp)`; icon size 22 dp; label `labelSmall`, Bold when selected.
+- All color rules below read the ACTIVE set: `payload.colorsFor(darkTheme)` where `darkTheme` is Hours
+  Tracker's own mode (`themeState.mode != ThemeMode.Light`, i.e. Dark and Oled count as dark). Because
+  `themeState.mode` is Compose state, toggling Hours Tracker's theme (moon button) re-colors the bar
+  immediately, with no relaunch.
 - Tints: selected = `frosted_content` in bold mode else `primary`; unselected = `frosted_content @ 0.8`
   in bold mode else `on_surface_variant`.
 - Selection background: bold mode → linear gradient of `bold_gradient` at alpha 0.55; else
@@ -158,16 +175,20 @@ array; Inter is declared exactly as KKC `Type.kt` does. The label `TextStyle` is
 `labelSmall`.
 
 The mirrored bar is rendered with its own colors from the payload, not Hours Tracker's `TimecardTheme`,
-so Hours Tracker's theme/accent cannot change its look.
+so Hours Tracker's accent/palette cannot restyle it. Hours Tracker's light/dark MODE only selects which
+of KKC's two color sets is drawn.
 
 ### 4. Hours Tracker layout
 
 - When the payload is present, `TimecardApp`'s root content is wrapped as the Haze source
   (`hazeSource(hazeState)`) and the `KkcNavBar` is drawn as an overlay aligned bottom-center, on top of
   every screen, including the login `NameCard`.
-- Content receives bottom padding equal to the measured bar height (via a `CompositionLocal` /
-  `onSizeChanged`) so no Hours Tracker controls are hidden behind it. The root background brush still
-  paints full-height, so the glass frosts that background.
+- There is NO bottom inset. Like KKC, the bar floats over full-height content: Hours Tracker's content
+  runs to the bottom of the screen and the glass blurs the actual content behind the bar (the content Box
+  is the Haze source). (The first iteration reserved the measured bar height as bottom padding, which left
+  an unblurred strip of the root background brush under the bar; that was removed after the on-tablet
+  check.) Screens that need bottom clearance for their last controls must handle it themselves, as KKC
+  screens do.
 - Existing "← KKC" buttons stay as a fallback, unchanged.
 
 ### 5. App-switch transition
@@ -208,7 +229,10 @@ KKC (unit, JVM):
   navigate function as the navbar.
 
 Hours Tracker (unit, JVM):
-- Payload parser: valid v1 → model; missing version / wrong version / missing colors → null (no bar).
+- Payload parser: valid v2 → model (both color sets); missing version / v1 / wrong version / missing
+  any color of EITHER theme / empty gradient → null (no bar). `colorsFor(dark)` picks the right set.
+- Wiring: `TimecardApp` passes `darkTheme = themeState.mode != ThemeMode.Light` to `KkcNavBar` and
+  has no bottom inset.
 - Return-intent builder: target component, flags, extra value per destination; Hours tap → no intent.
 
 Device (release builds on a tablet, user navigates per tablet-screenshot feedback rule):
