@@ -2,7 +2,8 @@ param(
     [string[]]$ReleaseScripts = @(
         (Join-Path $PSScriptRoot '..\..\deploy_update.ps1'),
         'C:\Scripts\Hours Tracker\AndroidApp\deploy_release.ps1',
-        'C:\Scripts\Assimp\AssimpAndroid\deploy_update.ps1'
+        'C:\Scripts\Assimp\AssimpAndroid\deploy_update.ps1',
+        'C:\Scripts\VNCCast\deploy-android.ps1'
     ),
     [string]$AssimpDebugScript = 'C:\Scripts\Assimp\AssimpAndroid\deploy_debug.ps1'
 )
@@ -14,7 +15,11 @@ $releaseRoot = Join-Path $root 'app\build\outputs\apk\release'
 New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null
 $source = Join-Path $releaseRoot 'app-release.apk'
 Set-Content -LiteralPath $source -Value 'release fixture'
-$packages = @('com.kkc.sheettracker','com.example.timecard','com.anandmuralidhar.assimpandroid')
+$legacy = Join-Path $root '.Updates'
+New-Item -ItemType Directory -Path $legacy -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $legacy 'vnccast-v1.3-4-release.apk') -Value 'old VNC Cast'
+Set-Content -LiteralPath (Join-Path $legacy 'unrelated.apk') -Value 'another app'
+$packages = @('com.kkc.sheettracker','com.example.timecard','com.anandmuralidhar.assimpandroid','com.kkc.vnccast')
 try {
     for ($i=0; $i -lt $ReleaseScripts.Count; $i++) {
         $build = "android { defaultConfig { versionCode = 3; versionName = `"1.0.3`" } }"
@@ -24,18 +29,34 @@ try {
             elements=@(@{versionCode=3; versionName='1.0.3'; outputFile='app-release.apk'})
         }
         $metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $releaseRoot 'output-metadata.json')
-        & $ReleaseScripts[$i] -ProjectPath $root -FeedRoot $feed -SkipBuild
+        $arguments = @{ProjectPath=$root; FeedRoot=$feed; SkipBuild=$true}
+        if ($packages[$i] -eq 'com.kkc.vnccast') { $arguments.DistDirectory = Join-Path $root 'dist' }
+        & $ReleaseScripts[$i] @arguments
         Assert-That (Test-Path -LiteralPath (Join-Path $feed "$($packages[$i])\$($packages[$i])-v1.0.3-3.apk")) 'Wrapper did not publish the expected package'
     }
     $manifestPath = Join-Path $feed 'manifest.json'
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    Assert-That ($manifest.apps.Count -eq 3) 'Publishing another app lost a manifest entry'
+    Assert-That ($manifest.apps.Count -eq $ReleaseScripts.Count) 'Publishing another app lost a manifest entry'
+    Assert-That ((Get-FileHash -LiteralPath (Join-Path $root 'dist\VNCCast.apk')).Hash -eq (Get-FileHash -LiteralPath $source).Hash) 'VNC Cast local distribution copy does not match the published APK'
+    Assert-That (-not (Test-Path -LiteralPath (Join-Path $legacy 'vnccast-v1.3-4-release.apk'))) 'VNC Cast wrapper did not remove its old legacy APK'
+    Assert-That (Test-Path -LiteralPath (Join-Path $legacy 'vnccast-v1.0.3-3-release.apk')) 'VNC Cast migration bridge is missing'
+    Assert-That (Test-Path -LiteralPath (Join-Path $legacy 'unrelated.apk')) 'VNC Cast cleanup removed another app'
+    $vncScript = $ReleaseScripts | Where-Object { (Split-Path $_ -Leaf) -eq 'deploy-android.ps1' } | Select-Object -First 1
+    if ($vncScript) {
+        $compatibilityRoot = Join-Path $root 'compatibility'
+        & $vncScript -ProjectPath $root -UpdatesDir (Join-Path $compatibilityRoot '.Updates') -DistDirectory (Join-Path $root 'dist') -SkipBuild
+        Assert-That (Test-Path -LiteralPath (Join-Path $compatibilityRoot '.appupdates\apps\com.kkc.vnccast\com.kkc.vnccast-v1.0.3-3.apk')) 'Legacy UpdatesDir option did not place the canonical feed beside the bridge'
+    }
     $before = (Get-FileHash -LiteralPath $manifestPath).Hash
     Set-Content -LiteralPath (Join-Path $root 'app\build.gradle.kts') -Value 'versionCode = 4; versionName = "1.0.4"'
-    $failed = $false
-    try { & $ReleaseScripts[2] -ProjectPath $root -FeedRoot $feed -SkipBuild } catch { $failed=$true }
-    Assert-That $failed 'Stale built APK was published'
-    Assert-That ((Get-FileHash -LiteralPath $manifestPath).Hash -eq $before) 'Metadata failure changed manifest'
+    foreach ($script in $ReleaseScripts) {
+        $failed = $false
+        $arguments = @{ProjectPath=$root; FeedRoot=$feed; SkipBuild=$true}
+        if ($script -eq $vncScript) { $arguments.DistDirectory = Join-Path $root 'dist' }
+        try { & $script @arguments } catch { $failed=$true }
+        Assert-That $failed 'Stale built APK was published'
+        Assert-That ((Get-FileHash -LiteralPath $manifestPath).Hash -eq $before) 'Metadata failure changed manifest'
+    }
 
     $debugRoot = Join-Path $root 'app\build\outputs\apk\debug'
     New-Item -ItemType Directory -Path $debugRoot -Force | Out-Null

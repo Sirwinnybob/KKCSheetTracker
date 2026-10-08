@@ -53,7 +53,8 @@ class UpdateManager(
 
     private val externalApps = listOf(
         ExternalApp("com.anandmuralidhar.assimpandroid", "Assimp"),
-        ExternalApp("com.example.timecard", "Hours Tracker")
+        ExternalApp("com.example.timecard", "Hours Tracker"),
+        ExternalApp("com.kkc.vnccast", "VNC Cast")
     )
 
     private val updateScanGate = UpdateScanGate()

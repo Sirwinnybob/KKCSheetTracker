@@ -3,7 +3,7 @@ package com.kkc.sheettracker.update;
 import java.io.File;
 import java.util.Locale;
 
-/** Shared update-folder policy. Keep the copies in the three Android apps in sync. */
+/** Shared update-folder policy. Keep the copies in the Android apps in sync. */
 public final class UpdateDirectories {
     private static final String[] JOB_FOLDERS = {"Ready Jobs", "Jobs", "JOBS", "SyncJobs/Ready Jobs"};
     private UpdateDirectories() {}
