@@ -1,0 +1,234 @@
+<h2>Sidebar section icons — pick one per row</h2>
+<p class="subtitle">KKC icon family: 24×24, 2-unit rounded strokes. Left of each pair = resting (outline), right = selected (duotone fill + solid hero). Click a cell to select; tell me picks like "LF-b, V-a, ..." in terminal.</p>
+
+<style>
+  .ic-sheet { display:grid; grid-template-columns: 170px repeat(3, 1fr); gap:10px; align-items:center }
+  .ic-sheet .lbl { font-weight:700; font-size:14px }
+  .ic-sheet .lbl small { display:block; font-weight:400; opacity:.6; font-size:11px }
+  .ic-cell { display:flex; gap:14px; align-items:center; justify-content:center; padding:12px; border-radius:12px; background:#1d1f24; color:#e8e8ea; cursor:pointer; border:2px solid transparent; position:relative }
+  .ic-cell.light { background:#f3f1ec; color:#2a2a2e }
+  .ic-cell.selected { border-color:#f4b400 }
+  .ic-cell .tag { position:absolute; top:4px; left:8px; font-size:10px; opacity:.55; font-weight:700 }
+  .ic-cell svg { width:44px; height:44px }
+  .ic-cell svg.duo { --fo:.3; color:#f4b400 }
+  .ic-cell.light svg.duo { color:#b07800 }
+  .ln { fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round }
+  .ln15 { fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round }
+  .f { fill:currentColor; fill-opacity:var(--fo, 0); stroke:none }
+  .s { fill:currentColor; stroke:none }
+  .sd { fill:currentColor; fill-opacity:var(--fo2, 0); stroke:none }
+  svg.duo { --fo2:1 }
+  .blk { fill:currentColor; stroke:currentColor; stroke-width:2; stroke-linejoin:round }
+</style>
+
+<svg width="0" height="0" style="position:absolute">
+  <!-- LOOK & FEEL -->
+  <symbol id="lf-a" viewBox="0 0 24 24">
+    <path class="f" d="M12 3C7 3 3 6.8 3 11.5S6.8 20 11.5 20c1.5 0 2-1 1.5-2-.6-1.2.2-2.5 1.5-2.5h2c2.5 0 4.5-2 4.5-4.5C21 6.6 17 3 12 3Z"/>
+    <path class="ln" d="M12 3C7 3 3 6.8 3 11.5S6.8 20 11.5 20c1.5 0 2-1 1.5-2-.6-1.2.2-2.5 1.5-2.5h2c2.5 0 4.5-2 4.5-4.5C21 6.6 17 3 12 3Z"/>
+    <circle class="s" cx="7.5" cy="11.5" r="1.3"/><circle class="s" cx="9.5" cy="7.3" r="1.3"/><circle class="s" cx="14.5" cy="7" r="1.3"/><circle class="s" cx="17.3" cy="10.5" r="1.3"/>
+  </symbol>
+  <symbol id="lf-b" viewBox="0 0 24 24">
+    <circle class="f" cx="12" cy="12" r="9"/>
+    <path class="s" d="M12 3a9 9 0 0 0 0 18Z"/>
+    <circle class="ln" cx="12" cy="12" r="9"/>
+  </symbol>
+  <symbol id="lf-c" viewBox="0 0 24 24">
+    <path class="f" d="M10.5 12.5c-2.4-.2-3.6 1.6-3.6 3.2 0 1.8-1.3 3.2-3.4 4 4.6 1.4 9.4.2 9.6-3.6Z"/>
+    <path class="ln" d="M10.5 12.5c-2.4-.2-3.6 1.6-3.6 3.2 0 1.8-1.3 3.2-3.4 4 4.6 1.4 9.4.2 9.6-3.6Z"/>
+    <path class="ln" d="M10.5 12.5 19.5 3.5a1.5 1.5 0 0 1 2 2l-8.4 10.6"/>
+    <path class="ln15" d="M10 11.5l3.5 3.5"/>
+  </symbol>
+
+  <!-- VIEWERS -->
+  <symbol id="v-a" viewBox="0 0 24 24">
+    <rect class="f" x="4.5" y="2" width="15" height="20" rx="2"/>
+    <rect class="ln" x="4.5" y="2" width="15" height="20" rx="2"/>
+    <path class="ln" d="M8 6.5h5"/>
+    <path class="ln15" d="M7.5 14.5Q12 9.5 16.5 14.5Q12 19.5 7.5 14.5Z"/>
+    <circle class="s" cx="12" cy="14.5" r="1.6"/>
+  </symbol>
+  <symbol id="v-b" viewBox="0 0 24 24">
+    <rect class="f" x="4" y="2" width="16" height="20" rx="2.5"/>
+    <rect class="ln" x="4" y="2" width="16" height="20" rx="2.5"/>
+    <path class="ln" d="M8 7h8M8 10.5h8M8 14h5"/>
+    <circle class="s" cx="12" cy="18.5" r="1"/>
+  </symbol>
+  <symbol id="v-c" viewBox="0 0 24 24">
+    <path class="ln15" d="M8 3.5V3a1 1 0 0 1 1-1h10a1.5 1.5 0 0 1 1.5 1.5v13a1 1 0 0 1-1 1H18"/>
+    <rect class="f" x="3.5" y="6" width="14" height="16" rx="1.5"/>
+    <rect class="ln" x="3.5" y="6" width="14" height="16" rx="1.5"/>
+    <path class="ln" d="M7 10.5h7M7 14h7M7 17.5h4"/>
+  </symbol>
+
+  <!-- ME -->
+  <symbol id="me-a" viewBox="0 0 24 24">
+    <circle class="sd" cx="12" cy="7.5" r="4"/>
+    <circle class="ln" cx="12" cy="7.5" r="4"/>
+    <path class="f" d="M4 21c0-4.5 3.6-7 8-7s8 2.5 8 7Z"/>
+    <path class="ln" d="M4 21c0-4.5 3.6-7 8-7s8 2.5 8 7Z"/>
+  </symbol>
+  <symbol id="me-b" viewBox="0 0 24 24">
+    <rect class="f" x="3.5" y="5" width="17" height="16" rx="2"/>
+    <rect class="ln" x="3.5" y="5" width="17" height="16" rx="2"/>
+    <rect class="blk" x="10" y="2.5" width="4" height="4" rx="1" style="stroke-width:1.5"/>
+    <circle class="ln15" cx="9" cy="12" r="2"/>
+    <path class="ln15" d="M6 17.5c0-1.7 1.3-2.7 3-2.7s3 1 3 2.7"/>
+    <path class="ln" d="M15 12h2.5M15 15.5h2.5"/>
+  </symbol>
+  <symbol id="me-c" viewBox="0 0 24 24">
+    <path class="sd" d="M6 10c0-3.6 2.7-6.5 6-6.5s6 2.9 6 6.5Z"/>
+    <path class="ln" d="M6 10c0-3.6 2.7-6.5 6-6.5s6 2.9 6 6.5"/>
+    <path class="ln" d="M4 10h16M12 3.5V7"/>
+    <path class="ln" d="M8 12.5c0 2.4 1.8 4 4 4s4-1.6 4-4"/>
+    <path class="f" d="M5 21.5c.5-2 3-3 7-3s6.5 1 7 3Z"/>
+    <path class="ln" d="M5 21.5c.5-2 3-3 7-3s6.5 1 7 3"/>
+  </symbol>
+
+  <!-- UPDATES & ABOUT -->
+  <symbol id="up-a" viewBox="0 0 24 24">
+    <circle class="f" cx="12" cy="12" r="8"/>
+    <path class="ln" d="M20 12a8 8 0 1 1-2.3-5.7"/>
+    <path class="ln" d="M18.5 2.5v4h-4"/>
+    <path class="ln" d="M12 7.5v8M9 12.5l3 3 3-3"/>
+  </symbol>
+  <symbol id="up-b" viewBox="0 0 24 24">
+    <path class="f" d="M3 14h18v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>
+    <path class="ln" d="M3 14v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/>
+    <path class="ln" d="M12 3v11M7.5 9.5 12 14l4.5-4.5"/>
+  </symbol>
+  <symbol id="up-c" viewBox="0 0 24 24">
+    <circle class="f" cx="10.5" cy="13.5" r="7.5"/>
+    <circle class="ln" cx="10.5" cy="13.5" r="7.5"/>
+    <circle class="s" cx="10.5" cy="10" r="1.25"/>
+    <path class="ln" d="M10.5 13v4"/>
+    <path class="s" d="M19 1.5l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9Z"/>
+  </symbol>
+
+  <!-- TABLET & DATA -->
+  <symbol id="td-a" viewBox="0 0 24 24">
+    <path class="ln" d="M13 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v5"/>
+    <path class="f" d="M11 13h3l1.5 1.5H21V21H11Z"/>
+    <path class="ln" d="M11 13h3l1.5 1.5H21V21H11Z"/>
+    <path class="ln" d="M6.5 7h5"/>
+  </symbol>
+  <symbol id="td-b" viewBox="0 0 24 24">
+    <path class="f" d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v10a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5Z"/>
+    <path class="ln" d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v10a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5Z"/>
+    <path class="ln15" d="M10.5 10.5l-1 6M14.5 10.5l-1 6M8.5 12H16M8 15h7.5"/>
+  </symbol>
+  <symbol id="td-c" viewBox="0 0 24 24">
+    <path class="f" d="M5 6v12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6Z"/>
+    <ellipse class="sd" cx="12" cy="6" rx="7" ry="2.5"/>
+    <ellipse class="ln" cx="12" cy="6" rx="7" ry="2.5"/>
+    <path class="ln" d="M5 6v12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6"/>
+    <path class="ln" d="M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"/>
+  </symbol>
+
+  <!-- SYNC & NETWORK -->
+  <symbol id="sn-a" viewBox="0 0 24 24">
+    <circle class="f" cx="12" cy="12" r="6"/>
+    <path class="ln" d="M4.5 10a8 8 0 0 1 14-3"/>
+    <path class="ln" d="M19 3v4.5h-4.5"/>
+    <path class="ln" d="M19.5 14a8 8 0 0 1-14 3"/>
+    <path class="ln" d="M5 21v-4.5h4.5"/>
+  </symbol>
+  <symbol id="sn-b" viewBox="0 0 24 24">
+    <path class="f" d="M7 19h10.5a4 4 0 0 0 .6-8A6 6 0 0 0 6.4 10.2 4.5 4.5 0 0 0 7 19Z"/>
+    <path class="ln" d="M7 19h10.5a4 4 0 0 0 .6-8A6 6 0 0 0 6.4 10.2 4.5 4.5 0 0 0 7 19Z"/>
+    <path class="ln15" d="M10 16.5V12M8.5 13.5 10 12l1.5 1.5M14 12v4.5M12.5 15l1.5 1.5 1.5-1.5"/>
+  </symbol>
+  <symbol id="sn-c" viewBox="0 0 24 24">
+    <path class="f" d="M12 5 19 18H5Z"/>
+    <path class="ln" d="M10.8 7.2 6.3 15.8M13.2 7.2l4.5 8.6M7.5 18h9"/>
+    <circle class="sd" cx="12" cy="5" r="2.5"/><circle class="ln" cx="12" cy="5" r="2.5"/>
+    <circle class="sd" cx="5" cy="18" r="2.5"/><circle class="ln" cx="5" cy="18" r="2.5"/>
+    <circle class="sd" cx="19" cy="18" r="2.5"/><circle class="ln" cx="19" cy="18" r="2.5"/>
+  </symbol>
+
+  <!-- PERFORMANCE & POWER -->
+  <symbol id="pp-a" viewBox="0 0 24 24">
+    <path class="f" d="M13.5 2.5 5 13.5h6.5l-1 8 8.5-11h-6.5Z"/>
+    <path class="ln" d="M13.5 2.5 5 13.5h6.5l-1 8 8.5-11h-6.5Z"/>
+  </symbol>
+  <symbol id="pp-b" viewBox="0 0 24 24">
+    <path class="f" d="M3.5 17a9 9 0 1 1 17 0Z"/>
+    <path class="ln" d="M3.5 17a9 9 0 1 1 17 0"/>
+    <path class="ln15" d="M6 12.5h1.2M12 6.5v1.2M18 12.5h-1.2M7.8 8.3l.9.9"/>
+    <path class="ln" d="M12 15.5l4-5.5"/>
+    <circle class="s" cx="12" cy="15.5" r="1.8"/>
+  </symbol>
+  <symbol id="pp-c" viewBox="0 0 24 24">
+    <rect class="f" x="2.5" y="7" width="17" height="10" rx="2"/>
+    <rect class="ln" x="2.5" y="7" width="17" height="10" rx="2"/>
+    <rect class="s" x="19.5" y="10" width="2.5" height="4" rx=".8"/>
+    <path class="s" d="M12 8.5 7.5 12.8h3l-1 2.7 4.5-4.3h-3Z"/>
+  </symbol>
+
+  <!-- ADMIN -->
+  <symbol id="ad-a" viewBox="0 0 24 24">
+    <path class="ln" d="M8 10.5v-3a4 4 0 0 1 8 0v3"/>
+    <rect class="f" x="5" y="10.5" width="14" height="11" rx="2"/>
+    <rect class="ln" x="5" y="10.5" width="14" height="11" rx="2"/>
+    <circle class="s" cx="12" cy="15" r="1.5"/>
+    <path class="ln" d="M12 15v3"/>
+  </symbol>
+  <symbol id="ad-b" viewBox="0 0 24 24">
+    <path class="f" d="M12 2.5 19.5 5.5V11c0 5-3.2 8.6-7.5 10.5C7.7 19.6 4.5 16 4.5 11V5.5Z"/>
+    <path class="ln" d="M12 2.5 19.5 5.5V11c0 5-3.2 8.6-7.5 10.5C7.7 19.6 4.5 16 4.5 11V5.5Z"/>
+    <circle class="s" cx="12" cy="10.5" r="2"/>
+    <path class="ln" d="M12 12v3.5"/>
+  </symbol>
+  <symbol id="ad-c" viewBox="0 0 24 24">
+    <circle class="f" cx="8" cy="15" r="4.5"/>
+    <circle class="ln" cx="8" cy="15" r="4.5"/>
+    <circle class="s" cx="7" cy="16" r="1.3"/>
+    <path class="ln" d="M11.2 11.8 20 3M17 6l2.5 2.5M14.5 8.5l2 2"/>
+  </symbol>
+</svg>
+
+<div class="ic-sheet" id="sheet">
+  <div></div><div class="label" style="text-align:center">a</div><div class="label" style="text-align:center">b</div><div class="label" style="text-align:center">c</div>
+</div>
+
+<div class="ic-sheet" style="margin-top:6px">
+  <div class="lbl">Look &amp; Feel<small>palette · contrast · brush</small></div>
+  <div class="ic-cell" data-choice="LF-a" onclick="toggleSelect(this)"><span class="tag">LF-a</span><svg><use href="#lf-a"/></svg><svg class="duo"><use href="#lf-a"/></svg></div>
+  <div class="ic-cell" data-choice="LF-b" onclick="toggleSelect(this)"><span class="tag">LF-b</span><svg><use href="#lf-b"/></svg><svg class="duo"><use href="#lf-b"/></svg></div>
+  <div class="ic-cell" data-choice="LF-c" onclick="toggleSelect(this)"><span class="tag">LF-c</span><svg><use href="#lf-c"/></svg><svg class="duo"><use href="#lf-c"/></svg></div>
+
+  <div class="lbl">Viewers<small>sheet+eye · tablet page · sheet stack</small></div>
+  <div class="ic-cell" data-choice="V-a" onclick="toggleSelect(this)"><span class="tag">V-a</span><svg><use href="#v-a"/></svg><svg class="duo"><use href="#v-a"/></svg></div>
+  <div class="ic-cell" data-choice="V-b" onclick="toggleSelect(this)"><span class="tag">V-b</span><svg><use href="#v-b"/></svg><svg class="duo"><use href="#v-b"/></svg></div>
+  <div class="ic-cell" data-choice="V-c" onclick="toggleSelect(this)"><span class="tag">V-c</span><svg><use href="#v-c"/></svg><svg class="duo"><use href="#v-c"/></svg></div>
+
+  <div class="lbl">Me<small>person · ID badge · hard hat</small></div>
+  <div class="ic-cell" data-choice="Me-a" onclick="toggleSelect(this)"><span class="tag">Me-a</span><svg><use href="#me-a"/></svg><svg class="duo"><use href="#me-a"/></svg></div>
+  <div class="ic-cell" data-choice="Me-b" onclick="toggleSelect(this)"><span class="tag">Me-b</span><svg><use href="#me-b"/></svg><svg class="duo"><use href="#me-b"/></svg></div>
+  <div class="ic-cell" data-choice="Me-c" onclick="toggleSelect(this)"><span class="tag">Me-c</span><svg><use href="#me-c"/></svg><svg class="duo"><use href="#me-c"/></svg></div>
+
+  <div class="lbl">Updates &amp; About<small>refresh-down · tray · info sparkle</small></div>
+  <div class="ic-cell" data-choice="Up-a" onclick="toggleSelect(this)"><span class="tag">Up-a</span><svg><use href="#up-a"/></svg><svg class="duo"><use href="#up-a"/></svg></div>
+  <div class="ic-cell" data-choice="Up-b" onclick="toggleSelect(this)"><span class="tag">Up-b</span><svg><use href="#up-b"/></svg><svg class="duo"><use href="#up-b"/></svg></div>
+  <div class="ic-cell" data-choice="Up-c" onclick="toggleSelect(this)"><span class="tag">Up-c</span><svg><use href="#up-c"/></svg><svg class="duo"><use href="#up-c"/></svg></div>
+
+  <div class="lbl">Tablet &amp; Data<small>tablet+folder · folder # · data drum</small></div>
+  <div class="ic-cell" data-choice="TD-a" onclick="toggleSelect(this)"><span class="tag">TD-a</span><svg><use href="#td-a"/></svg><svg class="duo"><use href="#td-a"/></svg></div>
+  <div class="ic-cell" data-choice="TD-b" onclick="toggleSelect(this)"><span class="tag">TD-b</span><svg><use href="#td-b"/></svg><svg class="duo"><use href="#td-b"/></svg></div>
+  <div class="ic-cell" data-choice="TD-c" onclick="toggleSelect(this)"><span class="tag">TD-c</span><svg><use href="#td-c"/></svg><svg class="duo"><use href="#td-c"/></svg></div>
+
+  <div class="lbl">Sync &amp; Network<small>sync arrows · cloud · nodes</small></div>
+  <div class="ic-cell" data-choice="SN-a" onclick="toggleSelect(this)"><span class="tag">SN-a</span><svg><use href="#sn-a"/></svg><svg class="duo"><use href="#sn-a"/></svg></div>
+  <div class="ic-cell" data-choice="SN-b" onclick="toggleSelect(this)"><span class="tag">SN-b</span><svg><use href="#sn-b"/></svg><svg class="duo"><use href="#sn-b"/></svg></div>
+  <div class="ic-cell" data-choice="SN-c" onclick="toggleSelect(this)"><span class="tag">SN-c</span><svg><use href="#sn-c"/></svg><svg class="duo"><use href="#sn-c"/></svg></div>
+
+  <div class="lbl">Performance &amp; Power<small>bolt · gauge · battery</small></div>
+  <div class="ic-cell" data-choice="PP-a" onclick="toggleSelect(this)"><span class="tag">PP-a</span><svg><use href="#pp-a"/></svg><svg class="duo"><use href="#pp-a"/></svg></div>
+  <div class="ic-cell" data-choice="PP-b" onclick="toggleSelect(this)"><span class="tag">PP-b</span><svg><use href="#pp-b"/></svg><svg class="duo"><use href="#pp-b"/></svg></div>
+  <div class="ic-cell" data-choice="PP-c" onclick="toggleSelect(this)"><span class="tag">PP-c</span><svg><use href="#pp-c"/></svg><svg class="duo"><use href="#pp-c"/></svg></div>
+
+  <div class="lbl">Admin<small>padlock · shield · key</small></div>
+  <div class="ic-cell" data-choice="Ad-a" onclick="toggleSelect(this)"><span class="tag">Ad-a</span><svg><use href="#ad-a"/></svg><svg class="duo"><use href="#ad-a"/></svg></div>
+  <div class="ic-cell" data-choice="Ad-b" onclick="toggleSelect(this)"><span class="tag">Ad-b</span><svg><use href="#ad-b"/></svg><svg class="duo"><use href="#ad-b"/></svg></div>
+  <div class="ic-cell" data-choice="Ad-c" onclick="toggleSelect(this)"><span class="tag">Ad-c</span><svg><use href="#ad-c"/></svg><svg class="duo"><use href="#ad-c"/></svg></div>
+</div>
