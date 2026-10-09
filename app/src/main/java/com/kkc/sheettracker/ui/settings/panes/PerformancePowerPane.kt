@@ -48,6 +48,7 @@ internal fun PerformancePowerPane(
     }
     LaunchedEffect(idleTimeoutText) {
         val seconds = idleTimeoutText.toIntOrNull() ?: return@LaunchedEffect
+        if (seconds == idleConfig.idleTimeoutSeconds) return@LaunchedEffect
         delay(500L)
         idlePowerSaveStore.setIdleTimeoutSeconds(seconds)
     }

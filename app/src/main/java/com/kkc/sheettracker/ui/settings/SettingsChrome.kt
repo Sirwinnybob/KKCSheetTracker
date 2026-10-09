@@ -136,17 +136,25 @@ internal fun WorkModeRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             GroupCaption("Work mode", Modifier.weight(1f))
-            Text(
-                "Flexible mode",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    "Flexible mode",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "Mode switcher on Dashboard and Jobs",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Spacer(Modifier.width(8.dp))
             Switch(checked = flexibleModeEnabled, onCheckedChange = onFlexibleModeChanged)
         }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val gap = 12.dp
-            val tileWidth = (maxWidth - gap * 3) / 4
+            val count = WorkMode.entries.size
+            val tileWidth = (maxWidth - gap * (count - 1)) / count
             val tileHeight = modeTileHeight(tileWidth)
             Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                 WorkMode.entries.forEach { mode ->
@@ -191,7 +199,8 @@ private fun ModeTile(mode: WorkMode, selected: Boolean, onClick: () -> Unit, mod
             fontWeight = FontWeight.ExtraBold,
             letterSpacing = 1.sp,
             color = content,
-            maxLines = 1
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
