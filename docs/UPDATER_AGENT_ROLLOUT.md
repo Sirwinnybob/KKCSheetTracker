@@ -17,23 +17,22 @@ Install offers for missing apps do not trigger the Settings notification dot;
 the dot indicates updates for Sheet Tracker or an already installed companion app.
 
 The release publishers are `KKCSheetTracker/deploy_update.ps1`,
-`Hours Tracker/AndroidApp/deploy_release.ps1`, and
+`Hours Tracker/AndroidApp/deploy_release.ps1`,
 `Assimp/AssimpAndroid/deploy_update.ps1`, and `VNCCast/deploy-android.ps1`.
-Each has a local copy of
-`tools/publish_app_update.ps1`; keep these copies synchronized. The publisher
-verifies SHA-256, publishes with temporary files and rename, serializes local
-manifest writes with `.publish.lock`, and then deletes superseded APKs belonging
-to the same package. Active artifacts for other channels/packages are preserved;
-history for deleted artifacts is removed. A failed build, stale APK metadata, or
-failed copy leaves previously published versions available.
+Each has a local copy of `tools/publish_app_update.ps1`; keep these copies
+synchronized. Publishers now write only to
+`.appupdates/apps/<packageName>/`. They verify SHA-256, publish with temporary
+files and rename, serialize manifest writes with `.publish.lock`, and delete
+superseded APKs belonging to the same package. Active artifacts for other
+channels/packages are preserved; history for deleted artifacts is removed. A
+failed build, stale APK metadata, or failed copy leaves previously published
+versions available.
 
-For the transition, publishers also leave one current APK per app in `.Updates`
-so older tablets can install the migration release. New readers prefer their
-canonical package folder, including when a saved custom path points to `.Updates`.
-Publish with `-NoLegacyCopy` once those tablets have migrated. Retire `.Updates`
-only after confirming every tablet has received the migration builds for all apps.
-Debug builds continue to use `.Testing_Updates`. Migration markers and tablet logs
-already under `.appupdates` remain intact.
+Legacy `.Updates` bridge publishing was retired on 2026-10-09 after confirmation
+that all tablets have received the migration builds. Existing `.Updates` APKs are
+left in place, and Android readers retain their fallback lookup for recovery.
+Debug builds continue to use `.Testing_Updates`. Migration markers and tablet
+logs already under `.appupdates` remain intact.
 
 Verification: `tools/tests/PublishAppUpdate.Tests.ps1`,
 `tools/tests/DeploymentScripts.Tests.ps1`, and each app's `UpdateDirectoriesTest`.

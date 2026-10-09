@@ -4,12 +4,9 @@ param(
     [Parameter(Mandatory)][string]$PackageName,
     [Parameter(Mandatory)][long]$VersionCode,
     [Parameter(Mandatory)][string]$VersionName,
-    [string]$RolloutChannel = 'stable',
-    [string]$LegacyDirectory,
-    [string]$LegacyFileName,
-    [string]$LegacyPattern
+    [string]$RolloutChannel = 'stable'
 )
-# Canonical publisher; local copies in the three repositories avoid a cross-repo runtime dependency.
+# Canonical publisher; local copies in the four app repositories avoid a cross-repo runtime dependency.
 $ErrorActionPreference = 'Stop'
 if ($PackageName -notmatch '^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$') { throw 'Invalid package name' }
 if (-not (Test-Path -LiteralPath $SourceApk -PathType Leaf) -or (Get-Item -LiteralPath $SourceApk).Length -eq 0) {
@@ -18,12 +15,6 @@ if (-not (Test-Path -LiteralPath $SourceApk -PathType Leaf) -or (Get-Item -Liter
 $feedPath = [System.IO.Path]::GetFullPath($FeedRoot)
 $appPath = Join-Path $feedPath $PackageName
 New-Item -ItemType Directory -Path $appPath -Force | Out-Null
-if ($LegacyDirectory) {
-    if (-not $LegacyFileName -or [System.IO.Path]::GetFileName($LegacyFileName) -ne $LegacyFileName -or
-            $LegacyFileName -notlike '*.apk' -or -not $LegacyPattern -or
-            $LegacyPattern.Contains('/') -or $LegacyPattern.Contains('\')) { throw 'Invalid legacy artifact names' }
-    New-Item -ItemType Directory -Path $LegacyDirectory -Force | Out-Null
-}
 $lockPath = Join-Path $feedPath '.publish.lock'
 $publishLock = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::OpenOrCreate,
     [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
@@ -51,7 +42,6 @@ try {
         }
     }
     Copy-Verified $target
-    if ($LegacyDirectory) { Copy-Verified (Join-Path $LegacyDirectory $LegacyFileName) }
     $now = [DateTime]::UtcNow.ToString('o')
     $entry = [pscustomobject]@{
         packageName=$PackageName; versionCode=$VersionCode; versionName=$VersionName
@@ -71,15 +61,10 @@ try {
     } finally {
         if (Test-Path -LiteralPath $temporaryManifest) { Remove-Item -LiteralPath $temporaryManifest -Force }
     }
-    # Cleanup happens only after both verified copies and the manifest have been published.
+    # Cleanup happens only after the verified artifact and manifest have been published.
     $keepNames = @($manifest.apps | Where-Object packageName -eq $PackageName | ForEach-Object apkFile)
     Get-ChildItem -LiteralPath $appPath -Filter '*.apk' -File | Where-Object {
         $_.Name -notin $keepNames
     } | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
-    if ($LegacyDirectory) {
-        Get-ChildItem -LiteralPath $LegacyDirectory -File | Where-Object {
-            $_.Name -like $LegacyPattern -and $_.Name -ne $LegacyFileName
-        } | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
-    }
     Write-Output "Published $PackageName $VersionName ($VersionCode): $target"
 } finally { $publishLock.Dispose() }

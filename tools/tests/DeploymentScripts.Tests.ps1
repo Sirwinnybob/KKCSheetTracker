@@ -38,14 +38,16 @@ try {
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     Assert-That ($manifest.apps.Count -eq $ReleaseScripts.Count) 'Publishing another app lost a manifest entry'
     Assert-That ((Get-FileHash -LiteralPath (Join-Path $root 'dist\VNCCast.apk')).Hash -eq (Get-FileHash -LiteralPath $source).Hash) 'VNC Cast local distribution copy does not match the published APK'
-    Assert-That (-not (Test-Path -LiteralPath (Join-Path $legacy 'vnccast-v1.3-4-release.apk'))) 'VNC Cast wrapper did not remove its old legacy APK'
-    Assert-That (Test-Path -LiteralPath (Join-Path $legacy 'vnccast-v1.0.3-3-release.apk')) 'VNC Cast migration bridge is missing'
-    Assert-That (Test-Path -LiteralPath (Join-Path $legacy 'unrelated.apk')) 'VNC Cast cleanup removed another app'
+    Assert-That (Test-Path -LiteralPath (Join-Path $legacy 'vnccast-v1.3-4-release.apk')) 'Release publishing removed an existing legacy APK'
+    Assert-That ((Get-Content -LiteralPath (Join-Path $legacy 'vnccast-v1.3-4-release.apk') -Raw).Trim() -eq 'old VNC Cast') 'Release publishing changed an existing legacy APK'
+    Assert-That (Test-Path -LiteralPath (Join-Path $legacy 'unrelated.apk')) 'Release publishing removed an unrelated legacy APK'
+    Assert-That (-not (Test-Path -LiteralPath (Join-Path $legacy 'vnccast-v1.0.3-3-release.apk'))) 'VNC Cast wrapper published a legacy bridge APK'
+    Assert-That (@(Get-ChildItem -LiteralPath $legacy -File).Count -eq 2) 'A release wrapper wrote into the legacy update folder'
     $vncScript = $ReleaseScripts | Where-Object { (Split-Path $_ -Leaf) -eq 'deploy-android.ps1' } | Select-Object -First 1
     if ($vncScript) {
         $compatibilityRoot = Join-Path $root 'compatibility'
         & $vncScript -ProjectPath $root -UpdatesDir (Join-Path $compatibilityRoot '.Updates') -DistDirectory (Join-Path $root 'dist') -SkipBuild
-        Assert-That (Test-Path -LiteralPath (Join-Path $compatibilityRoot '.appupdates\apps\com.kkc.vnccast\com.kkc.vnccast-v1.0.3-3.apk')) 'Legacy UpdatesDir option did not place the canonical feed beside the bridge'
+        Assert-That (Test-Path -LiteralPath (Join-Path $compatibilityRoot '.appupdates\apps\com.kkc.vnccast\com.kkc.vnccast-v1.0.3-3.apk')) 'VNC Cast UpdatesDir option did not place the canonical feed beside the supplied path'
     }
     $before = (Get-FileHash -LiteralPath $manifestPath).Hash
     Set-Content -LiteralPath (Join-Path $root 'app\build.gradle.kts') -Value 'versionCode = 4; versionName = "1.0.4"'
@@ -74,7 +76,7 @@ try {
     try { & $AssimpDebugScript -ProjectPath $root -UpdateDirectory $testing -SkipBuild } catch { $failed=$true }
     Assert-That $failed 'Missing debug source was accepted'
     Assert-That (Test-Path -LiteralPath (Join-Path $testing 'assimp-v4-debug.apk')) 'Failed debug publication removed current version'
-    Write-Output 'PASS: all release wrappers, combined manifest, stale build rejection, debug cleanup and failure preservation'
+    Write-Output 'PASS: all release wrappers publish canonical feeds only, preserve the legacy folder, and keep stale build rejection and debug cleanup'
 } finally {
     $resolved = [System.IO.Path]::GetFullPath($root)
     if (-not $resolved.StartsWith([System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()), [StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe test cleanup path' }

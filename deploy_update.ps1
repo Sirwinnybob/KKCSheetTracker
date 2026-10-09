@@ -4,8 +4,7 @@ param(
     [string]$PackageName = 'com.kkc.sheettracker',
     [string]$RolloutChannel = 'stable',
     [string]$FeedRoot = 'Y:\Ready Jobs\.appupdates\apps',
-    [switch]$SkipBuild,
-    [switch]$NoLegacyCopy
+    [switch]$SkipBuild
 )
 $ErrorActionPreference = 'Stop'
 if (-not $SkipBuild) {
@@ -34,24 +33,5 @@ if ($metadata.applicationId -ne $PackageName -or $metadata.variantName -ne 'rele
 $publish = @{
     SourceApk=$source; FeedRoot=$FeedRoot; PackageName=$PackageName
     VersionCode=$versionCode; VersionName=$versionName; RolloutChannel=$RolloutChannel
-}
-# One bridge release remains discoverable by tablets that still use the old folder.
-if (-not $NoLegacyCopy) {
-    $publish.LegacyDirectory = Join-Path (Split-Path (Split-Path $FeedRoot -Parent) -Parent) '.Updates'
-    switch ($PackageName) {
-        'com.kkc.sheettracker' {
-            $publish.LegacyFileName = "kkc-sheettracker-v$versionName-release.apk"
-            $publish.LegacyPattern = 'kkc-sheettracker-v*-release.apk'
-        }
-        'com.example.timecard' {
-            $publish.LegacyFileName = "timecard-v$versionCode-release.apk"
-            $publish.LegacyPattern = 'timecard-v*-release.apk'
-        }
-        'com.anandmuralidhar.assimpandroid' {
-            $publish.LegacyFileName = "assimp-v$versionCode.apk"
-            $publish.LegacyPattern = 'assimp-v*.apk'
-        }
-        default { throw 'Specify -NoLegacyCopy for packages without a legacy naming convention' }
-    }
 }
 & (Join-Path $PSScriptRoot 'tools\publish_app_update.ps1') @publish
