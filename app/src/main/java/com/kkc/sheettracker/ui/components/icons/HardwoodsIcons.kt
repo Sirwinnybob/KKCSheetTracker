@@ -157,10 +157,12 @@ private fun specialty() = kkcIcon("HardwoodsSpecialty") {
 
 // ── Assembly reference: exploded cabinet — top lifted off, side panel pulled out ──
 private fun assembly() = kkcIcon("ReferenceAssembly") {
-    // lifted top panel
-    block(width = 1.5f) {
+    // lifted top panel (same duotone fill + outline as the side panel)
+    val top: PathBuilder.() -> Unit = {
         moveTo(4.5f, 6.5f); lineTo(8.5f, 3f); horizontalLineTo(18.5f); lineTo(14.5f, 6.5f); close()
     }
+    solid(DUOTONE, pathBuilder = top)
+    line(pathBuilder = top)
     // cabinet front (Jobs icon layout)
     val front: PathBuilder.() -> Unit = {
         moveTo(4.5f, 10f); horizontalLineTo(14.5f); verticalLineTo(20f); horizontalLineTo(4.5f); close()
@@ -173,10 +175,6 @@ private fun assembly() = kkcIcon("ReferenceAssembly") {
         moveTo(8.5f, 11.75f); horizontalLineTo(10.5f)
         moveTo(8f, 16f); verticalLineTo(17.5f)
         moveTo(11f, 16f); verticalLineTo(17.5f)
-    }
-    // open top rim of the box
-    line {
-        moveTo(4.5f, 10f); lineTo(8.5f, 6.5f); horizontalLineTo(18.5f); lineTo(14.5f, 10f)
     }
     // side panel pulled away to the right
     val side: PathBuilder.() -> Unit = {
