@@ -94,7 +94,6 @@ import com.kkc.sheettracker.ui.theme.SharedPreferencesKKCThemePreferenceStore
 import com.kkc.sheettracker.update.UpdateManager
 import com.kkc.sheettracker.update.ExternalAppUpdate
 import com.kkc.sheettracker.update.hasPendingUpdateNotification
-import com.kkc.sheettracker.update.splitExternalOffers
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -459,15 +458,8 @@ class MainActivity : ComponentActivity() {
                         pendingExternalUpdates = updateManager.pendingExternalUpdates,
                         onInstallSelfUpdate = { updateManager.installPendingUpdate() },
                         onInstallExternalUpdate = { update -> updateManager.installExternalUpdate(update) },
-                        onInstallAll = {
-                            // Hours Tracker must install first: installing Sheet Tracker over itself
-                            // kills this process, so anything queued after that point won't fire.
-                            // Apps not on this tablet are offers, not updates; Update All skips them.
-                            splitExternalOffers(updateManager.pendingExternalUpdates).updates.firstOrNull()?.let {
-                                updateManager.installExternalUpdate(it)
-                            }
-                            updateManager.installPendingUpdate()
-                        },
+                        // One app at a time, each confirmed installed before the next; Sheet Tracker last.
+                        onInstallAll = { updateManager.installAll() },
                         onBasePathChanged = { newPath ->
                             prefs.edit().putString("base_path", newPath).apply()
                             recreate()
@@ -684,6 +676,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // The system installer just closed if Update All is running: confirm and prompt the next app.
+        if (::updateManager.isInitialized) updateManager.onActivityResumed()
         if (::supplySubscriptionManager.isInitialized) {
             lifecycleScope.launch {
                 supplySubscriptionManager.scanForUpdates()
@@ -691,7 +685,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        // Update All: the system installer coming to the front pauses us.
+        if (::updateManager.isInitialized) updateManager.onActivityPaused()
+    }
+
     override fun onDestroy() {
+        if (::updateManager.isInitialized) updateManager.cancelUpdateAll()
         if (::syncthingSupervisor.isInitialized) {
             syncthingSupervisor.close()
         }

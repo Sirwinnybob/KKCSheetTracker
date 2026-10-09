@@ -47,10 +47,6 @@ class MainActivityUpdateWiringTest {
         assertTrue("MainActivity.kt must pass the update-only notification state into AppNavigation", mainActivitySource.contains("hasPendingUpdates = hasPendingUpdateNotification(updateManager.pendingUpdateApk != null, updateManager.pendingExternalUpdates)"))
         assertTrue("MainActivity.kt must pass pendingSelfUpdate into AppNavigation", mainActivitySource.contains("pendingSelfUpdate = updateManager.pendingUpdateApk"))
         assertTrue("MainActivity.kt must pass pendingExternalUpdates into AppNavigation", mainActivitySource.contains("pendingExternalUpdates = updateManager.pendingExternalUpdates"))
-        assertTrue("MainActivity.kt must wire onInstallAll to install Hours Tracker before itself", mainActivitySource.contains("onInstallAll = {"))
-        assertTrue(
-            "Update All must only update apps already installed, never install an offered app",
-            mainActivitySource.contains("splitExternalOffers(updateManager.pendingExternalUpdates).updates.firstOrNull()")
-        )
+        assertTrue("MainActivity.kt must wire onInstallAll to the sequential queue", mainActivitySource.contains("onInstallAll = { updateManager.installAll() }"))
     }
 }

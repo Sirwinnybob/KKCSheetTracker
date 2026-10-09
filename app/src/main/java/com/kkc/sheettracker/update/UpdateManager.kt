@@ -7,6 +7,9 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.text.InputType
 import android.util.Log
 import android.widget.EditText
@@ -50,6 +53,9 @@ class UpdateManager(
         private val JOB_FOLDER_NAMES = arrayOf("Ready Jobs", "Jobs", "JOBS")
         private const val PREFS_NAME = "UpdateManagerPrefs"
         private const val PREF_CUSTOM_UPDATE_PATH = "custom_update_path"
+        // Generous: the user can back out of the installer while a large APK is still committing.
+        private const val STEP_CONFIRM_GRACE_MS = 20_000L
+        private const val STEP_CONFIRM_POLL_MS = 250L
     }
 
     private val externalApps = listOf(
@@ -84,6 +90,105 @@ class UpdateManager(
     fun installExternalUpdate(update: ExternalAppUpdate) {
         installApk(update.apkFile)
         pendingExternalUpdates = pendingExternalUpdates.filter { it.packageName != update.packageName }
+    }
+
+    // ── Update All: one app at a time, this app last ───────────────────────────────
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var updateAllQueue: UpdateAllQueue? = null
+    private var stepCheckRunning = false
+    private var activityResumed = false
+
+    /** Next step is due but the app wasn't in front; launch it on the next resume (no background starts). */
+    private var launchOnResume = false
+
+    /**
+     * Installs every pending update in sequence. Each app's installer is opened only after the
+     * previous app is confirmed installed at its new version (checked when this activity resumes,
+     * i.e. once the system installer has closed). Sheet Tracker goes last. A cancelled or failed
+     * install stops the run.
+     */
+    fun installAll() {
+        // A run whose installer never opened (install-permission screen dismissed) is stale; replace it.
+        val running = updateAllQueue
+        if (running != null && (running.launched || stepCheckRunning)) return
+        val selfStep = pendingUpdateApk?.let { apk ->
+            getSelfApkInfo(apk)?.let { UpdateStep(activity.packageName, "KKC Sheet Tracker", apk, it.versionCode) }
+        }
+        val steps = updateAllSteps(selfStep, pendingExternalUpdates)
+        if (steps.isEmpty()) {
+            Toast.makeText(activity, "Nothing to update", Toast.LENGTH_SHORT).show()
+            return
+        }
+        updateAllQueue = UpdateAllQueue(steps)
+        launchOnResume = false
+        launchCurrentStep()
+    }
+
+    /** Call from the activity's onPause: if a step's installer just opened, it's now in front. */
+    fun onActivityPaused() {
+        activityResumed = false
+        updateAllQueue?.onPaused()
+    }
+
+    /** Call from the activity's onDestroy: stop polling and drop the run with the activity. */
+    fun cancelUpdateAll() {
+        mainHandler.removeCallbacksAndMessages(null)
+        updateAllQueue = null
+        stepCheckRunning = false
+        launchOnResume = false
+    }
+
+    /** Call from the activity's onResume: confirms the current step and prompts the next one. */
+    fun onActivityResumed() {
+        activityResumed = true
+        val queue = updateAllQueue ?: return
+        if (launchOnResume) {
+            launchOnResume = false
+            launchCurrentStep()
+            return
+        }
+        if (!queue.readyToConfirm || stepCheckRunning) return
+        val step = queue.current ?: return finishUpdateAll(null)
+        stepCheckRunning = true
+        val startedAt = SystemClock.elapsedRealtime()
+        val check = object : Runnable {
+            override fun run() {
+                val elapsed = SystemClock.elapsedRealtime() - startedAt
+                when (checkStep(getInstalledVersionCode(step.packageName), step.targetVersionCode, elapsed, STEP_CONFIRM_GRACE_MS)) {
+                    StepCheck.WAIT -> mainHandler.postDelayed(this, STEP_CONFIRM_POLL_MS)
+                    StepCheck.ADVANCE -> {
+                        stepCheckRunning = false
+                        pendingExternalUpdates = pendingExternalUpdates.filter { it.packageName != step.packageName }
+                        when {
+                            queue.advance() == null -> finishUpdateAll("All updates installed")
+                            activityResumed -> launchCurrentStep()
+                            else -> launchOnResume = true
+                        }
+                    }
+                    StepCheck.ABORT -> {
+                        stepCheckRunning = false
+                        finishUpdateAll("Update All stopped: ${step.label} wasn't updated")
+                    }
+                }
+            }
+        }
+        mainHandler.post(check)
+    }
+
+    private fun launchCurrentStep() {
+        val queue = updateAllQueue ?: return
+        val step = queue.current ?: return finishUpdateAll(null)
+        Toast.makeText(activity, "Updating ${step.label} (${queue.position} of ${queue.total})", Toast.LENGTH_SHORT).show()
+        AppLog.d(TAG, "Update All step ${queue.position}/${queue.total}: ${step.packageName} -> ${step.targetVersionCode}")
+        installApk(step.apkFile, onLaunched = { queue.launched = true })
+    }
+
+    private fun finishUpdateAll(message: String?) {
+        updateAllQueue = null
+        stepCheckRunning = false
+        launchOnResume = false
+        if (message != null) Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
     }
 
     private data class UpdateScanResult(
@@ -325,9 +430,10 @@ class UpdateManager(
         return getApkInfo(apkFile)?.takeIf { it.packageName == activity.packageName }
     }
 
-    private fun installApk(apkFile: File) {
+    /** [onLaunched] runs only once the system installer is actually opened for [apkFile]. */
+    private fun installApk(apkFile: File, onLaunched: () -> Unit = {}) {
         if (!activity.packageManager.canRequestPackageInstalls()) {
-            onRequestInstallPermission { installApk(apkFile) }
+            onRequestInstallPermission { installApk(apkFile, onLaunched) }
             return
         }
         try {
@@ -382,9 +488,12 @@ class UpdateManager(
 
             AppLog.d(TAG, "Launching PackageInstaller activity with Intent")
             activity.startActivity(intent)
+            onLaunched()
         } catch (e: Exception) {
             Log.e(TAG, "Install failed", e)
             Toast.makeText(activity, "Update failed: ${e.message}", Toast.LENGTH_LONG).show()
+            // An Update All run can't confirm a step that never opened; stop instead of stalling.
+            if (updateAllQueue != null) finishUpdateAll(null)
         }
     }
 

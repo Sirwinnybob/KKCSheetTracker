@@ -22,6 +22,10 @@ Install offers for missing apps do not trigger the Settings notification dot;
 the dot indicates updates for Sheet Tracker or an already installed companion app.
 Settings lists missing apps in a separate **Available apps** card; they don't count
 toward the updates chip or rail badge, and **Update All** skips them.
+**Update All** installs one app at a time: each installer opens only after the
+previous app reports its new version (checked when Settings returns to the
+foreground), and Sheet Tracker is always last. A cancelled or failed install stops
+the run.
 
 The release publishers are `KKCSheetTracker/deploy_update.ps1`,
 `Hours Tracker/AndroidApp/deploy_release.ps1`,
