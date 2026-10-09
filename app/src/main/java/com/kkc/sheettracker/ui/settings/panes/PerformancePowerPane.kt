@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
@@ -25,6 +26,7 @@ import com.kkc.sheettracker.data.UiPreferencesStore
 import com.kkc.sheettracker.ui.settings.CardBody
 import com.kkc.sheettracker.ui.settings.GroupCard
 import com.kkc.sheettracker.ui.settings.GroupDivider
+import com.kkc.sheettracker.ui.settings.MAX_FIELD_WIDTH
 import com.kkc.sheettracker.ui.settings.SettingToggle
 import com.kkc.sheettracker.ui.settings.settingsFieldColors
 import kotlinx.coroutines.delay
@@ -113,7 +115,7 @@ internal fun PerformancePowerPane(
                         supportingText = { Text("Lower values (e.g. 5) are useful for testing. Default 300 (5 min).") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         colors = settingsFieldColors(),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.widthIn(max = MAX_FIELD_WIDTH).fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     )
                 }

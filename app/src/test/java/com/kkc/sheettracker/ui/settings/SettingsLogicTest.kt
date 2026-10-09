@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.settings
 
+import androidx.compose.ui.graphics.Color
 import com.kkc.sheettracker.sync.SyncthingServiceStatus
 import com.kkc.sheettracker.ui.theme.BuiltInKKCThemeTokens
 import com.kkc.sheettracker.ui.theme.KKCThemeCatalog
@@ -86,5 +87,41 @@ class SettingsLogicTest {
     fun swatchUsesPaletteForMode() {
         assertEquals(BuiltInKKCThemeTokens.light.primary to BuiltInKKCThemeTokens.light.secondary, themeSwatch(default, dark = false))
         assertEquals(BuiltInKKCThemeTokens.dark.primary to BuiltInKKCThemeTokens.dark.secondary, themeSwatch(default, dark = true))
+    }
+
+    @Test
+    fun swatchFallsBackToPrimaryWhenThemeHasNoSecondary() {
+        val tokens = BuiltInKKCThemeTokens.copy(light = BuiltInKKCThemeTokens.light.copy(secondary = null))
+        val flat = KKCThemeDefinition(id = "flat", name = "Flat", version = 1, tokens = tokens)
+        assertEquals(tokens.light.primary to tokens.light.primary, themeSwatch(flat, dark = false))
+    }
+
+    @Test
+    fun swatchThemesAreTheCustomThemes() {
+        assertEquals(listOf("kkc-default", "kkc-forest"), customSwatchThemes(catalog()).map { it.id })
+    }
+
+    @Test
+    fun swatchThemesFallBackToActiveWhenThereAreNoCustomThemes() {
+        val onlyNfl = catalog().copy(themes = listOf(chiefs), activeTheme = default)
+        assertEquals(listOf("kkc-default"), customSwatchThemes(onlyNfl).map { it.id })
+    }
+
+    @Test
+    fun customThemesStayWhenAnNflThemeIsActive() {
+        assertEquals(listOf("kkc-default", "kkc-forest"), customSwatchThemes(catalog(active = chiefs)).map { it.id })
+    }
+
+    @Test
+    fun activeNflThemeIsNotDuplicatedAsAFallbackSwatch() {
+        // The NFL card already shows the active team; a fallback swatch would show it twice.
+        val onlyNfl = catalog().copy(themes = listOf(chiefs), activeTheme = chiefs)
+        assertEquals(emptyList<String>(), customSwatchThemes(onlyNfl).map { it.id })
+    }
+
+    @Test
+    fun badgeTextContrastsWithItsBackground() {
+        assertEquals(Color.Black, badgeContentColor(Color(0xFFFFB74D)))
+        assertEquals(Color.White, badgeContentColor(Color(0xFF1E3A5F)))
     }
 }

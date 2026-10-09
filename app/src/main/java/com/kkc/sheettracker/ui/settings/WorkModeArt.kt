@@ -27,10 +27,3 @@ internal fun workModeLogo(mode: WorkMode): ModeLogo {
     }
     return ModeLogo(rememberVectorPainter(vector), tintable = true)
 }
-
-internal fun WorkMode.displayName(): String = when (this) {
-    WorkMode.CNC -> "CNC"
-    WorkMode.HARDWOODS -> "Hardwoods"
-    WorkMode.ASSEMBLY -> "Assembly"
-    WorkMode.SPECIALTY -> "Specialty"
-}

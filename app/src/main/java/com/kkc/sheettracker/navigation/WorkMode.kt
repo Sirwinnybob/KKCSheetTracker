@@ -14,6 +14,13 @@ enum class WorkMode {
     }
 }
 
+fun WorkMode.displayName(): String = when (this) {
+    WorkMode.CNC -> "CNC"
+    WorkMode.HARDWOODS -> "Hardwoods"
+    WorkMode.ASSEMBLY -> "Assembly"
+    WorkMode.SPECIALTY -> "Specialty"
+}
+
 fun WorkMode.shortLabel(): String = when (this) {
     WorkMode.CNC -> "CNC"
     WorkMode.HARDWOODS -> "HW"

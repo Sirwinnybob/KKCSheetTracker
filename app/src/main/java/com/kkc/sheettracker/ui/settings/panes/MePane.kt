@@ -3,6 +3,7 @@ package com.kkc.sheettracker.ui.settings.panes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -22,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.EmployeeDirectory
 import com.kkc.sheettracker.ui.settings.CardBody
 import com.kkc.sheettracker.ui.settings.GroupCard
+import com.kkc.sheettracker.ui.settings.MAX_FIELD_WIDTH
 import com.kkc.sheettracker.ui.settings.SaveRow
 import com.kkc.sheettracker.ui.settings.rememberSavedFlash
 import com.kkc.sheettracker.ui.settings.saveButtonState
@@ -33,7 +35,7 @@ internal fun MePane(employeeName: String, onEmployeeNameChanged: (String) -> Uni
     val records by EmployeeDirectory.recordsFlow.collectAsState()
     var text by rememberSaveable(employeeName) { mutableStateOf(employeeName) }
     var expanded by remember { mutableStateOf(false) }
-    var savedFlash by rememberSavedFlash()
+    val savedFlash = rememberSavedFlash()
     val matches = remember(text, records) {
         if (text.isBlank()) emptyList()
         else records.filter {
@@ -49,7 +51,8 @@ internal fun MePane(employeeName: String, onEmployeeNameChanged: (String) -> Uni
             CardBody {
                 ExposedDropdownMenuBox(
                     expanded = expanded && matches.isNotEmpty(),
-                    onExpandedChange = { expanded = it }
+                    onExpandedChange = { expanded = it },
+                    modifier = Modifier.widthIn(max = MAX_FIELD_WIDTH)
                 ) {
                     OutlinedTextField(
                         value = text,
@@ -87,10 +90,11 @@ internal fun MePane(employeeName: String, onEmployeeNameChanged: (String) -> Uni
                     visible = button.visible,
                     enabled = button.enabled,
                     saveLabel = "Save name",
-                    savedFlash = savedFlash,
+                    savedFlash = savedFlash.visible,
                     onClick = {
+                        expanded = false
                         onEmployeeNameChanged(text.trim())
-                        savedFlash = true
+                        savedFlash.show()
                     }
                 )
             }

@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.settings
 
 import com.kkc.sheettracker.testutil.SourceFiles
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -81,9 +82,19 @@ class SettingsPanesWiringTest {
     fun openEffectsAndSectionStateArePreserved() {
         assertTrue(screen.contains("EmployeeDirectory.refresh(File(basePath))"))
         assertTrue(screen.contains("onCheckForUpdates()"))
-        assertTrue("section survives rotation", screen.contains("rememberSaveable"))
-        assertTrue(screen.contains("initialSection("))
+        assertTrue(
+            "section survives rotation",
+            screen.contains("by rememberSaveable { mutableStateOf(initialSection(")
+        )
+        assertTrue("reopen jumps to pending updates", screen.contains("sectionOnOpen("))
         assertTrue(screen.contains("AdminPasswordDialog("))
+    }
+
+    @Test
+    fun serverIpFieldsStoreBlankAsAutoDiscovery() {
+        val sync = SourceFiles.mainSource("com/kkc/sheettracker/ui/settings/panes/SyncNetworkPane.kt").readText()
+        assertEquals("timeclock + admin sync IP saves", 2, Regex("setManualIp\\(storedIpOrNull\\(").findAll(sync).count())
+        assertEquals("both IP fields accept blank", 2, Regex("allowBlank = true").findAll(sync).count())
     }
 
     @Test

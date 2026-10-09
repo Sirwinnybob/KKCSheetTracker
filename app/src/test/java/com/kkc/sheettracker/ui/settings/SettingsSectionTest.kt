@@ -26,6 +26,33 @@ class SettingsSectionTest {
     }
 
     @Test
+    fun newPendingUpdatesJumpToUpdates() {
+        assertEquals(SettingsSection.UPDATES_ABOUT, sectionOnOpen(SettingsSection.ADMIN, "kkc.apk", lastJumpedSignature = null))
+        assertEquals(SettingsSection.UPDATES_ABOUT, sectionOnOpen(SettingsSection.ADMIN, "kkc.apk|HT@2", lastJumpedSignature = "kkc.apk"))
+    }
+
+    @Test
+    fun alreadySurfacedUpdatesDoNotJumpAgain() {
+        // e.g. returning from Specialty viewer defaults with the same update still pending
+        assertEquals(SettingsSection.VIEWERS, sectionOnOpen(SettingsSection.VIEWERS, "kkc.apk", lastJumpedSignature = "kkc.apk"))
+    }
+
+    @Test
+    fun noPendingUpdatesKeepsSection() {
+        assertEquals(SettingsSection.ADMIN, sectionOnOpen(SettingsSection.ADMIN, updatesSignature = null, lastJumpedSignature = "kkc.apk"))
+    }
+
+    @Test
+    fun updatesSignatureIsStableAndNullWhenNothingPending() {
+        assertEquals(null, updatesSignature(null, emptyList()))
+        assertEquals(
+            updatesSignature("kkc.apk", listOf("VNC" to "1.2", "HT" to "3.0")),
+            updatesSignature("kkc.apk", listOf("HT" to "3.0", "VNC" to "1.2"))
+        )
+        assertTrue(updatesSignature(null, listOf("HT" to "3.0")) != updatesSignature(null, listOf("HT" to "3.1")))
+    }
+
+    @Test
     fun opensOnUpdatesOnlyWhenUpdatesArePending() {
         assertEquals(SettingsSection.UPDATES_ABOUT, initialSection(hasPendingUpdates = true))
         assertEquals(SettingsSection.LOOK_AND_FEEL, initialSection(hasPendingUpdates = false))

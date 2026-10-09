@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -27,7 +28,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.BuildConfig
@@ -110,14 +110,20 @@ fun SettingsScreen(
     val adminMode by AdminModeController.enabled.collectAsState()
     var showAdminDialog by remember { mutableStateOf(false) }
 
+    val updateCount = pendingUpdateCount(pendingSelfUpdate != null, pendingExternalUpdates.size)
+    var section by rememberSaveable { mutableStateOf(initialSection(updateCount > 0)) }
+
     // Checks that run each time Settings opens.
     LaunchedEffect(Unit) {
+        val signature = updatesSignature(
+            pendingSelfUpdate?.name,
+            pendingExternalUpdates.map { it.appName to it.versionName }
+        )
+        section = sectionOnOpen(section, signature, SettingsUpdatesJump.lastJumpedSignature)
+        if (signature != null) SettingsUpdatesJump.lastJumpedSignature = signature
         EmployeeDirectory.refresh(File(basePath))
         onCheckForUpdates()
     }
-
-    val updateCount = pendingUpdateCount(pendingSelfUpdate != null, pendingExternalUpdates.size)
-    var section by rememberSaveable { mutableStateOf(initialSection(updateCount > 0)) }
     val wideChips = showWideChips(LocalConfiguration.current.screenWidthDp.toFloat())
 
     Scaffold(
@@ -138,11 +144,12 @@ fun SettingsScreen(
                         val (tone, syncLabel) = syncChip(syncthingStatus.status)
                         StatusChip(syncLabel, onClick = { section = SettingsSection.SYNC_NETWORK }, dot = syncDotColor(tone))
                         if (updateCount > 0) {
+                            val updateColor = LocalKKCStatusColors.current.skipBg
                             StatusChip(
                                 updatesChipLabel(updateCount),
                                 onClick = { section = SettingsSection.UPDATES_ABOUT },
-                                container = LocalKKCStatusColors.current.skipBg,
-                                content = Color.Black.copy(alpha = 0.85f),
+                                container = updateColor,
+                                content = badgeContentColor(updateColor),
                                 icon = SettingsUpdatesSelected
                             )
                         }
@@ -176,7 +183,8 @@ fun SettingsScreen(
                 onFlexibleModeChanged = onFlexibleModeChanged
             )
             Row(
-                modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 16.dp),
+                // Takes whatever height the pinned mode row leaves; rail and pane scroll inside it.
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 SettingsRail(
