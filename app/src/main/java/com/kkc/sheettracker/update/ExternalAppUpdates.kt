@@ -5,6 +5,20 @@ internal fun hasPendingUpdateNotification(
     externalOffers: List<ExternalAppUpdate>
 ): Boolean = hasSelfUpdate || externalOffers.any { it.isInstalled }
 
+/**
+ * Scan results split into [updates] for apps already on the tablet and [available] companion apps
+ * that aren't installed. Only [updates] count as pending (notification dot, chips, Update All).
+ */
+internal data class ExternalOffers(
+    val updates: List<ExternalAppUpdate>,
+    val available: List<ExternalAppUpdate>,
+)
+
+internal fun splitExternalOffers(offers: List<ExternalAppUpdate>): ExternalOffers {
+    val (updates, available) = offers.partition { it.isInstalled }
+    return ExternalOffers(updates, available)
+}
+
 /** A version of -1 means absent; null means the installed version could not be determined. */
 internal fun findExternalAppUpdates(
     apps: List<ExternalApp>,

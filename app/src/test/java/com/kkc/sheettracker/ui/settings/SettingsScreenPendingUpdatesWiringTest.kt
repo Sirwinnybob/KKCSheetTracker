@@ -19,5 +19,11 @@ class SettingsScreenPendingUpdatesWiringTest {
         assertTrue("SettingsScreen must forward onInstallAll to the pane", source.contains("onInstallAll = onInstallAll"))
         assertTrue("Updates pane must render a Pending updates card", pane.contains("GroupCard(caption = \"Pending updates\")"))
         assertTrue("Updates pane must render an Update All button", pane.contains("Update All"))
+        assertTrue("Not-installed apps get their own card", pane.contains("GroupCard(caption = \"Available apps\")"))
+        assertTrue(
+            "Chip, badge and Updates jump count only installed apps",
+            source.contains("splitExternalOffers(pendingExternalUpdates)")
+        )
+        assertTrue("SettingsScreen must pass available apps to the pane", source.contains("availableApps = offers.available"))
     }
 }

@@ -116,4 +116,14 @@ class ExternalAppUpdatesTest {
     @Test fun noUpdatesOrInstallOffersDoNotShowTheNotificationDot() {
         assertFalse(hasPendingUpdateNotification(false, emptyList()))
     }
+
+    @Test fun offersSplitIntoUpdatesAndAvailableApps() {
+        val installed = ExternalAppUpdate("com.example.timecard", "Hours Tracker", temporary.newFile(), 163, "1.63", isInstalled = true)
+        val missing = ExternalAppUpdate("com.kkc.vnccast", "VNC Cast", temporary.newFile(), 5, "0.5", isInstalled = false)
+
+        val split = splitExternalOffers(listOf(missing, installed))
+
+        assertEquals(listOf(installed), split.updates)
+        assertEquals(listOf(missing), split.available)
+    }
 }

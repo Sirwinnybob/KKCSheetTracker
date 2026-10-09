@@ -25,7 +25,10 @@ import java.io.File
 @Composable
 internal fun UpdatesAboutPane(
     pendingSelfUpdate: File?,
+    /** Updates for apps already installed on this tablet. */
     pendingExternalUpdates: List<ExternalAppUpdate>,
+    /** Companion apps offered on the feed but not installed here; shown separately, not as updates. */
+    availableApps: List<ExternalAppUpdate>,
     onInstallSelfUpdate: () -> Unit,
     onInstallExternalUpdate: (ExternalAppUpdate) -> Unit,
     onInstallAll: () -> Unit,
@@ -46,14 +49,26 @@ internal fun UpdatesAboutPane(
                     GroupDivider()
                 }
                 if (hasSelfUpdate) {
-                    UpdateRow("KKC Sheet Tracker update available", "Update", onInstallSelfUpdate)
+                    UpdateRow("KKC Sheet Tracker update available", "Update", onClick = onInstallSelfUpdate)
                 }
                 pendingExternalUpdates.forEachIndexed { index, update ->
                     if (hasSelfUpdate || index > 0) GroupDivider()
+                    UpdateRow("${update.appName} ${update.versionName} available", "Update") {
+                        onInstallExternalUpdate(update)
+                    }
+                }
+            }
+        }
+
+        if (availableApps.isNotEmpty()) {
+            GroupCard(caption = "Available apps") {
+                availableApps.forEachIndexed { index, app ->
+                    if (index > 0) GroupDivider()
                     UpdateRow(
-                        "${update.appName} ${update.versionName} available",
-                        if (update.isInstalled) "Update" else "Install"
-                    ) { onInstallExternalUpdate(update) }
+                        label = "${app.appName} ${app.versionName}",
+                        subtitle = "Not installed on this tablet",
+                        action = "Install"
+                    ) { onInstallExternalUpdate(app) }
                 }
             }
         }
@@ -83,13 +98,22 @@ internal fun UpdatesAboutPane(
 }
 
 @Composable
-private fun UpdateRow(label: String, action: String, onClick: () -> Unit) {
+private fun UpdateRow(label: String, action: String, subtitle: String? = null, onClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            if (subtitle != null) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         Button(onClick = onClick, shape = RoundedCornerShape(8.dp)) { Text(action) }
     }
 }

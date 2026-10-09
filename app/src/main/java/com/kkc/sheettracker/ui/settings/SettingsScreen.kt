@@ -54,6 +54,7 @@ import com.kkc.sheettracker.ui.theme.KKCThemeCatalog
 import com.kkc.sheettracker.ui.theme.KKCThemeRepository
 import com.kkc.sheettracker.ui.theme.LocalKKCStatusColors
 import com.kkc.sheettracker.update.ExternalAppUpdate
+import com.kkc.sheettracker.update.splitExternalOffers
 import java.io.File
 
 /** Clearance below the rail and pane so their last rows scroll above the floating navbar. */
@@ -110,14 +111,17 @@ fun SettingsScreen(
     val adminMode by AdminModeController.enabled.collectAsState()
     var showAdminDialog by remember { mutableStateOf(false) }
 
-    val updateCount = pendingUpdateCount(pendingSelfUpdate != null, pendingExternalUpdates.size)
+    // Apps not on this tablet are offers ("Available apps"), not updates: they never count toward the
+    // chip, the rail badge, or the jump to Updates.
+    val offers = remember(pendingExternalUpdates) { splitExternalOffers(pendingExternalUpdates) }
+    val updateCount = pendingUpdateCount(pendingSelfUpdate != null, offers.updates.size)
     var section by rememberSaveable { mutableStateOf(initialSection(updateCount > 0)) }
 
     // Checks that run each time Settings opens.
     LaunchedEffect(Unit) {
         val signature = updatesSignature(
             pendingSelfUpdate?.name,
-            pendingExternalUpdates.map { it.appName to it.versionName }
+            offers.updates.map { it.appName to it.versionName }
         )
         section = sectionOnOpen(section, signature, SettingsUpdatesJump.lastJumpedSignature)
         if (signature != null) SettingsUpdatesJump.lastJumpedSignature = signature
@@ -234,7 +238,8 @@ fun SettingsScreen(
                         )
                         SettingsSection.UPDATES_ABOUT -> UpdatesAboutPane(
                             pendingSelfUpdate = pendingSelfUpdate,
-                            pendingExternalUpdates = pendingExternalUpdates,
+                            pendingExternalUpdates = offers.updates,
+                            availableApps = offers.available,
                             onInstallSelfUpdate = onInstallSelfUpdate,
                             onInstallExternalUpdate = onInstallExternalUpdate,
                             onInstallAll = onInstallAll,

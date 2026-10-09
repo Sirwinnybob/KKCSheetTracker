@@ -94,6 +94,7 @@ import com.kkc.sheettracker.ui.theme.SharedPreferencesKKCThemePreferenceStore
 import com.kkc.sheettracker.update.UpdateManager
 import com.kkc.sheettracker.update.ExternalAppUpdate
 import com.kkc.sheettracker.update.hasPendingUpdateNotification
+import com.kkc.sheettracker.update.splitExternalOffers
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -461,7 +462,8 @@ class MainActivity : ComponentActivity() {
                         onInstallAll = {
                             // Hours Tracker must install first: installing Sheet Tracker over itself
                             // kills this process, so anything queued after that point won't fire.
-                            updateManager.pendingExternalUpdates.firstOrNull()?.let {
+                            // Apps not on this tablet are offers, not updates; Update All skips them.
+                            splitExternalOffers(updateManager.pendingExternalUpdates).updates.firstOrNull()?.let {
                                 updateManager.installExternalUpdate(it)
                             }
                             updateManager.installPendingUpdate()
