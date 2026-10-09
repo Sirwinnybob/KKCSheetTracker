@@ -1,49 +1,63 @@
 package com.kkc.sheettracker.ui.settings
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.kkc.sheettracker.ui.components.kkcCardDepth
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.AdminModeController
 import com.kkc.sheettracker.data.AdminSyncConfig
 import com.kkc.sheettracker.data.EmployeeDirectory
+import com.kkc.sheettracker.data.IdlePowerSaveStore
 import com.kkc.sheettracker.data.TimecardServerConfig
 import com.kkc.sheettracker.data.UiPreferencesStore
-import com.kkc.sheettracker.data.IdlePowerSaveConfig
-import com.kkc.sheettracker.data.IdlePowerSaveStore
 import com.kkc.sheettracker.navigation.WorkMode
-import com.kkc.sheettracker.sync.SyncthingServiceStatus
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
 import com.kkc.sheettracker.ui.components.AdminPasswordDialog
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
-import com.kkc.sheettracker.ui.components.LocalLowEndMode
+import com.kkc.sheettracker.ui.components.icons.SettingsUpdatesSelected
+import com.kkc.sheettracker.ui.settings.panes.AdminPane
+import com.kkc.sheettracker.ui.settings.panes.LookAndFeelPane
+import com.kkc.sheettracker.ui.settings.panes.MePane
+import com.kkc.sheettracker.ui.settings.panes.PerformancePowerPane
+import com.kkc.sheettracker.ui.settings.panes.SyncNetworkPane
+import com.kkc.sheettracker.ui.settings.panes.TabletDataPane
+import com.kkc.sheettracker.ui.settings.panes.UpdatesAboutPane
+import com.kkc.sheettracker.ui.settings.panes.ViewersPane
 import com.kkc.sheettracker.ui.theme.KKCThemeCatalog
 import com.kkc.sheettracker.ui.theme.KKCThemeRepository
+import com.kkc.sheettracker.ui.theme.LocalKKCStatusColors
 import com.kkc.sheettracker.update.ExternalAppUpdate
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.io.File
-import java.text.DateFormat
-import java.util.Date
+
+/** Clearance below the rail and pane so their last rows scroll above the floating navbar. */
+private val NavbarClearance = 160.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,112 +109,55 @@ fun SettingsScreen(
 ) {
     val adminMode by AdminModeController.enabled.collectAsState()
     var showAdminDialog by remember { mutableStateOf(false) }
-    var editTabletId by remember { mutableStateOf(tabletId) }
-    var editBasePath by remember { mutableStateOf(basePath) }
-    var editSyncthingApiKey by remember(syncthingApiKey) { mutableStateOf(syncthingApiKey) }
-    var editEmployeeName by remember(employeeName) { mutableStateOf(employeeName) }
-    var employeeNameDirty by remember { mutableStateOf(false) }
-    var employeeNameSaved by remember { mutableStateOf(false) }
-    var employeeDropdownExpanded by remember { mutableStateOf(false) }
+
     // Checks that run each time Settings opens.
     LaunchedEffect(Unit) {
         EmployeeDirectory.refresh(File(basePath))
         onCheckForUpdates()
     }
-    val employeeRecords by EmployeeDirectory.recordsFlow.collectAsState()
-    val allEmployees = remember(employeeRecords) {
-        employeeRecords.map { Triple(it.pin, it.name, it.displayName) }
-    }
-    val filteredEmployees = remember(editEmployeeName) {
-        if (editEmployeeName.isBlank()) emptyList()
-        else allEmployees.filter { (id, name, displayName) ->
-            name.contains(editEmployeeName, ignoreCase = true) ||
-            id.contains(editEmployeeName, ignoreCase = true) ||
-            displayName.contains(editEmployeeName, ignoreCase = true)
-        }
-    }
-    var tabletIdDirty by remember { mutableStateOf(false) }
-    var basePathDirty by remember { mutableStateOf(false) }
-    var syncthingApiKeyDirty by remember { mutableStateOf(false) }
-    var tabletSaved by remember { mutableStateOf(false) }
-    var basePathSaved by remember { mutableStateOf(false) }
-    var syncthingApiKeySaved by remember { mutableStateOf(false) }
-    val currentServerIp by timecardConfig.serverIpFlow.collectAsState(initial = null)
-    var editServerIp by remember(currentServerIp) { mutableStateOf(currentServerIp ?: "") }
-    var serverIpDirty by remember(currentServerIp) { mutableStateOf(false) }
-    var serverIpSaved by remember { mutableStateOf(false) }
 
-    val currentAdminSyncIp by adminSyncConfig.serverIpFlow.collectAsState(initial = null)
-    var editAdminSyncIp by remember(currentAdminSyncIp) { mutableStateOf(currentAdminSyncIp ?: "") }
-    var adminSyncIpDirty by remember(currentAdminSyncIp) { mutableStateOf(false) }
-    var adminSyncIpSaved by remember { mutableStateOf(false) }
-
-    var themeDropdownExpanded by remember { mutableStateOf(false) }
-    var footballTeamSearchMode by remember { mutableStateOf(false) }
-    var footballTeamSearchText by remember { mutableStateOf("") }
-    val timecardScope = rememberCoroutineScope()
-    val idlePowerSaveConfig by idlePowerSaveStore.configFlow.collectAsState(initial = IdlePowerSaveConfig())
-    val idlePowerSaveScope = rememberCoroutineScope()
-    var idleTimeoutSecondsText by remember(idlePowerSaveConfig.idleTimeoutSeconds) {
-        mutableStateOf(idlePowerSaveConfig.idleTimeoutSeconds.toString())
-    }
-    LaunchedEffect(idleTimeoutSecondsText) {
-        val seconds = idleTimeoutSecondsText.toIntOrNull() ?: return@LaunchedEffect
-        delay(500L)
-        idlePowerSaveStore.setIdleTimeoutSeconds(seconds)
-    }
-
-    LaunchedEffect(tabletSaved) {
-        if (tabletSaved) {
-            delay(1600)
-            tabletSaved = false
-        }
-    }
-    LaunchedEffect(basePathSaved) {
-        if (basePathSaved) {
-            delay(1600)
-            basePathSaved = false
-        }
-    }
-    LaunchedEffect(syncthingApiKeySaved) {
-        if (syncthingApiKeySaved) {
-            delay(1600)
-            syncthingApiKeySaved = false
-        }
-    }
-    LaunchedEffect(employeeNameSaved) {
-        if (employeeNameSaved) {
-            delay(1600)
-            employeeNameSaved = false
-        }
-    }
-    LaunchedEffect(serverIpSaved) {
-        if (serverIpSaved) {
-            delay(1600)
-            serverIpSaved = false
-        }
-    }
-    LaunchedEffect(adminSyncIpSaved) {
-        if (adminSyncIpSaved) {
-            delay(1600)
-            adminSyncIpSaved = false
-        }
-    }
+    val updateCount = pendingUpdateCount(pendingSelfUpdate != null, pendingExternalUpdates.size)
+    var section by rememberSaveable { mutableStateOf(initialSection(updateCount > 0)) }
+    val wideChips = showWideChips(LocalConfiguration.current.screenWidthDp.toFloat())
 
     Scaffold(
         topBar = {
             KKCTopAppBar(
-                title = {
-                    Text(
-                        "Settings",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                },
-
-
+                title = { Text("Settings", style = MaterialTheme.typography.titleMedium) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
+                },
+                actions = {
+                    Row(
+                        modifier = Modifier.padding(end = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val (tone, syncLabel) = syncChip(syncthingStatus.status)
+                        StatusChip(syncLabel, onClick = { section = SettingsSection.SYNC_NETWORK }, dot = syncDotColor(tone))
+                        if (updateCount > 0) {
+                            StatusChip(
+                                updatesChipLabel(updateCount),
+                                onClick = { section = SettingsSection.UPDATES_ABOUT },
+                                container = LocalKKCStatusColors.current.skipBg,
+                                content = Color.Black.copy(alpha = 0.85f),
+                                icon = SettingsUpdatesSelected
+                            )
+                        }
+                        if (adminMode) {
+                            StatusChip(
+                                "Admin ON",
+                                onClick = { section = SettingsSection.ADMIN },
+                                container = MaterialTheme.colorScheme.tertiaryContainer,
+                                content = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
+                        if (wideChips) {
+                            StatusChip("Tablet $tabletId", onClick = { section = SettingsSection.TABLET_DATA })
+                            StatusChip("v${BuildConfig.VERSION_NAME}", onClick = { section = SettingsSection.UPDATES_ABOUT })
+                        }
                     }
                 }
             )
@@ -210,872 +167,96 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 160.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(top = 4.dp)
         ) {
-            // ── Pending Updates ─────────────────────────────────────────
-            val hasSelfUpdate = pendingSelfUpdate != null
-            val hasExternalUpdates = pendingExternalUpdates.isNotEmpty()
-            if (hasSelfUpdate || hasExternalUpdates) {
-                SettingsCard(title = "Pending Updates") {
-                    if (hasSelfUpdate && hasExternalUpdates) {
-                        Button(
-                            onClick = onInstallAll,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Update All")
-                        }
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    if (hasSelfUpdate) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("KKC Sheet Tracker update available")
-                            Button(onClick = onInstallSelfUpdate) {
-                                Text("Update")
-                            }
-                        }
-                    }
-                    pendingExternalUpdates.forEach { update ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("${update.appName} ${update.versionName} available")
-                            Button(onClick = { onInstallExternalUpdate(update) }) {
-                                Text(if (update.isInstalled) "Update" else "Install")
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ── Work Mode ────────────────────────────────────────────────
-            Text("Work Mode", style = MaterialTheme.typography.titleMedium)
+            WorkModeRow(
+                workMode = workMode,
+                onWorkModeChanged = onWorkModeChanged,
+                flexibleModeEnabled = flexibleModeEnabled,
+                onFlexibleModeChanged = onFlexibleModeChanged
+            )
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                WorkModeIconTile(
-                    label = "CNC",
-                    isSelected = workMode == WorkMode.CNC,
-                    onClick = { onWorkModeChanged(WorkMode.CNC) },
-                    modifier = Modifier.weight(1f)
+                SettingsRail(
+                    selected = section,
+                    onSelect = { section = it },
+                    updatesBadge = updateCount,
+                    bottomClearance = NavbarClearance,
+                    modifier = Modifier.fillMaxHeight()
                 )
-                WorkModeIconTile(
-                    label = "Hardwoods",
-                    isSelected = workMode == WorkMode.HARDWOODS,
-                    onClick = { onWorkModeChanged(WorkMode.HARDWOODS) },
-                    modifier = Modifier.weight(1f)
-                )
-                WorkModeIconTile(
-                    label = "Assembly",
-                    isSelected = workMode == WorkMode.ASSEMBLY,
-                    onClick = { onWorkModeChanged(WorkMode.ASSEMBLY) },
-                    modifier = Modifier.weight(1f)
-                )
-                WorkModeIconTile(
-                    label = "Specialty",
-                    isSelected = workMode == WorkMode.SPECIALTY,
-                    onClick = { onWorkModeChanged(WorkMode.SPECIALTY) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            SettingsCard(title = "Flexible Mode") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Flexible Mode", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Show a mode switcher on Dashboard and Jobs instead of locking to Work Mode above",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = flexibleModeEnabled,
-                        onCheckedChange = onFlexibleModeChanged
-                    )
-                }
-            }
-
-            // ── Appearance ───────────────────────────────────────────────
-            SettingsCard(title = "Appearance") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Follow System Theme", style = MaterialTheme.typography.bodyLarge)
-                    Switch(
-                        checked = followSystemTheme,
-                        onCheckedChange = onFollowSystemThemeChanged
-                    )
-                }
-
-                if (!followSystemTheme) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Dark Mode", style = MaterialTheme.typography.bodyLarge)
-                        Switch(
-                            checked = darkThemeOverride,
-                            onCheckedChange = onThemeChanged
-                        )
-                    }
-                }
-
-                if (isDarkTheme) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Use Standard Sheets", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "Load light mode PDFs instead of dark mode in viewer pages.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = useStandardSheets,
-                            onCheckedChange = onUseStandardSheetsChanged
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Continuous Scroll", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Scroll reference PDFs page-to-page instead of tapping through them.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = continuousScrollDefault,
-                        onCheckedChange = onContinuousScrollDefaultChanged
-                    )
-                }
-
-                var scrollPreviewLabelOnly by remember { mutableStateOf(uiPreferencesStore.getScrollPreviewLabelOnly()) }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Label-only scroll preview", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Show just the sheet label while dragging the scrollbar, instead of page thumbnails.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = scrollPreviewLabelOnly,
-                        onCheckedChange = {
-                            scrollPreviewLabelOnly = it
-                            uiPreferencesStore.setScrollPreviewLabelOnly(it)
-                        }
-                    )
-                }
-
-                HorizontalDivider()
-
-                ExposedDropdownMenuBox(
-                    expanded = if (footballTeamSearchMode) true else themeDropdownExpanded,
-                    onExpandedChange = { if (!footballTeamSearchMode) themeDropdownExpanded = it }
-                ) {
-                    val selectedId = themeCatalog.overrideThemeId
-                    val selectedThemeName = selectedId
-                        ?.let { id -> themeCatalog.themes.firstOrNull { it.id == id }?.name }
-                        ?: themeCatalog.activeTheme.name
-                    val footballThemes = footballTeamThemes(themeCatalog.themes)
-                    if (footballTeamSearchMode) {
-                        OutlinedTextField(
-                            value = footballTeamSearchText,
-                            onValueChange = { footballTeamSearchText = it },
-                            label = { Text("Search NFL team") },
-                            supportingText = { Text("Applies only to this tablet") },
-                            colors = filledFieldColors(),
-                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        val filteredFootballThemes = filterThemesByQuery(footballThemes, footballTeamSearchText)
-                        ExposedDropdownMenu(
-                            expanded = true,
-                            onDismissRequest = {
-                                footballTeamSearchMode = false
-                                footballTeamSearchText = ""
-                            }
-                        ) {
-                            if (filteredFootballThemes.isEmpty()) {
-                                DropdownMenuItem(
-                                    text = { Text("No matching teams") },
-                                    onClick = {},
-                                    enabled = false
-                                )
-                            } else {
-                                filteredFootballThemes.forEach { theme ->
-                                    DropdownMenuItem(
-                                        text = { Text(theme.name) },
-                                        onClick = {
-                                            onThemeFollowSyncedDefaultChanged(false)
-                                            onThemeOverrideChanged(theme.id)
-                                            footballTeamSearchMode = false
-                                            footballTeamSearchText = ""
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        OutlinedTextField(
-                            value = selectedThemeName,
-                            onValueChange = {},
-                            label = { Text("This tablet") },
-                            supportingText = {
-                                Text(if (selectedId == null) "Using fleet default" else "Applies only to this tablet")
-                            },
-                            colors = filledFieldColors(),
-                            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-                            readOnly = true,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        ExposedDropdownMenu(
-                            expanded = themeDropdownExpanded,
-                            onDismissRequest = { themeDropdownExpanded = false }
-                        ) {
-                            customThemes(themeCatalog.themes).forEach { theme ->
-                                DropdownMenuItem(
-                                    text = { Text(theme.name) },
-                                    onClick = {
-                                        onThemeFollowSyncedDefaultChanged(false)
-                                        onThemeOverrideChanged(theme.id)
-                                        themeDropdownExpanded = false
-                                    }
-                                )
-                            }
-                            if (footballThemes.isNotEmpty()) {
-                                DropdownMenuItem(
-                                    text = { Text("Football Team") },
-                                    onClick = {
-                                        themeDropdownExpanded = false
-                                        footballTeamSearchMode = true
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                ) {
-                    Button(
-                        onClick = {
-                            onThemeOverrideChanged(null)
-                            onThemeFollowSyncedDefaultChanged(true)
-                        },
-                        enabled = themeCatalog.overrideThemeId != null,
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("Use Fleet Default")
-                    }
-                    OutlinedButton(
-                        onClick = onThemeCatalogReload,
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("Reload Themes")
-                    }
-                }
-
-                themeCatalog.loadMessages.forEach { message ->
-                    Text(
-                        message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-                themeCatalog.invalidThemes.forEach { invalid ->
-                    Text(
-                        "${invalid.filename}: ${invalid.message}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-
-                Row(
+                // New scroll state per section so switching always starts at the top.
+                val paneScroll = key(section) { rememberScrollState() }
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpenAssemblyViewerDefaults() }
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .verticalScroll(paneScroll)
+                        // Inset inside the scroll viewport so card shadows are not clipped at its edges.
+                        .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = NavbarClearance),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Assembly viewer defaults", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Layout, panes, fullscreen",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    SectionHeader(section)
+                    when (section) {
+                        SettingsSection.LOOK_AND_FEEL -> LookAndFeelPane(
+                            isDarkTheme = isDarkTheme,
+                            followSystemTheme = followSystemTheme,
+                            darkThemeOverride = darkThemeOverride,
+                            onFollowSystemThemeChanged = onFollowSystemThemeChanged,
+                            onThemeChanged = onThemeChanged,
+                            themeCatalog = themeCatalog,
+                            onThemeFollowSyncedDefaultChanged = onThemeFollowSyncedDefaultChanged,
+                            onThemeOverrideChanged = onThemeOverrideChanged,
+                            onThemeCatalogReload = onThemeCatalogReload
                         )
-                    }
-                    OutlinedButton(
-                        onClick = onOpenAssemblyViewerDefaults,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                    ) {
-                        Text("Open", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpenSpecialtyViewerDefaults() }
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Specialty viewer defaults", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Station order, expanded sections",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        SettingsSection.VIEWERS -> ViewersPane(
+                            isDarkTheme = isDarkTheme,
+                            useStandardSheets = useStandardSheets,
+                            onUseStandardSheetsChanged = onUseStandardSheetsChanged,
+                            continuousScrollDefault = continuousScrollDefault,
+                            onContinuousScrollDefaultChanged = onContinuousScrollDefaultChanged,
+                            uiPreferencesStore = uiPreferencesStore,
+                            onOpenAssemblyViewerDefaults = onOpenAssemblyViewerDefaults,
+                            onOpenSpecialtyViewerDefaults = onOpenSpecialtyViewerDefaults
                         )
-                    }
-                    OutlinedButton(
-                        onClick = onOpenSpecialtyViewerDefaults,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                    ) {
-                        Text("Open", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-            }
-
-            // ── Performance ────────────────────────────────────────────────
-            SettingsCard(title = "Performance") {
-                var lowEndMode by remember { mutableStateOf(uiPreferencesStore.getLowEndMode()) }
-                var animationsEnabled by remember { mutableStateOf(uiPreferencesStore.getAnimationsEnabled()) }
-                var shadowsEnabled by remember { mutableStateOf(uiPreferencesStore.getShadowsEnabled()) }
-                var blurEnabled by remember { mutableStateOf(uiPreferencesStore.getBlurEnabled()) }
-                var lazyLoadingEnabled by remember { mutableStateOf(uiPreferencesStore.getLazyLoadingEnabled()) }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Low-end device mode", style = MaterialTheme.typography.bodyLarge)
-                    Switch(
-                        checked = lowEndMode,
-                        onCheckedChange = { enabled ->
-                            lowEndMode = enabled
-                            uiPreferencesStore.setLowEndMode(enabled)
-                            if (enabled) {
-                                animationsEnabled = false
-                                shadowsEnabled = false
-                                blurEnabled = false
-                                lazyLoadingEnabled = true
-                                uiPreferencesStore.setAnimationsEnabled(false)
-                                uiPreferencesStore.setShadowsEnabled(false)
-                                uiPreferencesStore.setBlurEnabled(false)
-                                uiPreferencesStore.setLazyLoadingEnabled(true)
-                            }
-                        }
-                    )
-                }
-
-                if (lowEndMode) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        ToggleRow(
-                            label = "Animations",
-                            checked = animationsEnabled,
-                            onCheckedChange = {
-                                animationsEnabled = it
-                                uiPreferencesStore.setAnimationsEnabled(it)
-                            },
-                            subtitle = "Spring/tween transitions, animated content size"
+                        SettingsSection.ME -> MePane(
+                            employeeName = employeeName,
+                            onEmployeeNameChanged = onEmployeeNameChanged
                         )
-                        ToggleRow(
-                            label = "Shadows",
-                            checked = shadowsEnabled,
-                            onCheckedChange = {
-                                shadowsEnabled = it
-                                uiPreferencesStore.setShadowsEnabled(it)
-                            },
-                            subtitle = "Card/button elevation shadows"
+                        SettingsSection.UPDATES_ABOUT -> UpdatesAboutPane(
+                            pendingSelfUpdate = pendingSelfUpdate,
+                            pendingExternalUpdates = pendingExternalUpdates,
+                            onInstallSelfUpdate = onInstallSelfUpdate,
+                            onInstallExternalUpdate = onInstallExternalUpdate,
+                            onInstallAll = onInstallAll,
+                            onCheckForUpdates = onCheckForUpdates,
+                            isDebugBuild = isDebugBuild,
+                            onReinstallLatest = onReinstallLatest
                         )
-                        ToggleRow(
-                            label = "Frosted glass / blur",
-                            checked = blurEnabled,
-                            onCheckedChange = {
-                                blurEnabled = it
-                                uiPreferencesStore.setBlurEnabled(it)
-                            },
-                            subtitle = "hazeEffect() backgrounds, blur modifiers"
+                        SettingsSection.TABLET_DATA -> TabletDataPane(
+                            tabletId = tabletId,
+                            onTabletIdChanged = onTabletIdChanged,
+                            basePath = basePath,
+                            onBasePathChanged = onBasePathChanged
                         )
-                        ToggleRow(
-                            label = "Lazy data loading",
-                            checked = lazyLoadingEnabled,
-                            onCheckedChange = {
-                                lazyLoadingEnabled = it
-                                uiPreferencesStore.setLazyLoadingEnabled(it)
-                            },
-                            subtitle = "Paginate job/supply lists, defer heavy loads"
+                        SettingsSection.SYNC_NETWORK -> SyncNetworkPane(
+                            syncthingApiKey = syncthingApiKey,
+                            syncthingStatus = syncthingStatus,
+                            onSyncthingApiKeySave = onSyncthingApiKeySave,
+                            onSyncthingCheckNow = onSyncthingCheckNow,
+                            onSyncthingStartNow = onSyncthingStartNow,
+                            timecardConfig = timecardConfig,
+                            adminSyncConfig = adminSyncConfig
                         )
-                    }
-                }
-            }
-
-            // ── Idle Power Saving ───────────────────────────────────────────
-            SettingsCard(title = "Idle Power Saving") {
-                ToggleRow(
-                    label = "Enable Idle Power Saving",
-                    checked = idlePowerSaveConfig.enabled,
-                    onCheckedChange = { enabled ->
-                        idlePowerSaveScope.launch { idlePowerSaveStore.setEnabled(enabled) }
-                    },
-                    subtitle = "Switches to dark sheets + black background to save battery on tablets left on but idle. Reverts instantly on touch."
-                )
-
-                if (idlePowerSaveConfig.enabled) {
-                    OutlinedTextField(
-                        value = idleTimeoutSecondsText,
-                        onValueChange = { text -> idleTimeoutSecondsText = text },
-                        label = { Text("Dim after (seconds)") },
-                        supportingText = { Text("Lower values (e.g. 5) are useful for testing. Default 300 (5 min).") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        colors = filledFieldColors(),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                }
-            }
-
-            // ── Tablet ───────────────────────────────────────────────────
-            SettingsCard(title = "Tablet") {
-                ExposedDropdownMenuBox(
-                    expanded = employeeDropdownExpanded && filteredEmployees.isNotEmpty(),
-                    onExpandedChange = { employeeDropdownExpanded = it }
-                ) {
-                    OutlinedTextField(
-                        value = editEmployeeName,
-                        onValueChange = {
-                            editEmployeeName = it
-                            employeeNameDirty = it.trim() != employeeName.trim()
-                            employeeDropdownExpanded = it.isNotBlank()
-                        },
-                        label = { Text("Your Name / PIN") },
-                        supportingText = { Text("Used for auto-login to the Hours Tracker. Leave blank to be prompted each time.") },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    if (filteredEmployees.isNotEmpty()) {
-                        ExposedDropdownMenu(
-                            expanded = employeeDropdownExpanded,
-                            onDismissRequest = { employeeDropdownExpanded = false }
-                        ) {
-                            filteredEmployees.forEach { (pin, name, displayName) ->
-                                DropdownMenuItem(
-                                    text = { Text(if (displayName.isNotBlank()) "$displayName ($pin)" else name) },
-                                    onClick = {
-                                        editEmployeeName = name
-                                        employeeNameDirty = name.trim() != employeeName.trim()
-                                        employeeDropdownExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (employeeNameDirty || employeeNameSaved) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (employeeNameDirty) {
-                            Button(
-                                onClick = {
-                                    onEmployeeNameChanged(editEmployeeName.trim())
-                                    employeeNameDirty = false
-                                    employeeNameSaved = true
-                                },
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text("Save Name")
-                            }
-                        }
-                        if (employeeNameSaved) {
-                            Text(
-                                "Saved",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-
-                OutlinedTextField(
-                    value = editTabletId,
-                    onValueChange = {
-                        editTabletId = it
-                        tabletIdDirty = it.trim() != tabletId.trim()
-                    },
-                    label = { Text("Tablet ID") },
-                    supportingText = { Text("Used for progress file naming. Must be unique per tablet.") },
-                    colors = filledFieldColors(),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                if (tabletIdDirty || tabletSaved) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (tabletIdDirty) {
-                            Button(
-                                onClick = {
-                                    onTabletIdChanged(editTabletId.trim())
-                                    tabletIdDirty = false
-                                    tabletSaved = true
-                                },
-                                enabled = editTabletId.trim().isNotBlank(),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text("Save Tablet ID")
-                            }
-                        }
-                        if (tabletSaved) {
-                            Text(
-                                "Saved",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ── Data Source ──────────────────────────────────────────────
-            SettingsCard(title = "Data Source") {
-                OutlinedTextField(
-                    value = editBasePath,
-                    onValueChange = {
-                        editBasePath = it
-                        basePathDirty = it.trim() != basePath.trim()
-                    },
-                    label = { Text("Ready Jobs Folder Path") },
-                    supportingText = { Text("Path to the synced Ready Jobs folder on this tablet.") },
-                    colors = filledFieldColors(),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                if (basePathDirty || basePathSaved) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (basePathDirty) {
-                            Button(
-                                onClick = {
-                                    onBasePathChanged(editBasePath.trim())
-                                    basePathDirty = false
-                                    basePathSaved = true
-                                },
-                                enabled = editBasePath.trim().isNotBlank(),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text("Save Path (app will restart)")
-                            }
-                        }
-                        if (basePathSaved) {
-                            Text(
-                                "Saved",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ── Syncthing ────────────────────────────────────────────────
-            SettingsCard(title = "Syncthing") {
-                OutlinedTextField(
-                    value = editSyncthingApiKey,
-                    onValueChange = {
-                        editSyncthingApiKey = it
-                        syncthingApiKeyDirty = it.trim() != syncthingApiKey.trim()
-                    },
-                    label = { Text("Syncthing API Key") },
-                    supportingText = { Text("Used for localhost API checks at 127.0.0.1:8384.") },
-                    colors = filledFieldColors(),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password
-                    )
-                )
-
-                if (syncthingApiKeyDirty || syncthingApiKeySaved) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (syncthingApiKeyDirty) {
-                            Button(
-                                onClick = {
-                                    onSyncthingApiKeySave(editSyncthingApiKey.trim())
-                                    syncthingApiKeyDirty = false
-                                    syncthingApiKeySaved = true
-                                },
-                                enabled = editSyncthingApiKey.trim().isNotBlank(),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text("Save API Key")
-                            }
-                        }
-                        if (syncthingApiKeySaved) {
-                            Text(
-                                "Saved",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-
-                SettingsStatusBadge(
-                    status = syncthingStatus.status
-                )
-
-                syncthingStatus.lastCheckedAtMs?.let { checkedAt ->
-                    Text(
-                        text = "Last check: ${formatStatusTime(checkedAt)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                syncthingStatus.lastStartAttemptAtMs?.let { startedAt ->
-                    Text(
-                        text = "Last restart attempt: ${formatStatusTime(startedAt)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = onSyncthingCheckNow,
-                        shape = RoundedCornerShape(8.dp),
-                        enabled = syncthingApiKey.isNotBlank()
-                    ) {
-                        Text("Check Now")
-                    }
-                    Button(
-                        onClick = onSyncthingStartNow,
-                        shape = RoundedCornerShape(8.dp),
-                        enabled = syncthingApiKey.isNotBlank()
-                    ) {
-                        Text("Start Now")
-                    }
-                }
-            }
-
-            // ── Timeclock ────────────────────────────────────────────────
-            SettingsCard(title = "Timeclock") {
-                OutlinedTextField(
-                    value = editServerIp,
-                    onValueChange = {
-                        editServerIp = it
-                        serverIpDirty = (it.trim() != (currentServerIp ?: ""))
-                    },
-                    label = { Text("Server IP address") },
-                    placeholder = { Text("Auto (mDNS discovery)") },
-                    supportingText = { Text("Leave blank to use automatic discovery. Enter an IP to skip mDNS.") },
-                    colors = filledFieldColors(),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (serverIpSaved) {
-                        Text(
-                            "Saved",
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(end = 8.dp)
+                        SettingsSection.PERFORMANCE_POWER -> PerformancePowerPane(
+                            uiPreferencesStore = uiPreferencesStore,
+                            idlePowerSaveStore = idlePowerSaveStore
                         )
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            timecardScope.launch {
-                                timecardConfig.setManualIp(editServerIp.ifBlank { null })
-                            }
-                            serverIpDirty = false
-                            serverIpSaved = true
-                        },
-                        enabled = serverIpDirty
-                    ) {
-                        Text("Save")
-                    }
-                }
-            }
-
-            // ── Admin Sync ───────────────────────────────────────────────
-            SettingsCard(title = "Hours Tracker Admin Sync") {
-                OutlinedTextField(
-                    value = editAdminSyncIp,
-                    onValueChange = {
-                        editAdminSyncIp = it
-                        adminSyncIpDirty = (it.trim() != (currentAdminSyncIp ?: ""))
-                    },
-                    label = { Text("Hours Tracker server IP address") },
-                    placeholder = { Text("Not configured (fast path disabled)") },
-                    supportingText = { Text("Enables instant job order / job board / delivery schedule sync. Leave blank to always use the existing (slower) sync mechanism.") },
-                    colors = filledFieldColors(),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (adminSyncIpSaved) {
-                        Text(
-                            "Saved",
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(end = 8.dp)
+                        SettingsSection.ADMIN -> AdminPane(
+                            adminMode = adminMode,
+                            onUnlockRequested = { showAdminDialog = true }
                         )
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            timecardScope.launch {
-                                adminSyncConfig.setManualIp(editAdminSyncIp.ifBlank { null })
-                            }
-                            adminSyncIpDirty = false
-                            adminSyncIpSaved = true
-                        },
-                        enabled = adminSyncIpDirty
-                    ) {
-                        Text("Save")
-                    }
-                }
-            }
-
-            // ── About ────────────────────────────────────────────────────
-            SettingsCard(title = "About") {
-                Text(
-                    "KKC Sheet Tracker v${BuildConfig.VERSION_NAME}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                if (isDebugBuild) {
-                    TextButton(onClick = onReinstallLatest) {
-                        Text("Reinstall Latest Debug APK")
-                    }
-                }
-            }
-
-            // ── Admin ────────────────────────────────────────────────────
-            SettingsCard(title = "Admin") {
-                if (!adminMode) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Admin", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "Unlock advanced controls",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        OutlinedButton(
-                            onClick = { showAdminDialog = true },
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                        ) {
-                            Text("Unlock", style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                } else {
-                    Text(
-                        "Admin mode is ON",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.tertiary
-                    )
-                    Text(
-                        "The supply \"To Order\" tab is visible, and the Jobs tab shows a reorder control.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    TextButton(onClick = { AdminModeController.setEnabled(false) }) {
-                        Text("Lock admin")
                     }
                 }
             }
@@ -1091,166 +272,4 @@ fun SettingsScreen(
             onDismiss = { showAdminDialog = false }
         )
     }
-}
-
-// ── Private composables ─────────────────────────────────────────────────────
-
-@Composable
-private fun SettingsCard(
-    title: String,
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    val lowEnd = LocalLowEndMode.current
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .kkcCardDepth(RoundedCornerShape(12.dp), elevation = 2.dp),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 0.dp
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            content()
-        }
-    }
-}
-
-@Composable
-private fun WorkModeIconTile(
-    label: String,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val lowEnd = LocalLowEndMode.current
-    val bgColor = if (isSelected) {
-        MaterialTheme.colorScheme.primaryContainer
-    } else {
-        MaterialTheme.colorScheme.surface
-    }
-    val textColor = if (isSelected) {
-        MaterialTheme.colorScheme.onPrimaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSurface
-    }
-    val borderColor = if (isSelected) {
-        Color.Transparent
-    } else {
-        MaterialTheme.colorScheme.outlineVariant
-    }
-
-    Surface(
-        modifier = modifier
-            .aspectRatio(1f)
-            .clip(RoundedCornerShape(12.dp))
-            .then(
-                if (!isSelected) Modifier.border(1.dp, borderColor, RoundedCornerShape(12.dp))
-                else Modifier
-            )
-            .shadow(if (lowEnd.shadowsDisabled) 0.dp else if (isSelected) 0.dp else 1.dp, RoundedCornerShape(12.dp), clip = false)
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
-        color = bgColor,
-        tonalElevation = 0.dp
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            // Placeholder icon slot — replace with custom SVG/Image icon later
-            Box(
-                modifier = Modifier.size(48.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                // Icon placeholder
-            }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Medium,
-                color = textColor
-            )
-        }
-    }
-}
-
-@Composable
-private fun SettingsStatusBadge(status: SyncthingServiceStatus) {
-    val (bgColor, text) = when (status) {
-        SyncthingServiceStatus.CHECKING -> MaterialTheme.colorScheme.tertiaryContainer to "Checking"
-        SyncthingServiceStatus.RUNNING -> MaterialTheme.colorScheme.primaryContainer to "Running"
-        SyncthingServiceStatus.PAUSED -> MaterialTheme.colorScheme.secondaryContainer to "Paused"
-        SyncthingServiceStatus.NOT_RUNNING -> MaterialTheme.colorScheme.errorContainer to "Not running"
-        SyncthingServiceStatus.START_FAILED -> MaterialTheme.colorScheme.errorContainer to "Start failed"
-        SyncthingServiceStatus.API_KEY_REQUIRED -> MaterialTheme.colorScheme.tertiaryContainer to "API key required"
-    }
-    val textColor = when (status) {
-        SyncthingServiceStatus.CHECKING -> MaterialTheme.colorScheme.onTertiaryContainer
-        SyncthingServiceStatus.RUNNING -> MaterialTheme.colorScheme.onPrimaryContainer
-        SyncthingServiceStatus.PAUSED -> MaterialTheme.colorScheme.onSecondaryContainer
-        SyncthingServiceStatus.NOT_RUNNING -> MaterialTheme.colorScheme.onErrorContainer
-        SyncthingServiceStatus.START_FAILED -> MaterialTheme.colorScheme.onErrorContainer
-        SyncthingServiceStatus.API_KEY_REQUIRED -> MaterialTheme.colorScheme.onTertiaryContainer
-    }
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(bgColor)
-            .padding(horizontal = 12.dp, vertical = 4.dp)
-    ) {
-        Text(
-            text = "Status: $text",
-            style = MaterialTheme.typography.labelMedium,
-            color = textColor,
-            fontWeight = FontWeight.SemiBold
-        )
-    }
-}
-
-@Composable
-private fun filledFieldColors(): TextFieldColors {
-    val containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-    return OutlinedTextFieldDefaults.colors(
-        unfocusedContainerColor = containerColor,
-        unfocusedBorderColor = Color.Transparent,
-        focusedContainerColor = containerColor,
-        focusedBorderColor = MaterialTheme.colorScheme.primary,
-    )
-}
-
-@Composable
-private fun ToggleRow(
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    subtitle: String
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
-// ── Private helper functions ────────────────────────────────────────────────
-
-private fun formatStatusTime(timestampMs: Long): String {
-    return DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestampMs))
 }
