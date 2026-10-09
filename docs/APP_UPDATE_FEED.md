@@ -1,4 +1,9 @@
-# KKC Updater Agent Rollout
+# KKC App Update Feed
+
+Tablets update through each app's own in-app updater (Sheet Tracker's `UpdateManager`
+also offers companion apps). The device-owner `updater-agent` app was removed on
+2026-10-09; nothing here depends on it. Earlier history lived in this file as
+`UPDATER_AGENT_ROLLOUT.md`.
 
 ## Shared APK location (2026-10-08)
 
@@ -6,7 +11,7 @@ Sheet Tracker 8.7.11, Hours Tracker 3.11.3, Assimp 2.06, and VNC Cast 1.3.1 use
 `<Ready Jobs>/.appupdates/apps/<packageName>/` for release APKs. Sheet Tracker's
 Settings detects and installs updates for all four packages as of 8.7.12; Hours
 Tracker, Assimp, and VNC Cast also resolve their own package folder. Each app still
-validates the APK's actual package and version. This does not require updater-agent.
+validates the APK's actual package and version.
 
 As of Sheet Tracker 8.7.13, Settings also offers **Install** for missing Assimp
 (Room Viewer), Hours Tracker, and VNC Cast apps when a matching APK is available.
@@ -15,6 +20,8 @@ package lookup failure skips that app until a later scan; it is not treated as a
 missing installation. Each action uses Android's existing installer confirmation.
 Install offers for missing apps do not trigger the Settings notification dot;
 the dot indicates updates for Sheet Tracker or an already installed companion app.
+Settings lists missing apps in a separate **Available apps** card; they don't count
+toward the updates chip or rail badge, and **Update All** skips them.
 
 The release publishers are `KKCSheetTracker/deploy_update.ps1`,
 `Hours Tracker/AndroidApp/deploy_release.ps1`,
@@ -38,41 +45,27 @@ Verification: `tools/tests/PublishAppUpdate.Tests.ps1`,
 `tools/tests/DeploymentScripts.Tests.ps1`, and each app's `UpdateDirectoriesTest`.
 The folder resolver copies in the four apps must also be kept synchronized.
 
-## 1) Enroll Device Owner
-
-Factory-reset the tablet, install `com.kkc.updateragent`, then set device owner:
-
-```bash
-adb shell dpm set-device-owner com.kkc.updateragent/com.kkc.updateragent.admin.KkcDeviceAdminReceiver
-```
-
-## 2) Feed Layout
+## Feed layout
 
 ```
 <Ready Jobs>/.appupdates/
-  device_policy.json
   apps/
     manifest.json
     com.kkc.sheettracker/
-      com.kkc.sheettracker-v3.2.3-3230.apk
-  <tabletId>/
-    install-log.ndjson
-    updater-fallback-required.json (only when silent flow cannot proceed)
+      com.kkc.sheettracker-v8.7.15-80715.apk
+    com.example.timecard/ …
 ```
 
-## 3) Publish Command
+Files left over from the removed updater-agent (`device_policy.json`,
+`<tabletId>/install-log.ndjson`, `updater-fallback-required.json`) have no reader
+or writer and can be deleted.
+
+## Publish command
 
 ```powershell
-.\deploy_update.ps1 `
-  -ProjectPath "C:\Scripts\KKCSheetTracker" `
-  -AppModule "app" `
-  -PackageName "com.kkc.sheettracker" `
-  -RolloutChannel "stable" `
-  -FeedRoot "Y:\Ready Jobs\.appupdates\apps"
+.\deploy_update.ps1   # defaults: app module, com.kkc.sheettracker, stable, Y:\Ready Jobs\.appupdates\apps
 ```
 
-## 4) Contracts
+## Contracts
 
 - `manifest.json`: active release by package/channel (`apps`) + prior releases (`history`).
-- `device_policy.json`: polling cadence, maintenance window, managed package list.
-- `install-log.ndjson`: one JSON line per install decision/result with timestamp and error text.

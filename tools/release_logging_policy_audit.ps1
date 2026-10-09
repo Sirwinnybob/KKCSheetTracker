@@ -4,12 +4,10 @@ param(
 )
 
 $sourceRoots = @(
-    (Join-Path $Root "app\src\main\java"),
-    (Join-Path $Root "updater-agent\src\main\java")
+    (Join-Path $Root "app\src\main\java")
 )
 $canonicalLoggers = @(
-    (Join-Path $Root "app\src\main\java\com\kkc\sheettracker\logging\AppLog.kt"),
-    (Join-Path $Root "updater-agent\src\main\java\com\kkc\updateragent\logging\AgentLog.kt")
+    (Join-Path $Root "app\src\main\java\com\kkc\sheettracker\logging\AppLog.kt")
 ) | ForEach-Object { [System.IO.Path]::GetFullPath($_) }
 
 $routineAndroidLogPattern = '\b(?:android\.util\.)?Log\.(?:v|d|i|println)\s*\('

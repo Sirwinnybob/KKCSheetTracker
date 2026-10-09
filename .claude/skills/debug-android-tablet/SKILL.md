@@ -1,6 +1,6 @@
 ---
 name: debug-android-tablet
-description: Use when debugging KKCSheetTracker or updater-agent Android behavior, crashes, installs, UI failures, sync problems, timeclock issues, or any situation where a shop tablet is connected over ADB.
+description: Use when debugging KKCSheetTracker Android behavior, crashes, installs, UI failures, sync problems, timeclock issues, or any situation where a shop tablet is connected over ADB.
 ---
 
 # Debug Android Tablet
@@ -63,13 +63,12 @@ Verify installed versions:
 
 ```powershell
 adb shell dumpsys package com.kkc.sheettracker | Select-String "versionName|versionCode|firstInstallTime|lastUpdateTime"
-adb shell dumpsys package com.kkc.updateragent | Select-String "versionName|versionCode|firstInstallTime|lastUpdateTime"
 ```
 
-If silent updates are involved, inspect both app logs and updater-agent logs:
+For update problems (tablets update only through the in-app UpdateManager, which scans `Ready Jobs/.appupdates/apps/<packageName>/`, falling back to legacy `Ready Jobs/.Updates`), inspect its logs:
 
 ```powershell
-adb logcat -d -v time | Select-String "UpdateManager|updateragent|PackageInstaller|DeviceOwner|Fallback"
+adb logcat -d -v time | Select-String "UpdateManager|PackageInstaller"
 ```
 
 ## App State And Storage
@@ -120,7 +119,7 @@ Useful repo locations:
 | Hours Tracker metadata | `C:\Scripts\Hours Tracker`, especially `backend/main_v2.py`, `backend/db.py`, `config.json` |
 | Syncthing | `sync/SyncthingSupervisor.kt`, `sync/DataStoreSyncthingPreferencesStore.kt` |
 | PDF markup/viewer | `data/PdfMarkupStore.kt`, `ui/markup/`, `ui/viewer/` |
-| Updater agent | `updater-agent/src/main/java/com/kkc/updateragent/update/` |
+| In-app updates | `app/src/main/java/com/kkc/sheettracker/update/UpdateManager.kt` |
 
 ## Ready Jobs Watcher Checks
 
@@ -201,4 +200,3 @@ adb logcat -c
 | Blaming Hours Tracker for stale KKCSheetTracker job cache | Hours Tracker does not normally write `cache_static.json`; check Ready Jobs Watcher |
 | Confusing hours systems | `C:\Scripts\timeclock-hub` is RTC punch clock; `C:\Scripts\Hours Tracker` is digital timecard/admin + `com.example.timecard` |
 | Debugging timeclock only in Android | Check hub health/logs and `C:\Scripts\timeclock-hub\app.py` too |
-| Forgetting updater-agent | Inspect `com.kkc.updateragent` when installs or silent updates are involved |

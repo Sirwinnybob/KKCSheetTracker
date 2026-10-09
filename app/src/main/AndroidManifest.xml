@@ -21,7 +21,6 @@
         <package android:name="com.example.timecard" />
         <package android:name="com.anandmuralidhar.assimpandroid" />
         <package android:name="com.kkc.vnccast" />
-        <package android:name="com.kkc.updateragent" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:mimeType="application/vnd.android.package-archive" />

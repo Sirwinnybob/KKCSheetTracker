@@ -19,4 +19,3 @@ dependencyResolutionManagement {
 rootProject.name = "KKCSheetTracker"
 include(":app")
 include(":tools-migration")
-include(":updater-agent")
