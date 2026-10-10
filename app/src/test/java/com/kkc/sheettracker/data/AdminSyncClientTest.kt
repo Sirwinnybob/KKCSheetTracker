@@ -167,6 +167,57 @@ class AdminSyncClientTest {
     }
 
     @Test
+    fun `setDeliveryJobDate normalizes FastAPI 422 list detail to msg text`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(422).setBody(
+            """{"detail":[{"loc":["body","date"],"msg":"invalid date","type":"value_error"},{"loc":["body","window"],"msg":"bad window","type":"value_error"}]}"""
+        ))
+        val d = java.time.LocalDate.of(2026, 10, 16)
+        assertEquals(DeliveryJobDateResult.Refused(422, "invalid date; bad window"), client.setDeliveryJobDate("a", d, null))
+    }
+
+    @Test
+    fun `setDeliveryJobDate uses status fallback for empty or non-JSON error bodies`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(409))
+        server.enqueue(MockResponse().setResponseCode(404).setBody("<html>Not Found</html>"))
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"detail":""}"""))
+        server.enqueue(MockResponse().setResponseCode(422).setBody("""{"detail":[{"loc":["body"]}]}"""))
+        val d = java.time.LocalDate.of(2026, 10, 16)
+        assertEquals(DeliveryJobDateResult.Refused(409, "That half-day already has 3 deliveries"), client.setDeliveryJobDate("a", d, null))
+        assertEquals(DeliveryJobDateResult.Refused(404, "Folder not found in Ready Jobs"), client.setDeliveryJobDate("a", d, null))
+        assertEquals(DeliveryJobDateResult.Refused(400, "The office job is closed or the request was invalid"), client.setDeliveryJobDate("a", d, null))
+        assertEquals(DeliveryJobDateResult.Refused(422, "The office job is closed or the request was invalid"), client.setDeliveryJobDate("a", d, null))
+    }
+
+    @Test
+    fun `setDeliveryJobDate 2xx without a v2 document is AcceptedWithoutDocument`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("not json"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        server.enqueue(MockResponse().setResponseCode(204))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"schemaVersion":1,"slots":{}}"""))
+        val d = java.time.LocalDate.of(2026, 10, 16)
+        repeat(4) {
+            assertEquals(DeliveryJobDateResult.AcceptedWithoutDocument, client.setDeliveryJobDate("a", d, null))
+        }
+    }
+
+    @Test
+    fun `setDeliveryJobDate with malformed server url is Unavailable`() = runBlocking {
+        val result = AdminSyncClient("not a url").setDeliveryJobDate("a", java.time.LocalDate.of(2026, 10, 16), null)
+        assertEquals(DeliveryJobDateResult.Unavailable, result)
+    }
+
+    @Test
+    fun `applyDeliveryScheduleEdits returns null on 2xx without any schedule object`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("not json"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"failures":[]}"""))
+        val req = DeliveryScheduleEditRequest("T1", "2026-10-09T17:00:00Z")
+        assertNull(client.applyDeliveryScheduleEdits(req))
+        assertNull(client.applyDeliveryScheduleEdits(req))
+        assertNull(client.applyDeliveryScheduleEdits(req))
+    }
+
+    @Test
     fun `applyDeliverySchedule returns null when server is unreachable`() = runBlocking {
         val unreachableUrl = server.url("/").toString().trimEnd('/')
         server.shutdown()

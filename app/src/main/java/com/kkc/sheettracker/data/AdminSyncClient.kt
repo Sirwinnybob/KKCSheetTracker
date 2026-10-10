@@ -20,8 +20,13 @@ sealed interface DeliveryJobDateResult {
     data class Applied(val result: DeliveryScheduleApplyResult) : DeliveryJobDateResult
     /** HT definitively refused this job (409 full, 404 folder unknown, 400/422 closed job or bad input). */
     data class Refused(val status: Int, val reason: String) : DeliveryJobDateResult
-    /** 503, timeout, any other failure: retry via a slot edit / request file. */
+    /** 503, timeout, malformed server URL, any other failure: retry via a slot edit / request file. */
     object Unavailable : DeliveryJobDateResult
+    /**
+     * HT returned 2xx but no usable v2 document, so the change WAS applied. Do not retry (that would
+     * resend stale whole-slot intent); wait for the live/file refresh to show the result.
+     */
+    object AcceptedWithoutDocument : DeliveryJobDateResult
 }
 
 /**
@@ -126,7 +131,15 @@ class AdminSyncClient(serverUrl: String) {
             runCatching {
                 client.newCall(httpRequest).execute().use { response ->
                     if (!response.isSuccessful) return@use null
-                    val doc = parseDeliveryScheduleDocument(response.body?.string() ?: return@use null)
+                    val text = response.body?.string() ?: return@use null
+                    // A 2xx without any schedule object (e.g. `{}`) would parse as an empty v1
+                    // schedule and blank the board; treat it as a failure so the caller falls back.
+                    val root = JSONObject(text)
+                    if (root.optJSONObject("slots") == null &&
+                        root.optJSONObject("datedSlots") == null &&
+                        root.optJSONObject("schedule") == null
+                    ) return@use null
+                    val doc = parseDeliveryScheduleDocument(text)
                     DeliveryScheduleApplyResult(doc.schedule, doc.failures)
                 }
             }.getOrNull()
@@ -139,32 +152,60 @@ class AdminSyncClient(serverUrl: String) {
      */
     suspend fun setDeliveryJobDate(folderName: String, date: java.time.LocalDate?, window: String?): DeliveryJobDateResult =
         withContext(Dispatchers.IO) {
-            val url = baseUrl.toHttpUrl().newBuilder()
-                .addPathSegments("api/delivery-schedule/jobs")
-                .addPathSegment(folderName)
-                .build()
-            val bodyText = if (date == null) "null" else JSONObject().apply {
-                put("date", date.toString())
-                if (window != null) put("window", window)
-            }.toString()
-            val request = Request.Builder().url(url).put(bodyText.toRequestBody(jsonMediaType)).build()
             runCatching {
+                // Built inside runCatching: a malformed configured server URL must degrade to
+                // Unavailable (fall back to the request file), never throw into the UI.
+                val url = baseUrl.toHttpUrl().newBuilder()
+                    .addPathSegments("api/delivery-schedule/jobs")
+                    .addPathSegment(folderName)
+                    .build()
+                val bodyText = if (date == null) "null" else JSONObject().apply {
+                    put("date", date.toString())
+                    if (window != null) put("window", window)
+                }.toString()
+                val request = Request.Builder().url(url).put(bodyText.toRequestBody(jsonMediaType)).build()
                 client.newCall(request).execute().use { response ->
                     val text = response.body?.string().orEmpty()
                     when {
                         response.isSuccessful -> {
-                            val doc = parseDeliveryScheduleDocument(text)
-                            DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(doc.schedule, doc.failures))
+                            // 2xx means HT applied the change. Only trust the body as the canonical
+                            // schedule when it is a v2 document; anything else must not blank the board.
+                            val doc = runCatching { parseDeliveryScheduleDocument(text) }.getOrNull()
+                            if (doc != null && doc.schedule.isDated) {
+                                DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(doc.schedule, doc.failures))
+                            } else {
+                                DeliveryJobDateResult.AcceptedWithoutDocument
+                            }
                         }
-                        response.code in setOf(400, 404, 409, 422) -> DeliveryJobDateResult.Refused(
-                            response.code,
-                            runCatching { JSONObject(text).optString("detail") }.getOrNull().orEmpty()
-                        )
+                        response.code in setOf(400, 404, 409, 422) ->
+                            DeliveryJobDateResult.Refused(response.code, refusalReason(response.code, text))
                         else -> DeliveryJobDateResult.Unavailable
                     }
                 }
             }.getOrElse { DeliveryJobDateResult.Unavailable }
         }
+
+    /**
+     * User-facing reason for a definitive refusal. FastAPI `detail` is a string for our own
+     * HTTPExceptions but a list of `{loc,msg,type}` for 422 validation errors; non-JSON or missing
+     * detail falls back to per-status text.
+     */
+    private fun refusalReason(status: Int, body: String): String {
+        val detail = runCatching { JSONObject(body).opt("detail") }.getOrNull()
+        val parsed = when (detail) {
+            is String -> detail.trim()
+            is JSONArray -> (0 until detail.length())
+                .mapNotNull { detail.optJSONObject(it)?.optString("msg")?.trim()?.takeIf(String::isNotEmpty) }
+                .joinToString("; ")
+            else -> ""
+        }
+        if (parsed.isNotEmpty()) return parsed
+        return when (status) {
+            409 -> "That half-day already has 3 deliveries"
+            404 -> "Folder not found in Ready Jobs"
+            else -> "The office job is closed or the request was invalid"
+        }
+    }
 
     /**
      * Fast path for a tablet-authored hide/unhide, covering both Hardwoods and Specialty (see

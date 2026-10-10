@@ -70,6 +70,8 @@ class DeliveryScheduleEditor(
             when (val r = remote.setJobDate(job.folderName, dated.date, dated.period)) {
                 is DeliveryJobDateResult.Applied -> return applied(r.result)
                 is DeliveryJobDateResult.Refused -> return refused(job, r)
+                // HT applied it but sent no usable document: don't retry, the live/file refresh shows it.
+                DeliveryJobDateResult.AcceptedWithoutDocument -> return DeliveryEditOutcome.Queued(emptyList())
                 DeliveryJobDateResult.Unavailable -> Unit
             }
         }
@@ -89,6 +91,7 @@ class DeliveryScheduleEditor(
             when (val r = remote.setJobDate(job.folderName, null, null)) {
                 is DeliveryJobDateResult.Applied -> return applied(r.result)
                 is DeliveryJobDateResult.Refused -> return refused(job, r)
+                DeliveryJobDateResult.AcceptedWithoutDocument -> return DeliveryEditOutcome.Queued(emptyList())
                 DeliveryJobDateResult.Unavailable -> Unit
             }
         }

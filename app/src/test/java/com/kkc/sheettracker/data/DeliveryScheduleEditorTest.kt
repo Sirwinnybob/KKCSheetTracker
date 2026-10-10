@@ -68,6 +68,24 @@ class DeliveryScheduleEditorTest {
     }
 
     @Test
+    fun acceptedWithoutDocumentIsQueuedWithoutRetryOrQueueWrite() = runBlocking {
+        val current = v2.withSlot("2026-10-21_pm", listOf(a))
+        val remote = FakeRemote(put = DeliveryJobDateResult.AcceptedWithoutDocument)
+        val queue = FakeQueue()
+        val editor = DeliveryScheduleEditor(remote, queue, "T1")
+
+        val placed = editor.placeJob(v2, a, "2026-10-21_pm", null)
+        assertEquals(DeliveryEditOutcome.Queued(emptyList()), placed)
+
+        val removed = editor.removeJob(current, a, "2026-10-21_pm")
+        assertEquals(DeliveryEditOutcome.Queued(emptyList()), removed)
+
+        assertEquals(2, remote.puts.size)
+        assertTrue(remote.posts.isEmpty())
+        assertTrue(queue.edits.isEmpty())
+    }
+
+    @Test
     fun putUnavailableFallsBackToSlotEditThenRequestFile() = runBlocking {
         val current = v2.withSlot("2026-10-21_pm", listOf(b))
         val remote = FakeRemote(put = DeliveryJobDateResult.Unavailable, post = null)
