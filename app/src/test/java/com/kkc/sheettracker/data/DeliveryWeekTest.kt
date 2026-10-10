@@ -134,6 +134,43 @@ class DeliveryWeekTest {
     }
 
     @Test
+    fun pendingOverlayMovesDatedJobInsteadOfDuplicatingIt() {
+        val b = DeliveryJob("702", "SMITH", folderName = "702 - SMITH")
+        val schedule = v2(mon, "2026-10-14_am" to job)
+            .copy(slots = mapOf("wednesday_am" to DeliverySlot(listOf(job))))
+        val move = DeliveryScheduleEditRequest(
+            tabletId = "T1",
+            requestedAt = "2026-10-14T17:00:00Z",
+            slotEdits = listOf(DeliveryScheduleSlotEdit("2026-10-21_pm", listOf(job.copy(folderName = "670 - eschrich"))))
+        )
+        val moved = overlayPendingDeliveryRequest(schedule, move)
+        assertEquals(listOf(job.copy(folderName = "670 - eschrich")), moved.slotByKey("2026-10-21_pm").jobs)
+        assertTrue(moved.slotByKey("2026-10-14_am").jobs.isEmpty())
+        assertTrue(moved.slotByKey("wednesday_am").jobs.isEmpty())
+
+        val second = move.copy(
+            slotEdits = move.slotEdits + DeliveryScheduleSlotEdit("2026-10-14_am", listOf(b))
+        )
+        val both = overlayPendingDeliveryRequest(schedule, second)
+        assertEquals(listOf(b), both.slotByKey("2026-10-14_am").jobs)
+        assertEquals(1, both.datedSlots.values.sumOf { s -> s.jobs.count { it.folderName.equals(job.folderName, true) } })
+    }
+
+    @Test
+    fun pendingOverlayDoesNotDedupeBlankFolderNamesOrWeekdayOnlySchedules() {
+        val noFolder = DeliveryJob("900", "MANUAL")
+        val v1 = DeliverySchedule(slots = mapOf("monday_am" to DeliverySlot(listOf(noFolder))))
+        val request = DeliveryScheduleEditRequest(
+            tabletId = "T1",
+            requestedAt = "2026-10-14T17:00:00Z",
+            slotEdits = listOf(DeliveryScheduleSlotEdit("tuesday_am", listOf(noFolder)))
+        )
+        val overlaid = overlayPendingDeliveryRequest(v1, request)
+        assertEquals(listOf(noFolder), overlaid.slotByKey("monday_am").jobs)
+        assertEquals(listOf(noFolder), overlaid.slotByKey("tuesday_am").jobs)
+    }
+
+    @Test
     fun pendingOverlayAppliesQueuedSlotEditsAndReset() {
         val other = DeliveryJob("702", "SMITH", folderName = "702 - SMITH")
         val schedule = v2(mon, "2026-10-14_am" to job, "2026-10-21_am" to other)

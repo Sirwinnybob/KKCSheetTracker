@@ -78,6 +78,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -160,14 +161,16 @@ fun DeliveryScheduleDialog(
     onResetWeek: (() -> Unit)? = null,
     notices: List<String> = emptyList(),
     onDismissNotices: () -> Unit = {},
-    pendingSlotKeys: Set<String> = emptySet()
+    pendingSlotKeys: Set<String> = emptySet(),
+    /** Bumped by the caller after a refused/noticed edit so the optimistic local change is reverted to [schedule]. */
+    revision: Int = 0
 ) {
     val context = LocalContext.current
     val today = shopToday()
     var weekOffset by remember { mutableIntStateOf(0) }
     if (!schedule.isDated && weekOffset != 0) weekOffset = 0
     val weekStart = defaultDeliveryWeekStart(schedule, today).plusWeeks(weekOffset.toLong())
-    var editableSchedule by remember(schedule) { mutableStateOf(schedule) }
+    var editableSchedule by remember(schedule, revision) { mutableStateOf(schedule) }
     var activeAddSlot by remember { mutableStateOf<String?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
     var pendingEdits by remember { mutableIntStateOf(0) }
@@ -178,7 +181,7 @@ fun DeliveryScheduleDialog(
     var rootPositionInWindow by remember { mutableStateOf(Offset.Zero) }
     var dragOriginWindow by remember { mutableStateOf(Offset.Zero) }
 
-    LaunchedEffect(schedule) {
+    LaunchedEffect(schedule, revision) {
         editableSchedule = schedule
         pendingEdits = 0
         confirmReset = false
@@ -361,6 +364,8 @@ fun DeliveryScheduleDialog(
                     DeliveryScheduleGrid(
                         week = week,
                         pendingSlotKeys = pendingSlotKeys,
+                        // v2 jobs need a folderName to be dated; manual entry has none, so placement is drag-only.
+                        allowManualAdd = !schedule.isDated,
                         isAdminMode = isAdminMode,
                         activeAddSlot = activeAddSlot,
                         dragState = dragState,
@@ -411,6 +416,7 @@ private fun rememberScrollStateCompat() = androidx.compose.foundation.rememberSc
 private fun DeliveryScheduleGrid(
     week: DeliveryWeekView,
     pendingSlotKeys: Set<String>,
+    allowManualAdd: Boolean,
     isAdminMode: Boolean,
     activeAddSlot: String?,
     context: Context,
@@ -444,6 +450,7 @@ private fun DeliveryScheduleGrid(
                 DeliveryDayColumn(
                     day = day,
                     pendingSlotKeys = pendingSlotKeys,
+                    allowManualAdd = allowManualAdd,
                     isAdminMode = isAdminMode,
                     activeAddSlot = activeAddSlot,
                     context = context,
@@ -470,6 +477,7 @@ private fun DeliveryScheduleGrid(
 private fun DeliveryDayColumn(
     day: DeliveryDayView,
     pendingSlotKeys: Set<String>,
+    allowManualAdd: Boolean,
     isAdminMode: Boolean,
     activeAddSlot: String?,
     context: Context,
@@ -514,7 +522,7 @@ private fun DeliveryDayColumn(
                 isHovered = isHovered,
                 isValidDropTarget = isValidDropTarget,
                 dragSourceIndex = dragSourceIndex,
-                acceptsPlacement = day.acceptsPlacement,
+                acceptsPlacement = day.acceptsPlacement && allowManualAdd,
                 isPending = slotKey in pendingSlotKeys,
                 onStartAdd = { onStartAdd(slotKey) },
                 onCancelAdd = onCancelAdd,
@@ -712,6 +720,10 @@ private fun DeliveryJobCard(
 ) {
     var showDetail by remember { mutableStateOf(false) }
     var handleOrigin by remember { mutableStateOf(Offset.Zero) }
+    val currentOnDragStart by rememberUpdatedState(onDragStart)
+    val currentOnDragMove by rememberUpdatedState(onDragMove)
+    val currentOnDragEnd by rememberUpdatedState(onDragEnd)
+    val currentOnDragCancel by rememberUpdatedState(onDragCancel)
 
     Card(
         modifier = Modifier
@@ -734,14 +746,16 @@ private fun DeliveryJobCard(
                     modifier = Modifier
                         .onGloballyPositioned { coords -> handleOrigin = coords.positionInWindow() }
                         .pointerInput(slotKey, index, job) {
+                            // The gesture coroutine outlives recompositions; read the callbacks through
+                            // updated state so a drop never runs against the schedule/week it started with.
                             detectDragGesturesAfterLongPress(
-                                onDragStart = { onDragStart(job, handleOrigin, slotKey, index) },
+                                onDragStart = { currentOnDragStart(job, handleOrigin, slotKey, index) },
                                 onDrag = { change, dragAmount ->
                                     change.consume()
-                                    onDragMove(dragAmount)
+                                    currentOnDragMove(dragAmount)
                                 },
-                                onDragEnd = { onDragEnd() },
-                                onDragCancel = { onDragCancel() }
+                                onDragEnd = { currentOnDragEnd() },
+                                onDragCancel = { currentOnDragCancel() }
                             )
                         }
                 )
@@ -1001,6 +1015,10 @@ private fun DeliveryPoolJobChip(
         )
     }
     var chipOrigin by remember { mutableStateOf(Offset.Zero) }
+    val currentOnDragStart by rememberUpdatedState(onDragStart)
+    val currentOnDragMove by rememberUpdatedState(onDragMove)
+    val currentOnDragEnd by rememberUpdatedState(onDragEnd)
+    val currentOnDragCancel by rememberUpdatedState(onDragCancel)
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1010,13 +1028,13 @@ private fun DeliveryPoolJobChip(
             .onGloballyPositioned { coords -> chipOrigin = coords.positionInWindow() }
             .pointerInput(pickerJob) {
                 detectDragGesturesAfterLongPress(
-                    onDragStart = { onDragStart(job, chipOrigin, null, null) },
+                    onDragStart = { currentOnDragStart(job, chipOrigin, null, null) },
                     onDrag = { change, dragAmount ->
                         change.consume()
-                        onDragMove(dragAmount)
+                        currentOnDragMove(dragAmount)
                     },
-                    onDragEnd = { onDragEnd() },
-                    onDragCancel = { onDragCancel() }
+                    onDragEnd = { currentOnDragEnd() },
+                    onDragCancel = { currentOnDragCancel() }
                 )
             }
             .padding(horizontal = KKCSpacing.s, vertical = KKCSpacing.xs)

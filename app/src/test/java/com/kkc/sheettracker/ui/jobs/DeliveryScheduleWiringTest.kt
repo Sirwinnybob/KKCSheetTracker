@@ -19,6 +19,34 @@ class DeliveryScheduleWiringTest {
     }
 
     @Test
+    fun dragGesturesReadLatestCallbacksAndEditsAreSerializedFromFreshSchedule() {
+        val dialog = source("ui/components/DeliveryScheduleDialog.kt")
+        assertTrue(dialog.contains("rememberUpdatedState(onDragStart)"))
+        assertTrue(dialog.contains("rememberUpdatedState(onDragEnd)"))
+        assertTrue(dialog.contains("currentOnDragEnd()"))
+        // gesture lambdas must not call the captured parameters directly
+        assertFalse(dialog.contains("onDragEnd = { onDragEnd() }"))
+        assertFalse(dialog.contains("onDragStart = { onDragStart(job"))
+        val screen = source("ui/jobs/UnifiedJobsScreen.kt")
+        assertTrue(screen.contains("Mutex()"))
+        assertTrue(screen.contains("withLock"))
+        assertTrue(screen.contains("overlayPendingDeliveryRequest(latestDialogSchedule"))
+        assertTrue(screen.contains("rememberUpdatedState(deliveryScheduleBinding.dialogSchedule)"))
+    }
+
+    @Test
+    fun refusedEditsRevertTheDialogAndManualAddIsHiddenOnDatedSchedules() {
+        val dialog = source("ui/components/DeliveryScheduleDialog.kt")
+        assertTrue(dialog.contains("revision: Int"))
+        assertTrue(dialog.contains("remember(schedule, revision)"))
+        assertTrue(dialog.contains("LaunchedEffect(schedule, revision)"))
+        assertTrue(dialog.contains("allowManualAdd = !schedule.isDated"))
+        val screen = source("ui/jobs/UnifiedJobsScreen.kt")
+        assertTrue(screen.contains("deliveryEditRevision += 1"))
+        assertTrue(screen.contains("revision = deliveryEditRevision"))
+    }
+
+    @Test
     fun bannerAndDialogUseShopZoneNotDeviceZone() {
         listOf("ui/components/DeliveryScheduleBanner.kt", "ui/components/DeliveryScheduleDialog.kt").forEach { path ->
             val src = source(path)

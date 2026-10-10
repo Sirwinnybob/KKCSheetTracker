@@ -58,7 +58,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -122,6 +125,8 @@ import com.kkc.sheettracker.ui.detail.restoreActionVisible
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -395,12 +400,30 @@ fun UnifiedJobsScreen(
     val deliveryDialogSchedule = remember(deliveryScheduleBinding.dialogSchedule, deliveryPendingRequest) {
         overlayPendingDeliveryRequest(deliveryScheduleBinding.dialogSchedule, deliveryPendingRequest)
     }
-    fun runDeliveryEdit(edit: suspend (DeliverySchedule) -> DeliveryEditOutcome) {
+    // Drag gestures outlive recompositions, so edits must never close over this composition's
+    // schedule/editor/binding: read the latest through updated state, and serialize edits so each
+    // one is built from the schedule (plus our own pending request) left by the previous one.
+    val latestDialogSchedule by rememberUpdatedState(deliveryScheduleBinding.dialogSchedule)
+    val latestDeliveryEditor by rememberUpdatedState(deliveryEditor)
+    val latestDeliveryBinding by rememberUpdatedState(deliveryScheduleBinding)
+    val deliveryEditMutex = remember { Mutex() }
+    // Bumped after a refused/noticed edit so the dialog reverts its optimistic local change.
+    var deliveryEditRevision by remember { mutableIntStateOf(0) }
+    fun runDeliveryEdit(edit: suspend (DeliveryScheduleEditor, DeliverySchedule) -> DeliveryEditOutcome) {
         saveScope.launch {
-            val outcome = withContext(Dispatchers.IO) { edit(deliveryDialogSchedule) }
-            if (outcome is DeliveryEditOutcome.Applied) deliveryScheduleBinding.applyCanonicalResponse(outcome.schedule)
-            if (outcome.notices.isNotEmpty()) deliveryNotices = deliveryNotices + outcome.notices
-            deliveryPendingRequest = withContext(Dispatchers.IO) { deliveryScheduleRequestStore.readPending(tabletId) }
+            deliveryEditMutex.withLock {
+                val pending = withContext(Dispatchers.IO) { deliveryScheduleRequestStore.readPending(tabletId) }
+                val current = overlayPendingDeliveryRequest(latestDialogSchedule, pending)
+                val outcome = withContext(Dispatchers.IO) { edit(latestDeliveryEditor, current) }
+                if (outcome is DeliveryEditOutcome.Applied) {
+                    latestDeliveryBinding.applyCanonicalResponse(outcome.schedule)
+                    // Let the new canonical schedule recompose into latestDialogSchedule before the next queued edit reads it.
+                    repeat(2) { withFrameNanos { } }
+                }
+                if (outcome.notices.isNotEmpty()) deliveryNotices = deliveryNotices + outcome.notices
+                deliveryPendingRequest = withContext(Dispatchers.IO) { deliveryScheduleRequestStore.readPending(tabletId) }
+                if (outcome is DeliveryEditOutcome.Refused || outcome.notices.isNotEmpty()) deliveryEditRevision += 1
+            }
         }
     }
     val deliveryPickerJobs = remember(filteredCards) {
@@ -950,13 +973,14 @@ fun UnifiedJobsScreen(
             onDismiss = { showScheduleDialog = false; deliveryNotices = emptyList() },
             isAdminMode = adminMode,
             availableJobs = deliveryPickerJobs,
-            onPlaceJob = { job, toSlot, fromSlot -> runDeliveryEdit { deliveryEditor.placeJob(it, job, toSlot, fromSlot) } },
-            onRemoveJob = { job, fromSlot -> runDeliveryEdit { deliveryEditor.removeJob(it, job, fromSlot) } },
-            onReplaceSlot = { slot, jobs -> runDeliveryEdit { deliveryEditor.replaceSlot(it, slot, jobs) } },
-            onResetWeek = { runDeliveryEdit { deliveryEditor.resetWeek(it) } },
+            onPlaceJob = { job, toSlot, fromSlot -> runDeliveryEdit { editor, current -> editor.placeJob(current, job, toSlot, fromSlot) } },
+            onRemoveJob = { job, fromSlot -> runDeliveryEdit { editor, current -> editor.removeJob(current, job, fromSlot) } },
+            onReplaceSlot = { slot, jobs -> runDeliveryEdit { editor, current -> editor.replaceSlot(current, slot, jobs) } },
+            onResetWeek = { runDeliveryEdit { editor, current -> editor.resetWeek(current) } },
             notices = deliveryNotices,
             onDismissNotices = { deliveryNotices = emptyList() },
-            pendingSlotKeys = pendingDeliverySlotKeys(deliveryPendingRequest)
+            pendingSlotKeys = pendingDeliverySlotKeys(deliveryPendingRequest),
+            revision = deliveryEditRevision
         )
     }
 

@@ -136,6 +136,22 @@ fun overlayPendingDeliveryRequest(
     }
     request.slotEdits.forEach { edit ->
         if (parseDatedSlotKey(edit.slot) != null || isWeekdaySlotKey(edit.slot)) {
+            // HT dates a job in one place: a dated edit moves its jobs out of every other slot (and the
+            // weekday mirror). Without this a queued move shows twice, and a later offline edit of the
+            // source slot would resend the moved job and re-date it back.
+            if (result.isDated && parseDatedSlotKey(edit.slot) != null) {
+                val moved = edit.jobs.map { it.folderName.lowercase() }.filter { it.isNotBlank() }.toSet()
+                if (moved.isNotEmpty()) {
+                    fun strip(slot: DeliverySlot) =
+                        if (slot.jobs.any { it.folderName.lowercase() in moved }) {
+                            DeliverySlot(slot.jobs.filterNot { it.folderName.lowercase() in moved })
+                        } else slot
+                    result = result.copy(
+                        slots = result.slots.mapValues { strip(it.value) },
+                        datedSlots = result.datedSlots.mapValues { (key, slot) -> if (key == edit.slot) slot else strip(slot) }
+                    )
+                }
+            }
             result = result.withSlot(edit.slot, edit.jobs)
         }
     }
