@@ -16,6 +16,17 @@ import java.util.concurrent.ConcurrentHashMap
 
 data class PendingTruckFlag(val truck: HandoffTruck?, val requestedAt: Instant)
 
+/** Outcome of [HandoffFlagRequestStore.appendTruckRequest]. */
+sealed interface HandoffFlagWriteResult {
+    object Written : HandoffFlagWriteResult
+    /** Bad source/id/requestedAt — a tablet bug. */
+    object Invalid : HandoffFlagWriteResult
+    /** `<job>/.metadata` is gone (renamed/archived): nothing written, no folder created. */
+    object JobMissing : HandoffFlagWriteResult
+    /** Sidecar unreadable, backup failed, or write IOException. */
+    object StorageUnavailable : HandoffFlagWriteResult
+}
+
 /**
  * Appends tablet flag changes to `<job>/.metadata/admin/handoff_flags_request.<tabletId>.json`
  * (HT METADATA_CONTRACT.md §2.12). HT applies the file every 30 s / before packet generation /
@@ -26,7 +37,10 @@ data class PendingTruckFlag(val truck: HandoffTruck?, val requestedAt: Instant)
  * - Earlier entries (even ones this build doesn't understand) are preserved verbatim.
  * - org.json writes UTF-8 without a BOM via `writeText`.
  * - A file that cannot be read, or that is unparseable and cannot be backed up first, is never
- *   overwritten: the append is refused (returns false) so no earlier request is lost.
+ *   overwritten: the append is refused ([HandoffFlagWriteResult.StorageUnavailable]) so no earlier
+ *   request is lost.
+ * - Never creates a job folder: nothing is written unless `<job>/.metadata` already exists
+ *   ([HandoffFlagWriteResult.JobMissing] otherwise).
  */
 class HandoffFlagRequestStore(
     private val baseDir: File,
@@ -39,12 +53,15 @@ class HandoffFlagRequestStore(
         ref: HandoffFlagRef,
         truck: HandoffTruck?,
         requestedAt: String
-    ): Boolean {
-        if (ref.source !in HandoffFlagRef.SOURCES || ref.id.isBlank()) return false
-        if (runCatching { Instant.parse(requestedAt) }.isFailure) return false
+    ): HandoffFlagWriteResult {
+        if (ref.source !in HandoffFlagRef.SOURCES || ref.id.isBlank()) return HandoffFlagWriteResult.Invalid
+        if (runCatching { Instant.parse(requestedAt) }.isFailure) return HandoffFlagWriteResult.Invalid
+        // Before the lock and before any read/mkdirs: atomicWriteFile creates missing parents, so a
+        // renamed/archived job would otherwise get a near-empty folder recreated by a stale tap.
+        if (!isLiveJobFolder(baseDir, jobFolderName)) return HandoffFlagWriteResult.JobMissing
         val file = requestFile(jobFolderName)
         return lockFor(file).withLock {
-            val root = readOrStartNew(file) ?: return@withLock false
+            val root = readOrStartNew(file) ?: return@withLock HandoffFlagWriteResult.StorageUnavailable
             val request = JSONObject()
                 .put("requestId", UUID.randomUUID().toString())
                 .put("requestedAt", requestedAt)
@@ -54,10 +71,10 @@ class HandoffFlagRequestStore(
             root.getJSONArray("requests").put(request)
             try {
                 atomicWriteFile(file, root.toString())
-                true
+                HandoffFlagWriteResult.Written
             } catch (e: IOException) {
                 Log.w(TAG, "Could not write ${file.name}", e)
-                false
+                HandoffFlagWriteResult.StorageUnavailable
             }
         }
     }

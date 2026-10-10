@@ -47,3 +47,15 @@ internal fun atomicWriteFile(target: File, body: String) {
         )
     }
 }
+
+/**
+ * True when [jobFolderName] is a single path segment naming a job folder under [baseDir] that
+ * already has a `.metadata` directory. Per-job stores must check this BEFORE writing:
+ * [atomicWriteFile] creates missing parents, so an offline write to a renamed or archived job
+ * would otherwise recreate a near-empty job folder that HT could treat as a real job.
+ */
+internal fun isLiveJobFolder(baseDir: File, jobFolderName: String): Boolean {
+    if (jobFolderName.isBlank() || jobFolderName == "." || jobFolderName == "..") return false
+    if ('/' in jobFolderName || '\\' in jobFolderName) return false
+    return File(baseDir, "$jobFolderName/.metadata").isDirectory
+}

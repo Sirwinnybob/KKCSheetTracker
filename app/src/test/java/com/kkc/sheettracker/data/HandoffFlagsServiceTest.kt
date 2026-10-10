@@ -87,7 +87,7 @@ class HandoffFlagsServiceTest {
 
     @Test
     fun throwingClientProviderDoesNotCrashOrLoseTheTap() = runBlocking {
-        val base = Files.createTempDirectory("handoff-svc-throw").toFile()
+        val base = liveBase("670 - E", "handoff-svc-throw")
         val uncaught = java.util.concurrent.CopyOnWriteArrayList<Throwable>()
         val handler = kotlinx.coroutines.CoroutineExceptionHandler { _, t -> uncaught += t }
         val restJob = SupervisorJob()
@@ -97,7 +97,7 @@ class HandoffFlagsServiceTest {
             clientProvider = { throw IllegalStateException("datastore boom") },
             restScope = CoroutineScope(restJob + Dispatchers.IO + handler)
         )
-        assertTrue(service.setTruck("670 - E", ref, HandoffTruck.SHOP))
+        assertEquals(HandoffFlagWriteResult.Written, service.setTruck("670 - E", ref, HandoffTruck.SHOP))
         // Let the launched REST body run and fail.
         restJob.children.toList().forEach { it.join() }
         assertTrue("uncaught: $uncaught", uncaught.isEmpty())
@@ -109,8 +109,8 @@ class HandoffFlagsServiceTest {
     fun setTruckWritesSidecarThenPutsAndSkipBumpsSignal() = runBlocking {
         val server = MockWebServer().apply { start() }
         server.enqueue(MockResponse().setBody("""{"source":"board_stock","id":"5f0c","flags":null,"skipped":true}"""))
-        val base = Files.createTempDirectory("handoff-svc").toFile()
         val job = "670 - E"
+        val base = liveBase(job, "handoff-svc")
         val service = HandoffFlagsService(
             baseDir = base,
             tabletId = "T1",
@@ -119,7 +119,7 @@ class HandoffFlagsServiceTest {
             clock = java.time.Clock.fixed(now, java.time.ZoneOffset.UTC)
         )
         val before = HandoffFlagsChangeSignal.version.value
-        assertTrue(service.setTruck(job, ref, HandoffTruck.LOOSE))
+        assertEquals(HandoffFlagWriteResult.Written, service.setTruck(job, ref, HandoffTruck.LOOSE))
         val sidecar = JSONObject(File(base, "$job/.metadata/admin/handoff_flags_request.T1.json").readText())
         val written = sidecar.getJSONArray("requests").getJSONObject(0)
         val put = JSONObject(server.takeRequest(5, TimeUnit.SECONDS)!!.body.readUtf8())
@@ -134,11 +134,80 @@ class HandoffFlagsServiceTest {
 
     @Test
     fun setTruckWithNoServerStillWritesSidecar() = runBlocking {
-        val base = Files.createTempDirectory("handoff-svc-offline").toFile()
+        val base = liveBase("670 - E", "handoff-svc-offline")
         val service = HandoffFlagsService(base, "T1", clientProvider = { null }, restScope = CoroutineScope(Dispatchers.IO))
-        assertTrue(service.setTruck("670 - E", ref, HandoffTruck.LATER))
+        assertEquals(HandoffFlagWriteResult.Written, service.setTruck("670 - E", ref, HandoffTruck.LATER))
         val snapshot = service.loadLocal("670 - E")
         assertEquals(HandoffTruck.LATER, snapshot.pending.getValue(ref).truck)
-        assertFalse(service.setTruck("670 - E", HandoffFlagRef("bogus", "x"), HandoffTruck.LATER))
+        assertEquals(HandoffFlagWriteResult.Invalid, service.setTruck("670 - E", HandoffFlagRef("bogus", "x"), HandoffTruck.LATER))
     }
+
+    @Test
+    fun missingJobSendsNoPutDoesNotBumpSignalAndCreatesNoFolder() = runBlocking {
+        val server = MockWebServer().apply { start() }
+        server.enqueue(MockResponse().setBody("""{"source":"board_stock","id":"5f0c","flags":null}"""))
+        val base = Files.createTempDirectory("handoff-svc-gone").toFile()
+        val service = HandoffFlagsService(
+            baseDir = base,
+            tabletId = "T1",
+            clientProvider = { HandoffFlagsClient(server.url("/").toString()) },
+            restScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            clock = java.time.Clock.fixed(now, java.time.ZoneOffset.UTC)
+        )
+        val before = HandoffFlagsChangeSignal.version.value
+        assertEquals(HandoffFlagWriteResult.JobMissing, service.setTruck("670 - GONE", ref, HandoffTruck.LOOSE))
+        Thread.sleep(300)
+        assertEquals(0, server.requestCount)
+        assertEquals(before, HandoffFlagsChangeSignal.version.value)
+        assertFalse(File(base, "670 - GONE").exists())
+        server.shutdown()
+    }
+
+    @Test
+    fun invalidRefSendsNoPutAndDoesNotBumpSignal() = runBlocking {
+        val server = MockWebServer().apply { start() }
+        val base = liveBase("670 - E", "handoff-svc-invalid")
+        val service = HandoffFlagsService(
+            base, "T1",
+            clientProvider = { HandoffFlagsClient(server.url("/").toString()) },
+            restScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        )
+        val before = HandoffFlagsChangeSignal.version.value
+        assertEquals(HandoffFlagWriteResult.Invalid, service.setTruck("670 - E", HandoffFlagRef("bogus", "x"), HandoffTruck.LATER))
+        Thread.sleep(300)
+        assertEquals(0, server.requestCount)
+        assertEquals(before, HandoffFlagsChangeSignal.version.value)
+        server.shutdown()
+    }
+
+    @Test
+    fun storageUnavailableSendsNoPutAndDoesNotBumpSignal() = runBlocking {
+        val server = MockWebServer().apply { start() }
+        val job = "670 - E"
+        val base = liveBase(job, "handoff-svc-storage")
+        // A directory at the sidecar path makes the read fail.
+        File(base, "$job/.metadata/admin/handoff_flags_request.T1.json").mkdirs()
+        val service = HandoffFlagsService(
+            base, "T1",
+            clientProvider = { HandoffFlagsClient(server.url("/").toString()) },
+            restScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        )
+        val before = HandoffFlagsChangeSignal.version.value
+        assertEquals(HandoffFlagWriteResult.StorageUnavailable, service.setTruck(job, ref, HandoffTruck.LATER))
+        Thread.sleep(300)
+        assertEquals(0, server.requestCount)
+        assertEquals(before, HandoffFlagsChangeSignal.version.value)
+        server.shutdown()
+    }
+
+    @Test
+    fun userMessagesAreExact() {
+        assertNull(HandoffFlagWriteResult.Written.userMessage())
+        assertEquals("This job is no longer in Ready Jobs", HandoffFlagWriteResult.JobMissing.userMessage())
+        assertEquals("Couldn't save on this tablet. Try again.", HandoffFlagWriteResult.StorageUnavailable.userMessage())
+        assertEquals("Couldn't save this change.", HandoffFlagWriteResult.Invalid.userMessage())
+    }
+
+    private fun liveBase(job: String, prefix: String): File =
+        Files.createTempDirectory(prefix).toFile().also { File(it, "$job/.metadata").mkdirs() }
 }

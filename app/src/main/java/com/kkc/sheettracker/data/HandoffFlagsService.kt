@@ -29,6 +29,14 @@ object HandoffFlagsChangeSignal {
     fun bump() { _version.update { it + 1 } }
 }
 
+/** Text to show the user for a refused tap; null when the tap was recorded. */
+fun HandoffFlagWriteResult.userMessage(): String? = when (this) {
+    HandoffFlagWriteResult.Written -> null
+    HandoffFlagWriteResult.JobMissing -> "This job is no longer in Ready Jobs"
+    HandoffFlagWriteResult.StorageUnavailable -> "Couldn't save on this tablet. Try again."
+    HandoffFlagWriteResult.Invalid -> "Couldn't save this change."
+}
+
 data class HandoffFlagsSnapshot(
     val stored: Map<HandoffFlagRef, HandoffItemFlags> = emptyMap(),
     val pending: Map<HandoffFlagRef, PendingTruckFlag> = emptyMap(),
@@ -106,17 +114,29 @@ class HandoffFlagsService(
 
     /**
      * Records the tap. The sidecar append (mutex, file read/parse, atomic write) runs on
-     * [Dispatchers.IO]; the REST call is launched in [restScope] and never awaited. Returns false
-     * only when nothing was recorded anywhere (invalid ref, or the sidecar couldn't be written).
+     * [Dispatchers.IO]; the REST call is launched in [restScope] and never awaited, and only after
+     * the sidecar write succeeded ([HandoffFlagWriteResult.Written]). Any other result means
+     * nothing was recorded anywhere: no PUT, no change signal, and no job folder is ever created.
      */
-    suspend fun setTruck(jobFolderName: String, ref: HandoffFlagRef, truck: HandoffTruck?): Boolean {
+    suspend fun setTruck(jobFolderName: String, ref: HandoffFlagRef, truck: HandoffTruck?): HandoffFlagWriteResult {
         val requestedAt = Instant.now(clock).toString()
-        val recorded = withContext(Dispatchers.IO) {
+        val result = withContext(Dispatchers.IO) {
             requests.appendTruckRequest(jobFolderName, ref, truck, requestedAt)
         }
-        if (!recorded) {
-            Log.w(TAG, "Truck flag tap not recorded for ${ref.key} in $jobFolderName (invalid ref or sidecar unwritable)")
-            return false
+        when (result) {
+            HandoffFlagWriteResult.Written -> Unit
+            HandoffFlagWriteResult.Invalid -> {
+                Log.w(TAG, "Truck flag tap rejected as invalid for ${ref.key} in $jobFolderName — tablet bug")
+                return result
+            }
+            HandoffFlagWriteResult.JobMissing -> {
+                Log.w(TAG, "Truck flag tap not recorded for ${ref.key}: $jobFolderName is no longer in Ready Jobs")
+                return result
+            }
+            HandoffFlagWriteResult.StorageUnavailable -> {
+                Log.w(TAG, "Truck flag tap not recorded for ${ref.key} in $jobFolderName (sidecar unreadable or unwritable)")
+                return result
+            }
         }
         HandoffFlagsChangeSignal.bump()
         restScope.launch {
@@ -135,7 +155,7 @@ class HandoffFlagsService(
                 Log.w(TAG, "Flag PUT failed for ${ref.key} in $jobFolderName", e)
             }
         }
-        return true
+        return result
     }
 
     private companion object { const val TAG = "HandoffFlags" }

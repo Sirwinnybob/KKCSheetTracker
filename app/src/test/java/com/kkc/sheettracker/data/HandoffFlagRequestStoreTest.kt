@@ -19,8 +19,12 @@ class HandoffFlagRequestStoreTest {
     private val job = "670 - ESCHRICH"
     private val ref = HandoffFlagRef("checklist", "c-123")
 
+    /** A live job: `<job>/.metadata` already exists, as it does for every real Ready Jobs folder. */
+    private fun liveBase(): File =
+        Files.createTempDirectory("handoff-req").toFile().also { File(it, "$job/.metadata").mkdirs() }
+
     private fun setup(): Pair<File, HandoffFlagRequestStore> {
-        val base = Files.createTempDirectory("handoff-req").toFile()
+        val base = liveBase()
         return base to HandoffFlagRequestStore(base, "T1")
     }
 
@@ -29,7 +33,10 @@ class HandoffFlagRequestStoreTest {
     @Test
     fun writesExactContractShapeWithOnlyTheTouchedFlag() = runBlocking<Unit> {
         val (base, store) = setup()
-        assertTrue(store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "2026-10-08T14:00:00.123Z"))
+        assertEquals(
+            HandoffFlagWriteResult.Written,
+            store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "2026-10-08T14:00:00.123Z")
+        )
         val bytes = sidecar(base).readBytes()
         assertFalse("no BOM", bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte())
         val root = JSONObject(String(bytes, Charsets.UTF_8))
@@ -83,18 +90,44 @@ class HandoffFlagRequestStoreTest {
     @Test
     fun invalidRequestsAreNotWritten() = runBlocking {
         val (base, store) = setup()
-        assertFalse(store.appendTruckRequest(job, HandoffFlagRef("bogus", "x"), HandoffTruck.LOOSE, "2026-10-08T14:00:00Z"))
-        assertFalse(store.appendTruckRequest(job, HandoffFlagRef("checklist", " "), HandoffTruck.LOOSE, "2026-10-08T14:00:00Z"))
-        assertFalse(store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "1728396000000"))
-        assertFalse(store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "2026-10-08T14:00:00"))
+        assertEquals(HandoffFlagWriteResult.Invalid, store.appendTruckRequest(job, HandoffFlagRef("bogus", "x"), HandoffTruck.LOOSE, "2026-10-08T14:00:00Z"))
+        assertEquals(HandoffFlagWriteResult.Invalid, store.appendTruckRequest(job, HandoffFlagRef("checklist", " "), HandoffTruck.LOOSE, "2026-10-08T14:00:00Z"))
+        assertEquals(HandoffFlagWriteResult.Invalid, store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "1728396000000"))
+        assertEquals(HandoffFlagWriteResult.Invalid, store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "2026-10-08T14:00:00"))
         assertFalse(sidecar(base).exists())
+    }
+
+    @Test
+    fun invalidWinsOverMissingJob() = runBlocking {
+        val base = Files.createTempDirectory("handoff-req").toFile()
+        val store = HandoffFlagRequestStore(base, "T1")
+        assertEquals(HandoffFlagWriteResult.Invalid, store.appendTruckRequest(job, HandoffFlagRef("bogus", "x"), HandoffTruck.LOOSE, "2026-10-08T14:00:00Z"))
+    }
+
+    @Test
+    fun missingJobFolderIsRefusedAndNoFolderIsCreated() = runBlocking {
+        val base = Files.createTempDirectory("handoff-req").toFile()
+        val store = HandoffFlagRequestStore(base, "T1")
+        assertEquals(HandoffFlagWriteResult.JobMissing, store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "2026-10-08T14:00:00Z"))
+        assertFalse(File(base, job).exists())
+        assertEquals(0, base.listFiles()!!.size)
+    }
+
+    @Test
+    fun jobFolderWithoutMetadataIsRefusedAndMetadataIsNotCreated() = runBlocking {
+        val base = Files.createTempDirectory("handoff-req").toFile()
+        File(base, job).mkdirs()
+        val store = HandoffFlagRequestStore(base, "T1")
+        assertEquals(HandoffFlagWriteResult.JobMissing, store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "2026-10-08T14:00:00Z"))
+        assertFalse(File(base, "$job/.metadata").exists())
+        assertEquals(0, File(base, job).listFiles()!!.size)
     }
 
     @Test
     fun unreadableFileIsPreservedThenANewFileStarted() = runBlocking {
         val (base, store) = setup()
         sidecar(base).apply { parentFile.mkdirs() }.writeText("{broken")
-        store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "2026-10-08T14:00:00Z")
+        assertEquals(HandoffFlagWriteResult.Written, store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "2026-10-08T14:00:00Z"))
         val admin = sidecar(base).parentFile
         val backup = admin.listFiles()!!.single { it.name.startsWith("handoff_flags_request.T1.json.unreadable-") }
         assertEquals("{broken", backup.readText())
@@ -103,24 +136,24 @@ class HandoffFlagRequestStoreTest {
 
     @Test
     fun unreadableFileIsLeftUntouchedWhenItCannotBeBackedUp() = runBlocking {
-        val base = Files.createTempDirectory("handoff-req").toFile()
+        val base = liveBase()
         val store = HandoffFlagRequestStore(base, "T1", clockMillis = { 1000L })
         val file = sidecar(base).apply { parentFile.mkdirs() }
         file.writeText("{broken")
         // A directory squatting on the backup name makes the copy fail.
         File(file.parentFile, "handoff_flags_request.T1.json.unreadable-1000").mkdir()
-        assertFalse(store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "2026-10-08T14:00:00Z"))
+        assertEquals(HandoffFlagWriteResult.StorageUnavailable, store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "2026-10-08T14:00:00Z"))
         assertEquals("{broken", file.readText())
     }
 
     @Test
     fun fileThatCannotBeReadIsNotOverwritten() = runBlocking {
-        val base = Files.createTempDirectory("handoff-req").toFile()
+        val base = liveBase()
         val store = HandoffFlagRequestStore(base, "T1")
         // A directory at the sidecar path exists() but readText() throws IOException.
         val file = sidecar(base)
         file.mkdirs()
-        assertFalse(store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "2026-10-08T14:00:00Z"))
+        assertEquals(HandoffFlagWriteResult.StorageUnavailable, store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "2026-10-08T14:00:00Z"))
         assertTrue(file.isDirectory)
         assertEquals(0, file.parentFile.listFiles()!!.count { it.name.contains("unreadable") })
     }
