@@ -11,13 +11,13 @@ import java.time.LocalDate
 /** The HT routes the editor needs; [AdminSyncClient] in production. */
 interface DeliveryScheduleRemote {
     suspend fun applyEdits(request: DeliveryScheduleEditRequest): DeliveryScheduleApplyResult?
-    suspend fun setJobDate(folderName: String, date: LocalDate?, window: String?): DeliveryJobDateResult
+    suspend fun setJobDate(folderName: String, date: LocalDate?, window: String?, tabletId: String): DeliveryJobDateResult
 }
 
 fun AdminSyncClient.asDeliveryRemote(): DeliveryScheduleRemote = object : DeliveryScheduleRemote {
     override suspend fun applyEdits(request: DeliveryScheduleEditRequest) = applyDeliveryScheduleEdits(request)
-    override suspend fun setJobDate(folderName: String, date: LocalDate?, window: String?) =
-        setDeliveryJobDate(folderName, date, window)
+    override suspend fun setJobDate(folderName: String, date: LocalDate?, window: String?, tabletId: String) =
+        setDeliveryJobDate(folderName, date, window, tabletId)
 }
 
 sealed interface DeliveryEditOutcome {
@@ -34,7 +34,7 @@ fun formatDeliveryFailure(f: DeliveryScheduleFailure): String {
     val why = f.reason.ifBlank {
         when (f.status) {
             409 -> "that day already has $MAX_DELIVERY_JOBS_PER_DAY deliveries"
-            404 -> "folder not found in Ready Jobs"
+            404 -> "no office job for this folder"
             400 -> "the office job is closed or invalid"
             else -> "refused by Hours Tracker (${f.status})"
         }
@@ -72,8 +72,18 @@ class DeliveryScheduleEditor(
             return DeliveryEditOutcome.Refused(listOf("Job ${job.jobNumber} not placed: it has no Ready Jobs folder"))
         }
         if (dated != null && current.isDated && remote != null) {
-            when (val r = remote.setJobDate(job.folderName, dated.date, dated.period)) {
-                is DeliveryJobDateResult.Applied -> return applied(r.result)
+            when (val r = remote.setJobDate(job.folderName, dated.date, dated.period, tabletId)) {
+                is DeliveryJobDateResult.Applied -> {
+                    // HT can answer 200 without placing the job (e.g. its folder is no longer a
+                    // real office job); the reply's failures say why. That is a refusal, not a move.
+                    if (r.result.schedule.slotByKey(toSlot).jobs.none { it.sameJob(job) }) {
+                        return DeliveryEditOutcome.Refused(
+                            r.result.failures.map(::formatDeliveryFailure)
+                                .ifEmpty { listOf("Job ${job.jobNumber} not placed: Hours Tracker did not schedule it") }
+                        )
+                    }
+                    return applied(r.result)
+                }
                 is DeliveryJobDateResult.Refused -> return refused(job, r)
                 // HT applied it but sent no usable document: don't retry, the live/file refresh shows it.
                 DeliveryJobDateResult.AcceptedWithoutDocument -> return DeliveryEditOutcome.Queued(emptyList())
@@ -93,8 +103,16 @@ class DeliveryScheduleEditor(
 
     suspend fun removeJob(current: DeliverySchedule, job: DeliveryJob, fromSlot: String): DeliveryEditOutcome {
         if (parseDatedSlotKey(fromSlot) != null && current.isDated && remote != null && job.folderName.isNotBlank()) {
-            when (val r = remote.setJobDate(job.folderName, null, null)) {
-                is DeliveryJobDateResult.Applied -> return applied(r.result)
+            when (val r = remote.setJobDate(job.folderName, null, null, tabletId)) {
+                is DeliveryJobDateResult.Applied -> {
+                    if (r.result.schedule.slotByKey(fromSlot).jobs.any { it.sameJob(job) }) {
+                        return DeliveryEditOutcome.Refused(
+                            r.result.failures.map(::formatDeliveryFailure)
+                                .ifEmpty { listOf("Job ${job.jobNumber} was not removed: Hours Tracker kept its date") }
+                        )
+                    }
+                    return applied(r.result)
+                }
                 is DeliveryJobDateResult.Refused -> return refused(job, r)
                 DeliveryJobDateResult.AcceptedWithoutDocument -> return DeliveryEditOutcome.Queued(emptyList())
                 DeliveryJobDateResult.Unavailable -> Unit

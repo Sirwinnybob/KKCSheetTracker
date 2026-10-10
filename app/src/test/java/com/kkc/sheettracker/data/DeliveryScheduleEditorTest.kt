@@ -23,8 +23,9 @@ class DeliveryScheduleEditorTest {
         val puts = mutableListOf<Triple<String, LocalDate?, String?>>()
         val posts = mutableListOf<DeliveryScheduleEditRequest>()
         override suspend fun applyEdits(request: DeliveryScheduleEditRequest) = post.also { posts += request }
-        override suspend fun setJobDate(folderName: String, date: LocalDate?, window: String?) =
-            put.also { puts += Triple(folderName, date, window) }
+        val putTablets = mutableListOf<String>()
+        override suspend fun setJobDate(folderName: String, date: LocalDate?, window: String?, tabletId: String) =
+            put.also { puts += Triple(folderName, date, window); putTablets += tabletId }
     }
 
     private class FakeQueue : DeliveryScheduleQueue {
@@ -45,8 +46,60 @@ class DeliveryScheduleEditorTest {
         val outcome = DeliveryScheduleEditor(remote, queue, "T1").placeJob(v2, a, "2026-10-21_pm", fromSlot = "2026-10-14_am")
         assertEquals(DeliveryEditOutcome.Applied(applied.schedule, emptyList()), outcome)
         assertEquals(listOf(Triple("670 - ESCHRICH", LocalDate.of(2026, 10, 21), "pm")), remote.puts)
+        assertEquals(listOf("T1"), remote.putTablets)
         assertTrue(remote.posts.isEmpty())
         assertTrue(queue.edits.isEmpty())
+    }
+
+    @Test
+    fun putAppliedWithoutTheJobAndWithFailuresIsRefusedWithFormattedFailure() = runBlocking {
+        val failure = DeliveryScheduleFailure("2026-10-21_pm", "670", "670 - ESCHRICH", 404, "")
+        val remote = FakeRemote(put = DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(v2, listOf(failure))))
+        val outcome = DeliveryScheduleEditor(remote, FakeQueue(), "T1").placeJob(v2, a, "2026-10-21_pm", null)
+        assertEquals(DeliveryEditOutcome.Refused(listOf("Job 670 not placed: no office job for this folder")), outcome)
+    }
+
+    @Test
+    fun putAppliedWithoutTheJobAndWithoutFailuresIsRefusedWithGenericText() = runBlocking {
+        val remote = FakeRemote(put = DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(v2, emptyList())))
+        val outcome = DeliveryScheduleEditor(remote, FakeQueue(), "T1").placeJob(v2, a, "2026-10-21_pm", null)
+        assertEquals(
+            DeliveryEditOutcome.Refused(listOf("Job 670 not placed: Hours Tracker did not schedule it")),
+            outcome
+        )
+    }
+
+    @Test
+    fun putAppliedMatchesPlacedJobByFolderIgnoringCase() = runBlocking {
+        val lower = a.copy(folderName = "670 - eschrich")
+        val remote = FakeRemote(put = DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(v2.withSlot("2026-10-21_pm", listOf(lower)), emptyList())))
+        val outcome = DeliveryScheduleEditor(remote, FakeQueue(), "T1").placeJob(v2, a, "2026-10-21_pm", null)
+        assertTrue(outcome is DeliveryEditOutcome.Applied)
+    }
+
+    @Test
+    fun removeAppliedWhileJobStillInSlotIsRefused() = runBlocking {
+        val current = v2.withSlot("2026-10-21_pm", listOf(a, b))
+        val remote = FakeRemote(put = DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(current, emptyList())))
+        val outcome = DeliveryScheduleEditor(remote, FakeQueue(), "T1").removeJob(current, a, "2026-10-21_pm")
+        assertEquals(DeliveryEditOutcome.Refused(listOf("Job 670 was not removed: Hours Tracker kept its date")), outcome)
+    }
+
+    @Test
+    fun removeAppliedWhileJobStillInSlotUsesFormattedFailures() = runBlocking {
+        val current = v2.withSlot("2026-10-21_pm", listOf(a))
+        val failure = DeliveryScheduleFailure("", "670", "670 - ESCHRICH", 400, "")
+        val remote = FakeRemote(put = DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(current, listOf(failure))))
+        val outcome = DeliveryScheduleEditor(remote, FakeQueue(), "T1").removeJob(current, a, "2026-10-21_pm")
+        assertEquals(DeliveryEditOutcome.Refused(listOf("Job 670 not placed: the office job is closed or invalid")), outcome)
+    }
+
+    @Test
+    fun formatDeliveryFailure404SaysNoOfficeJob() {
+        assertEquals(
+            "Job 670 not placed: no office job for this folder",
+            formatDeliveryFailure(DeliveryScheduleFailure("", "670", "670 - E", 404, ""))
+        )
     }
 
     @Test
@@ -140,10 +193,13 @@ class DeliveryScheduleEditorTest {
     fun movingAmToPmInsideAFullDayIsAllowed() = runBlocking {
         val full = fullDay(am = 4, pm = 2)
         val mover = full.slotByKey("2026-10-21_am").jobs.first()
-        val applied = DeliveryScheduleApplyResult(full, emptyList())
+        val moved = full
+            .withSlot("2026-10-21_am", full.slotByKey("2026-10-21_am").jobs.drop(1))
+            .withSlot("2026-10-21_pm", full.slotByKey("2026-10-21_pm").jobs + mover)
+        val applied = DeliveryScheduleApplyResult(moved, emptyList())
         val remote = FakeRemote(put = DeliveryJobDateResult.Applied(applied))
         val outcome = DeliveryScheduleEditor(remote, FakeQueue(), "T1").placeJob(full, mover, "2026-10-21_pm", "2026-10-21_am")
-        assertEquals(DeliveryEditOutcome.Applied(full, emptyList()), outcome)
+        assertEquals(DeliveryEditOutcome.Applied(moved, emptyList()), outcome)
         assertEquals(listOf(Triple(mover.folderName, LocalDate.of(2026, 10, 21), "pm")), remote.puts)
     }
 
@@ -197,6 +253,7 @@ class DeliveryScheduleEditorTest {
         val onlineRemote = FakeRemote(put = DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(v2, emptyList())))
         DeliveryScheduleEditor(onlineRemote, FakeQueue(), "T1").removeJob(current, a, "2026-10-21_pm")
         assertEquals(Triple("670 - ESCHRICH", null as LocalDate?, null as String?), onlineRemote.puts.single())
+        assertEquals(listOf("T1"), onlineRemote.putTablets)
 
         val queue = FakeQueue()
         DeliveryScheduleEditor(null, queue, "T1").removeJob(current, a, "2026-10-21_pm")

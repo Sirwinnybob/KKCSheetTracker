@@ -147,10 +147,19 @@ class AdminSyncClient(serverUrl: String) {
 
     /**
      * `PUT /api/delivery-schedule/jobs/{folderName}` — changes only this one job's Office delivery
-     * date, so it cannot clobber a job another tablet just placed. `date == null` clears it (JSON
-     * `null` body). Only call against a v2 server (schedule.isDated): an old server has no route.
+     * date, so it cannot clobber a job another tablet just placed. The body is always a JSON object
+     * carrying [tabletId] so HT attributes the change to this tablet: set is
+     * `{"date","window"?,"tabletId"}`, clear (`date == null`) is `{"date":null,"tabletId"}`. An HT
+     * build that predates the object form of a clear answers 422; that clear is retried once with
+     * the old bare `null` body. Only call against a v2 server (schedule.isDated): an old server has
+     * no route.
      */
-    suspend fun setDeliveryJobDate(folderName: String, date: java.time.LocalDate?, window: String?): DeliveryJobDateResult =
+    suspend fun setDeliveryJobDate(
+        folderName: String,
+        date: java.time.LocalDate?,
+        window: String?,
+        tabletId: String
+    ): DeliveryJobDateResult =
         withContext(Dispatchers.IO) {
             runCatching {
                 // Built inside runCatching: a malformed configured server URL must degrade to
@@ -159,31 +168,41 @@ class AdminSyncClient(serverUrl: String) {
                     .addPathSegments("api/delivery-schedule/jobs")
                     .addPathSegment(folderName)
                     .build()
-                val bodyText = if (date == null) "null" else JSONObject().apply {
-                    put("date", date.toString())
-                    if (window != null) put("window", window)
+                val bodyText = JSONObject().apply {
+                    put("date", if (date == null) JSONObject.NULL else date.toString())
+                    if (date != null && window != null) put("window", window)
+                    put("tabletId", tabletId)
                 }.toString()
-                val request = Request.Builder().url(url).put(bodyText.toRequestBody(jsonMediaType)).build()
-                client.newCall(request).execute().use { response ->
-                    val text = response.body?.string().orEmpty()
-                    when {
-                        response.isSuccessful -> {
-                            // 2xx means HT applied the change. Only trust the body as the canonical
-                            // schedule when it is a v2 document; anything else must not blank the board.
-                            val doc = runCatching { parseDeliveryScheduleDocument(text) }.getOrNull()
-                            if (doc != null && doc.schedule.isDated) {
-                                DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(doc.schedule, doc.failures))
-                            } else {
-                                DeliveryJobDateResult.AcceptedWithoutDocument
-                            }
-                        }
-                        response.code in setOf(400, 404, 409, 422) ->
-                            DeliveryJobDateResult.Refused(response.code, refusalReason(response.code, text))
-                        else -> DeliveryJobDateResult.Unavailable
-                    }
+                val first = putJobDate(url, bodyText)
+                if (date == null && first is DeliveryJobDateResult.Refused && first.status == 422) {
+                    putJobDate(url, "null")
+                } else {
+                    first
                 }
             }.getOrElse { DeliveryJobDateResult.Unavailable }
         }
+
+    private fun putJobDate(url: okhttp3.HttpUrl, bodyText: String): DeliveryJobDateResult {
+        val request = Request.Builder().url(url).put(bodyText.toRequestBody(jsonMediaType)).build()
+        return client.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            when {
+                response.isSuccessful -> {
+                    // 2xx means HT applied the change. Only trust the body as the canonical
+                    // schedule when it is a v2 document; anything else must not blank the board.
+                    val doc = runCatching { parseDeliveryScheduleDocument(text) }.getOrNull()
+                    if (doc != null && doc.schedule.isDated) {
+                        DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(doc.schedule, doc.failures))
+                    } else {
+                        DeliveryJobDateResult.AcceptedWithoutDocument
+                    }
+                }
+                response.code in setOf(400, 404, 409, 422) ->
+                    DeliveryJobDateResult.Refused(response.code, refusalReason(response.code, text))
+                else -> DeliveryJobDateResult.Unavailable
+            }
+        }
+    }
 
     /**
      * User-facing reason for a definitive refusal. FastAPI `detail` is a string for our own
@@ -202,7 +221,7 @@ class AdminSyncClient(serverUrl: String) {
         if (parsed.isNotEmpty()) return parsed
         return when (status) {
             409 -> "That day already has 6 deliveries"
-            404 -> "Folder not found in Ready Jobs"
+            404 -> "No office job for this folder"
             else -> "The office job is closed or the request was invalid"
         }
     }

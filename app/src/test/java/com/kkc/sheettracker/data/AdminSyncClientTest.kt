@@ -136,7 +136,7 @@ class AdminSyncClientTest {
         server.enqueue(MockResponse().setResponseCode(200).setBody(
             """{"schedule":{},"datedSlots":{"2026-10-21_pm":{"jobs":[{"jobNumber":"670","description":"E","folderName":"670 - ESCHRICH 1364 VICTORIAN"}]}},"weekOf":"2026-10-19","failures":[]}"""
         ))
-        val result = client.setDeliveryJobDate("670 - ESCHRICH 1364 VICTORIAN", java.time.LocalDate.of(2026, 10, 21), "pm")
+        val result = client.setDeliveryJobDate("670 - ESCHRICH 1364 VICTORIAN", java.time.LocalDate.of(2026, 10, 21), "pm", "T1")
         assertTrue(result is DeliveryJobDateResult.Applied)
         val recorded = server.takeRequest()
         assertEquals("PUT", recorded.method)
@@ -144,13 +144,59 @@ class AdminSyncClientTest {
         val body = org.json.JSONObject(recorded.body.readUtf8())
         assertEquals("2026-10-21", body.getString("date"))
         assertEquals("pm", body.getString("window"))
+        assertEquals("T1", body.getString("tabletId"))
     }
 
     @Test
-    fun `setDeliveryJobDate null date sends JSON null body`() = runBlocking {
+    fun `setDeliveryJobDate without a half-day omits window and keeps tabletId`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(200).setBody("""{"schedule":{},"datedSlots":{},"weekOf":"2026-10-12","failures":[]}"""))
-        client.setDeliveryJobDate("670 - E", null, null)
+        client.setDeliveryJobDate("670 - E", java.time.LocalDate.of(2026, 10, 21), null, "T1")
+        val body = org.json.JSONObject(server.takeRequest().body.readUtf8())
+        assertEquals("2026-10-21", body.getString("date"))
+        assertFalse(body.has("window"))
+        assertEquals("T1", body.getString("tabletId"))
+    }
+
+    @Test
+    fun `setDeliveryJobDate clear sends object with null date and tabletId`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"schedule":{},"datedSlots":{},"weekOf":"2026-10-12","failures":[]}"""))
+        client.setDeliveryJobDate("670 - E", null, null, "T1")
+        val body = org.json.JSONObject(server.takeRequest().body.readUtf8())
+        assertTrue(body.has("date"))
+        assertTrue(body.isNull("date"))
+        assertFalse(body.has("window"))
+        assertEquals("T1", body.getString("tabletId"))
+    }
+
+    @Test
+    fun `setDeliveryJobDate clear retries once with bare null body when object form is 422`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(422).setBody("""{"detail":[{"loc":["body"],"msg":"bad","type":"x"}]}"""))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"schedule":{},"datedSlots":{},"weekOf":"2026-10-12","failures":[]}"""
+        ))
+        val result = client.setDeliveryJobDate("670 - E", null, null, "T1")
+        assertTrue(result is DeliveryJobDateResult.Applied)
+        assertEquals(2, server.requestCount)
+        val first = server.takeRequest().body.readUtf8()
+        assertTrue(org.json.JSONObject(first).isNull("date"))
         assertEquals("null", server.takeRequest().body.readUtf8())
+    }
+
+    @Test
+    fun `setDeliveryJobDate clear retry maps the second response with the normal rules`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(422))
+        server.enqueue(MockResponse().setResponseCode(404).setBody("""{"detail":"unknown job folder"}"""))
+        val result = client.setDeliveryJobDate("670 - E", null, null, "T1")
+        assertEquals(DeliveryJobDateResult.Refused(404, "unknown job folder"), result)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun `setDeliveryJobDate set that gets 422 is not retried`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(422))
+        val result = client.setDeliveryJobDate("670 - E", java.time.LocalDate.of(2026, 10, 21), "am", "T1")
+        assertTrue(result is DeliveryJobDateResult.Refused)
+        assertEquals(1, server.requestCount)
     }
 
     @Test
@@ -160,10 +206,10 @@ class AdminSyncClientTest {
         server.enqueue(MockResponse().setResponseCode(400).setBody("""{"detail":"Job is closed"}"""))
         server.enqueue(MockResponse().setResponseCode(503))
         val d = java.time.LocalDate.of(2026, 10, 16)
-        assertEquals(DeliveryJobDateResult.Refused(409, "Fri 10/16 AM already has 3 deliveries"), client.setDeliveryJobDate("a", d, null))
-        assertEquals(DeliveryJobDateResult.Refused(404, "Folder not found"), client.setDeliveryJobDate("a", d, null))
-        assertEquals(DeliveryJobDateResult.Refused(400, "Job is closed"), client.setDeliveryJobDate("a", d, null))
-        assertEquals(DeliveryJobDateResult.Unavailable, client.setDeliveryJobDate("a", d, null))
+        assertEquals(DeliveryJobDateResult.Refused(409, "Fri 10/16 AM already has 3 deliveries"), client.setDeliveryJobDate("a", d, null, "T1"))
+        assertEquals(DeliveryJobDateResult.Refused(404, "Folder not found"), client.setDeliveryJobDate("a", d, null, "T1"))
+        assertEquals(DeliveryJobDateResult.Refused(400, "Job is closed"), client.setDeliveryJobDate("a", d, null, "T1"))
+        assertEquals(DeliveryJobDateResult.Unavailable, client.setDeliveryJobDate("a", d, null, "T1"))
     }
 
     @Test
@@ -172,7 +218,7 @@ class AdminSyncClientTest {
             """{"detail":[{"loc":["body","date"],"msg":"invalid date","type":"value_error"},{"loc":["body","window"],"msg":"bad window","type":"value_error"}]}"""
         ))
         val d = java.time.LocalDate.of(2026, 10, 16)
-        assertEquals(DeliveryJobDateResult.Refused(422, "invalid date; bad window"), client.setDeliveryJobDate("a", d, null))
+        assertEquals(DeliveryJobDateResult.Refused(422, "invalid date; bad window"), client.setDeliveryJobDate("a", d, null, "T1"))
     }
 
     @Test
@@ -182,10 +228,10 @@ class AdminSyncClientTest {
         server.enqueue(MockResponse().setResponseCode(400).setBody("""{"detail":""}"""))
         server.enqueue(MockResponse().setResponseCode(422).setBody("""{"detail":[{"loc":["body"]}]}"""))
         val d = java.time.LocalDate.of(2026, 10, 16)
-        assertEquals(DeliveryJobDateResult.Refused(409, "That day already has 6 deliveries"), client.setDeliveryJobDate("a", d, null))
-        assertEquals(DeliveryJobDateResult.Refused(404, "Folder not found in Ready Jobs"), client.setDeliveryJobDate("a", d, null))
-        assertEquals(DeliveryJobDateResult.Refused(400, "The office job is closed or the request was invalid"), client.setDeliveryJobDate("a", d, null))
-        assertEquals(DeliveryJobDateResult.Refused(422, "The office job is closed or the request was invalid"), client.setDeliveryJobDate("a", d, null))
+        assertEquals(DeliveryJobDateResult.Refused(409, "That day already has 6 deliveries"), client.setDeliveryJobDate("a", d, null, "T1"))
+        assertEquals(DeliveryJobDateResult.Refused(404, "No office job for this folder"), client.setDeliveryJobDate("a", d, null, "T1"))
+        assertEquals(DeliveryJobDateResult.Refused(400, "The office job is closed or the request was invalid"), client.setDeliveryJobDate("a", d, null, "T1"))
+        assertEquals(DeliveryJobDateResult.Refused(422, "The office job is closed or the request was invalid"), client.setDeliveryJobDate("a", d, null, "T1"))
     }
 
     @Test
@@ -196,13 +242,13 @@ class AdminSyncClientTest {
         server.enqueue(MockResponse().setResponseCode(200).setBody("""{"schemaVersion":1,"slots":{}}"""))
         val d = java.time.LocalDate.of(2026, 10, 16)
         repeat(4) {
-            assertEquals(DeliveryJobDateResult.AcceptedWithoutDocument, client.setDeliveryJobDate("a", d, null))
+            assertEquals(DeliveryJobDateResult.AcceptedWithoutDocument, client.setDeliveryJobDate("a", d, null, "T1"))
         }
     }
 
     @Test
     fun `setDeliveryJobDate with malformed server url is Unavailable`() = runBlocking {
-        val result = AdminSyncClient("not a url").setDeliveryJobDate("a", java.time.LocalDate.of(2026, 10, 16), null)
+        val result = AdminSyncClient("not a url").setDeliveryJobDate("a", java.time.LocalDate.of(2026, 10, 16), null, "T1")
         assertEquals(DeliveryJobDateResult.Unavailable, result)
     }
 
