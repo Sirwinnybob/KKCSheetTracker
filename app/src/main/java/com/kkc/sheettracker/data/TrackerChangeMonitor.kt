@@ -29,6 +29,8 @@ class TrackerChangeMonitor(
     private val activeJobFolderName: StateFlow<String?> = MutableStateFlow(null),
     private val onWatcherRefreshRequested: (() -> Unit)? = null,
     private val onCncJobsChanged: ((Set<String>) -> Unit)? = null,
+    /** Specialty/admin metadata changed for these jobs (null = all). Used to refresh handoff flags. */
+    private val onSpecialtyJobsChanged: ((Set<String>?) -> Unit)? = null,
     private val pollingIntervalMs: Long = POLLING_INTERVAL_MS,
     private val intervalOverrideMs: StateFlow<Long?> = MutableStateFlow(null)
 ) {
@@ -470,6 +472,11 @@ class TrackerChangeMonitor(
                 // Batch specialty invalidation to trigger one progress version bump for this cycle.
                 store.invalidateJobCaches(specialtyJobs)
             }
+        }
+        if (invalidateAllSpecialty) {
+            onSpecialtyJobsChanged?.invoke(null)
+        } else if (specialtyJobs.isNotEmpty()) {
+            onSpecialtyJobsChanged?.invoke(specialtyJobs)
         }
 
         scheduleFullRefreshDispatch()

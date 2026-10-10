@@ -165,6 +165,33 @@ class TrackerChangeMonitorSpecialtyTest {
         }
     }
 
+    @Test
+    fun adminJsonChangeReportsSpecialtyJob() {
+        val baseDir = Files.createTempDirectory("tracker-change-monitor-handoff-test").toFile()
+        val jobFolder = "1234 - Test Job"
+        val adminDir = File(baseDir, "$jobFolder/.metadata/admin").apply { mkdirs() }
+        val handoff = File(adminDir, "handoff.json").apply { writeText("""{"itemFlags":{}}""") }
+        val reported = java.util.concurrent.CopyOnWriteArrayList<Set<String>?>()
+        val monitor = TrackerChangeMonitor(
+            baseDir = baseDir,
+            progressStore = ProgressStore(baseDir, "tablet-a", File(baseDir, ".local"), readOnly = true),
+            hardwoodsProgressStore = HardwoodsProgressStore(baseDir, "tablet-a", readOnly = true),
+            specialtyProgressStore = SpecialtyProgressStore(baseDir, "tablet-a", readOnly = true),
+            viewerInteraction = MutableStateFlow(false),
+            onSpecialtyJobsChanged = { jobs -> reported += jobs },
+            pollingIntervalMs = 100L
+        )
+        monitor.start()
+        try {
+            Thread.sleep(1_700L)
+            reported.clear()
+            handoff.writeText("""{"itemFlags":{"board_stock:x":{"truck":"loose"}}}""")
+            waitUntil(timeoutMs = 4_000L) { reported.any { it == null || jobFolder in it } }
+        } finally {
+            monitor.stop()
+        }
+    }
+
     private fun waitUntil(timeoutMs: Long, condition: () -> Boolean) {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {

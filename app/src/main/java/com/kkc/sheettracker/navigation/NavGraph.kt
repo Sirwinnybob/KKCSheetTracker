@@ -86,6 +86,7 @@ import com.kkc.sheettracker.data.AssemblyViewLayout
 import com.kkc.sheettracker.data.AssemblyViewerDefaultsStore
 import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.data.EmployeeDirectory
+import com.kkc.sheettracker.data.HandoffFlagsChangeSignal
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
@@ -271,7 +272,8 @@ fun AppNavigation(
             },
             onCncJobsChanged = { jobFolderNames ->
                 jobFolderNames.forEach { scanCoordinator.unifiedEngine.invalidateJob(it) }
-            }
+            },
+            onSpecialtyJobsChanged = { HandoffFlagsChangeSignal.bump() }
         )
     }
     DisposableEffect(lifecycleOwner, trackerChangeMonitor) {
