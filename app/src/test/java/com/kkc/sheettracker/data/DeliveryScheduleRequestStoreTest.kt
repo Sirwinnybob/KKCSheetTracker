@@ -174,6 +174,47 @@ class DeliveryScheduleRequestStoreTest {
         assertEquals("monday_am", requestJson(baseDir).getAsJsonArray("slotEdits")[0].asJsonObject.get("slot").asString)
     }
 
+    /** Corrupt request file whose predictable backup path is blocked by a directory. */
+    private fun corruptWithBlockedBackup(baseDir: File): File {
+        val file = File(baseDir, "delivery_schedule_request.tablet-1.json")
+        file.writeText("{not json")
+        assertTrue(File(baseDir, "delivery_schedule_request.tablet-1.json.unreadable-1234").mkdir())
+        return file
+    }
+
+    @Test
+    fun failedBackupAbortsQueueSlotEditAndLeavesOriginalUntouched() = runBlocking {
+        val baseDir = Files.createTempDirectory("delivery-backup-fail").toFile()
+        val file = corruptWithBlockedBackup(baseDir)
+        val jobs = listOf(DeliveryJob("1", "One"))
+        val result = DeliveryScheduleRequestStore(baseDir, clockMillis = { 1234L })
+            .queueSlotEdit("monday_am", jobs, "tablet-1")
+        assertFalse(result.queued)
+        assertEquals(jobs, result.droppedJobs)
+        assertEquals("{not json", file.readText())
+    }
+
+    @Test
+    fun failedBackupAbortsQueueResetAndLeavesOriginalUntouched() = runBlocking {
+        val baseDir = Files.createTempDirectory("delivery-backup-fail-reset").toFile()
+        val file = corruptWithBlockedBackup(baseDir)
+        DeliveryScheduleRequestStore(baseDir, clockMillis = { 1234L }).queueReset("tablet-1", mirroredWeekOf = null)
+        assertEquals("{not json", file.readText())
+    }
+
+    @Test
+    fun readFailureAbortsWithoutBackupOrWrite() = runBlocking {
+        val baseDir = Files.createTempDirectory("delivery-read-fail").toFile()
+        // A directory at the request path exists but cannot be read as text.
+        val blocked = File(baseDir, "delivery_schedule_request.tablet-1.json")
+        assertTrue(blocked.mkdir())
+        val store = DeliveryScheduleRequestStore(baseDir)
+        assertFalse(store.queueSlotEdit("monday_am", emptyList(), "tablet-1").queued)
+        store.queueReset("tablet-1", mirroredWeekOf = null)
+        assertTrue(blocked.isDirectory)
+        assertEquals(listOf("delivery_schedule_request.tablet-1.json"), baseDir.list()!!.toList())
+    }
+
     @Test
     fun concurrentEditsBothLand() = runBlocking {
         val baseDir = Files.createTempDirectory("delivery-concurrent").toFile()

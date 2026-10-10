@@ -8,6 +8,7 @@ import com.kkc.sheettracker.data.models.parseDatedSlotKey
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
+import java.io.IOException
 import java.time.Instant
 import java.time.LocalDate
 import java.util.concurrent.ConcurrentHashMap
@@ -47,8 +48,24 @@ interface DeliveryScheduleQueue {
  * Read-modify-write is serialized per file with an in-process Mutex (fixes METADATA_AUDIT.md L-06),
  * written atomically, and a file that can't be parsed is copied to `.unreadable-<millis>` before a
  * new one is started (never silently overwritten).
+ *
+ * An existing file is only ever replaced when it was read successfully and either parsed or was
+ * backed up first. If it can't be read (I/O error) or the backup copy fails, nothing is written:
+ * [queueSlotEdit] returns `DeliveryQueueResult(queued = false, droppedJobs = jobs)` and
+ * [queueReset] logs and returns without writing (it has no result to report; callers keep the
+ * original queued file untouched and may retry).
  */
-class DeliveryScheduleRequestStore(private val baseDir: File) : DeliveryScheduleQueue {
+class DeliveryScheduleRequestStore(
+    private val baseDir: File,
+    private val clockMillis: () -> Long = System::currentTimeMillis
+) : DeliveryScheduleQueue {
+
+    private sealed interface Existing {
+        object Missing : Existing
+        data class Parsed(val request: DeliveryScheduleEditRequest) : Existing
+        /** Could not read the file, or could not back up an unparseable one: do not write. */
+        object Blocked : Existing
+    }
 
     private val gson = GsonBuilder().setPrettyPrinting().create()
 
@@ -63,8 +80,12 @@ class DeliveryScheduleRequestStore(private val baseDir: File) : DeliverySchedule
         }
         val kept = valid.take(MAX_DELIVERY_JOBS_PER_SLOT)
         val dropped = jobs.filterNot { it in kept }
-        lockFor(tabletId).withLock {
-            val existing = readExisting(tabletId)
+        return lockFor(tabletId).withLock {
+            val existing = when (val e = readExisting(tabletId)) {
+                Existing.Blocked -> return@withLock DeliveryQueueResult(false, jobs)
+                Existing.Missing -> null
+                is Existing.Parsed -> e.request
+            }
             writeRequest(
                 tabletId,
                 DeliveryScheduleEditRequest(
@@ -75,13 +96,20 @@ class DeliveryScheduleRequestStore(private val baseDir: File) : DeliverySchedule
                         DeliveryScheduleSlotEdit(slot = normalizedSlot, jobs = kept)
                 )
             )
+            DeliveryQueueResult(true, dropped)
         }
-        return DeliveryQueueResult(true, dropped)
     }
 
     override suspend fun queueReset(tabletId: String, mirroredWeekOf: LocalDate?) {
         lockFor(tabletId).withLock {
-            val existing = readExisting(tabletId)
+            val existing = when (val e = readExisting(tabletId)) {
+                Existing.Blocked -> {
+                    Log.w(TAG, "queueReset skipped: ${requestFile(tabletId).name} could not be read or backed up")
+                    return@withLock
+                }
+                Existing.Missing -> null
+                is Existing.Parsed -> e.request
+            }
             // HT applies resetAll first, then slotEdits. Edits for slots the reset clears would
             // re-apply stale intent, so drop them; edits for other weeks / weekends survive.
             val survivors = existing?.slotEdits.orEmpty().filter { edit ->
@@ -109,20 +137,33 @@ class DeliveryScheduleRequestStore(private val baseDir: File) : DeliverySchedule
             ?.takeIf { it.slotEdits != null }
     }
 
-    /** Null when there is no file; backs up and returns null when the file can't be parsed. */
-    private fun readExisting(tabletId: String): DeliveryScheduleEditRequest? {
+    /**
+     * [Existing.Missing] when there is no file. A read I/O error is [Existing.Blocked] (no backup,
+     * file left alone). A parse failure is backed up: [Existing.Missing] once the copy succeeded
+     * (safe to replace), [Existing.Blocked] if the copy failed.
+     */
+    private fun readExisting(tabletId: String): Existing {
         val file = requestFile(tabletId)
-        if (!file.exists()) return null
-        val parsed = runCatching { gson.fromJson(file.readText(), DeliveryScheduleEditRequest::class.java) }
+        if (!file.exists()) return Existing.Missing
+        val text = try {
+            file.readText()
+        } catch (e: IOException) {
+            Log.w(TAG, "Could not read ${file.name}; leaving it untouched", e)
+            return Existing.Blocked
+        }
+        val parsed = runCatching { gson.fromJson(text, DeliveryScheduleEditRequest::class.java) }
             .getOrNull()
             ?.takeIf { it.slotEdits != null }
-        if (parsed == null) {
-            val backup = File(file.parentFile, "${file.name}.unreadable-${System.currentTimeMillis()}")
-            runCatching { file.copyTo(backup, overwrite = false) }
-                .onFailure { Log.w(TAG, "Could not back up unreadable ${file.name}", it) }
-            Log.w(TAG, "Unreadable ${file.name}; kept a copy as ${backup.name} and started a new request")
+        if (parsed != null) return Existing.Parsed(parsed)
+        val backup = File(file.parentFile, "${file.name}.unreadable-${clockMillis()}")
+        try {
+            file.copyTo(backup, overwrite = false)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not back up unreadable ${file.name}; leaving it untouched", e)
+            return Existing.Blocked
         }
-        return parsed
+        Log.w(TAG, "Unreadable ${file.name}; kept a copy as ${backup.name} and started a new request")
+        return Existing.Missing
     }
 
     private fun writeRequest(tabletId: String, payload: DeliveryScheduleEditRequest) {
