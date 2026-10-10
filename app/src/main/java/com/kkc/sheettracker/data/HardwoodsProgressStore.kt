@@ -184,6 +184,17 @@ class HardwoodsProgressStore(
 
     private fun legacyTabletBlobFile(jobFolderName: String): File = File(trackerDir(jobFolderName), "$tabletId.json")
 
+    /**
+     * Every per-job write checks the job is still live first: the writers below create missing
+     * parents (mkdirs / atomicWriteFile), so a stale edit would otherwise recreate a renamed or
+     * archived job folder. Only the disk write is skipped; in-memory state is unaffected.
+     */
+    private fun jobIsLive(jobFolderName: String): Boolean {
+        if (isLiveJobFolder(baseDir, jobFolderName)) return true
+        android.util.Log.w("HardwoodsProgressStore", "Skipping write: job folder $jobFolderName is missing")
+        return false
+    }
+
     /** One-time upgrade read: this tablet's own progress from BOTH the legacy <tabletId>.json blob
      * and the ndjson stream, merged. Used only by the migration routines so they still see
      * pre-upgrade history that predates the ndjson switch. */
@@ -218,6 +229,7 @@ class HardwoodsProgressStore(
     // the existing migration routines that rewrite historical actions in place. See
     // METADATA_AUDIT.md R-01.
     private fun saveTabletProgress(jobFolderName: String, progress: HardwoodTabletProgress) {
+        if (!jobIsLive(jobFolderName)) return
         val dir = trackerDir(jobFolderName)
         dir.mkdirs()
         val body = progress.actions.joinToString("") { action ->
@@ -340,6 +352,7 @@ class HardwoodsProgressStore(
         val writeMutex = writeMutexByJob.getOrPut(jobFolderName) { Mutex() }
         ioScope.launch {
             writeMutex.withLock {
+                if (!jobIsLive(jobFolderName)) return@withLock
                 val dir = trackerDir(jobFolderName)
                 dir.mkdirs()
                 val markup = HardwoodTabletMarkup(
@@ -962,6 +975,7 @@ class HardwoodsProgressStore(
     }
 
     private fun writeMigrationMarker(jobFolderName: String, migratedCount: Int) {
+        if (!jobIsLive(jobFolderName)) return
         val marker = boardStockMigrationMarkerFile(jobFolderName)
         marker.parentFile?.mkdirs()
         val payload = mapOf(
@@ -973,6 +987,7 @@ class HardwoodsProgressStore(
     }
 
     private fun writeCanonicalMigrationMarker(jobFolderName: String, migratedCount: Int) {
+        if (!jobIsLive(jobFolderName)) return
         val marker = boardStockCanonicalMigrationMarkerFile(jobFolderName)
         marker.parentFile?.mkdirs()
         val payload = mapOf(

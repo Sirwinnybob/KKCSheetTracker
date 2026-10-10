@@ -11,6 +11,10 @@ import java.nio.file.Files
 class SheetRipProgressStoreTest {
     private val jobFolderName = "1234 - Test Job"
 
+    /** Base dir whose job folder already exists with its `.metadata` (the store refuses to write otherwise). */
+    private fun createLiveBaseDir(prefix: String): File =
+        Files.createTempDirectory(prefix).toFile().also { File(it, "$jobFolderName/.metadata").mkdirs() }
+
     @Test
     fun loadDone_nonExistentFile_returnsEmptyMap() {
         val baseDir = Files.createTempDirectory("sheet-rip-test").toFile()
@@ -22,7 +26,7 @@ class SheetRipProgressStoreTest {
 
     @Test
     fun setDone_atomicWrite_savesAndLoadsDoneStates() = runBlocking {
-        val baseDir = Files.createTempDirectory("sheet-rip-test").toFile()
+        val baseDir = createLiveBaseDir("sheet-rip-test")
         val store = SheetRipProgressStore(baseDir)
 
         store.setDone(jobFolderName, "item-1", true)
@@ -45,7 +49,7 @@ class SheetRipProgressStoreTest {
 
     @Test
     fun setDone_rejectsLateCompletionAfterNewerDecrementProjection() = runBlocking {
-        val baseDir = Files.createTempDirectory("sheet-rip-test").toFile()
+        val baseDir = createLiveBaseDir("sheet-rip-test")
         val store = SheetRipProgressStore(baseDir)
 
         store.setDone(jobFolderName, "item-1", true, projectionRevision = 1)
@@ -53,6 +57,17 @@ class SheetRipProgressStoreTest {
         store.setDone(jobFolderName, "item-1", true, projectionRevision = 1)
 
         assertEquals(false, store.loadDone(jobFolderName)["item-1"])
+    }
+
+    @Test
+    fun setDone_missingJobFolder_writesNothingAndDoesNotCreateFolder() = runBlocking {
+        val baseDir = Files.createTempDirectory("sheet-rip-missing-job-test").toFile()
+        val store = SheetRipProgressStore(baseDir)
+
+        store.setDone(jobFolderName, "item-1", done = true)
+
+        assertFalse(File(baseDir, jobFolderName).exists())
+        assertTrue(store.loadDone(jobFolderName).isEmpty())
     }
 
     @Test

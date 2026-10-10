@@ -984,8 +984,24 @@ class HardwoodsProgressStoreTest {
         assertTrue(store.progressVersion.value > versionBefore)
     }
 
+    @Test
+    fun writes_missingJobFolder_writeNothingAndDoNotCreateFolder() {
+        // Deliberately not createTempBaseDir(): that fixture creates the live <job>/.metadata.
+        val baseDir = Files.createTempDirectory("hardwoods-progress-store-missing-job").toFile()
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+
+        store.setDoneCount(jobFolderName, "FACE_FRAME_CUT_LIST", "row-1", qty = 10, doneCount = 4)
+        store.saveTabletMarkup(jobFolderName, strokes = emptyList(), deletedStrokeIds = listOf("s1"))
+        store.awaitPendingWrites()
+
+        assertFalse(File(baseDir, jobFolderName).exists())
+    }
+
+    // A job folder with its .metadata is "live"; per-job stores refuse to write otherwise.
     private fun createTempBaseDir(): File {
-        return Files.createTempDirectory("hardwoods-progress-store-test").toFile()
+        return Files.createTempDirectory("hardwoods-progress-store-test").toFile().also {
+            File(it, "$jobFolderName/.metadata").mkdirs()
+        }
     }
 
     private fun writeCutlistIndex(baseDir: File, jobFolderName: String, index: HardwoodCutlistIndex) {

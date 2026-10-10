@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data
 
+import android.util.Log
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
@@ -145,6 +146,11 @@ class TabletSpecialtyItemsStore(
     }
 
     private fun writeItems(jobFolderName: String, items: List<TabletSpecialtyItem>) {
+        // atomicWriteFile creates missing parents: never let a stale edit recreate a renamed/archived job.
+        if (!isLiveJobFolder(baseDir, jobFolderName)) {
+            Log.w(TAG, "Skipping write: job folder $jobFolderName is missing")
+            return
+        }
         val array = JsonArray()
         items.forEach { item ->
             array.add(JsonObject().apply {
@@ -168,6 +174,10 @@ class TabletSpecialtyItemsStore(
             })
         }
         atomicWriteFile(ownFile(jobFolderName), gson.toJson(array))
+    }
+
+    private companion object {
+        private const val TAG = "TabletSpecialtyItemsStore"
     }
 
     private fun adminDir(jobFolderName: String) = File(baseDir, "$jobFolderName/.metadata/admin")

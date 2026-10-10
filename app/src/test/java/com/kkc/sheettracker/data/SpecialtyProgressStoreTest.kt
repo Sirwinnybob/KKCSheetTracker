@@ -1180,6 +1180,41 @@ class SpecialtyProgressStoreTest {
         assertTrue(patch.contains("\"dimensions\": \"1 x 2\""))
     }
 
+    @Test
+    fun writes_missingJobFolder_writeNothingAndDoNotCreateFolder() = runBlocking {
+        val baseDir = createTempBaseDir()
+        val store = SpecialtyProgressStore(baseDir = baseDir, tabletId = tabletId)
+
+        store.setCompletion(jobFolderName, "item-1", "ITEM", completed = true)
+        assertFalse(File(baseDir, jobFolderName).exists())
+
+        store.updateSpecialtyItemFields(
+            jobFolderName = jobFolderName,
+            itemId = "item-1",
+            dimensions = "1 x 2",
+            quantity = 1.0,
+            material = "Oak"
+        )
+        assertFalse(File(baseDir, jobFolderName).exists())
+
+        store.updateToOrderItem(
+            jobFolderName = jobFolderName,
+            itemId = "checklist:c1",
+            name = "Name",
+            cabinetNumbers = listOf("1"),
+            supplier = null,
+            model = null,
+            orderDate = null,
+            tracking = null,
+            orderUrl = null,
+            notes = null,
+            quantity = null,
+            material = null,
+            dimensions = null
+        )
+        assertFalse(File(baseDir, jobFolderName).exists())
+    }
+
     private fun createTempBaseDir(): File = Files.createTempDirectory("specialty-progress-store-test").toFile()
 
     private fun writeSpecialtyItems(baseDir: File, jobFolderName: String, body: String) {

@@ -48,6 +48,7 @@ class SpecialtyStateStoreTest {
     @Test
     fun setSheetRipCompletion_syncsCanonicalTallyAndBooleanProjection() = runBlocking {
         val baseDir = Files.createTempDirectory("specialty-state-store-test").toFile()
+        File(baseDir, "$jobFolderName/.metadata").mkdirs()
         val progressStore = SpecialtyProgressStore(baseDir = baseDir, tabletId = "tablet-local")
         val sheetRipStore = SheetRipProgressStore(baseDir = baseDir)
         val stateStore = SpecialtyStateStore(
@@ -79,6 +80,7 @@ class SpecialtyStateStoreTest {
     @Test
     fun setSheetRipCompletion_clearsLegacyOnlyCompletionWithExplicitCanonicalZero() = runBlocking {
         val baseDir = Files.createTempDirectory("specialty-state-store-test").toFile()
+        File(baseDir, "$jobFolderName/.metadata").mkdirs()
         val progressStore = SpecialtyProgressStore(baseDir = baseDir, tabletId = "tablet-local")
         val sheetRipStore = SheetRipProgressStore(baseDir = baseDir)
         val hardwoodsProgressStore = HardwoodsProgressStore(baseDir = baseDir, tabletId = "tablet-local")
@@ -106,6 +108,7 @@ class SpecialtyStateStoreTest {
     @Test
     fun setSheetRipCompletion_rejectsOlderQueuedHardwoodProjection() = runBlocking {
         val baseDir = Files.createTempDirectory("specialty-state-store-test").toFile()
+        File(baseDir, "$jobFolderName/.metadata").mkdirs()
         val progressStore = SpecialtyProgressStore(baseDir = baseDir, tabletId = "tablet-local")
         val sheetRipStore = SheetRipProgressStore(baseDir = baseDir)
         val stateStore = SpecialtyStateStore(

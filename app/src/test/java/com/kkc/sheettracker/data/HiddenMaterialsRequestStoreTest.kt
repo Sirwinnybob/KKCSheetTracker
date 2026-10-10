@@ -5,6 +5,7 @@ import com.kkc.sheettracker.data.models.HiddenMaterialsMode
 import java.io.File
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -43,8 +44,28 @@ class HiddenMaterialsRequestStoreTest {
     }
 
     @Test
+    fun writeRequest_jobScope_missingJobFolder_writesNothingAndDoesNotCreateFolder() {
+        val baseDir = Files.createTempDirectory("hidden-materials-request-missing-job").toFile()
+        val store = HiddenMaterialsRequestStore(baseDir)
+
+        store.writeRequest(
+            mode = HiddenMaterialsMode.SPECIALTY,
+            action = "hide",
+            scope = "job",
+            jobId = "123 - Job",
+            docType = "DOOR_LIST",
+            material = "Oak",
+            tabletId = "tablet-1",
+            requestedAt = "2026-09-08T18:00:00Z"
+        )
+
+        assertFalse(File(baseDir, "123 - Job").exists())
+    }
+
+    @Test
     fun writeRequest_jobScope_writesUnderThatJobsModeDir() {
         val baseDir = Files.createTempDirectory("hidden-materials-request-job").toFile()
+        File(baseDir, "123 - Job/.metadata").mkdirs()
         val store = HiddenMaterialsRequestStore(baseDir)
 
         store.writeRequest(

@@ -3,6 +3,8 @@ package com.kkc.sheettracker.data
 import com.kkc.sheettracker.data.models.PdfInkStroke
 import com.kkc.sheettracker.data.models.PdfMarkupPageKey
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -14,7 +16,7 @@ class PdfMarkupStoreTest {
 
     @Test
     fun mergedActiveStrokes_filtersDeletedIdsAcrossTabletFilesForSamePdfPage() {
-        val baseDir = createTempBaseDir()
+        val baseDir = createLiveBaseDir()
 
         val tabletA = PdfMarkupStore(baseDir, "tablet-a")
         tabletA.savePageMarkup(
@@ -44,7 +46,7 @@ class PdfMarkupStoreTest {
 
     @Test
     fun mergedActiveStrokes_keepsDeletesScopedToExactPdfFilenameAndPage() {
-        val baseDir = createTempBaseDir()
+        val baseDir = createLiveBaseDir()
 
         val tabletA = PdfMarkupStore(baseDir, "tablet-a")
         tabletA.savePageMarkup(
@@ -78,7 +80,7 @@ class PdfMarkupStoreTest {
 
     @Test
     fun savePageMarkup_preservesOtherPagesInSameTabletFile() {
-        val baseDir = createTempBaseDir()
+        val baseDir = createLiveBaseDir()
         val store = PdfMarkupStore(baseDir, "tablet-a")
 
         store.savePageMarkup(
@@ -105,7 +107,7 @@ class PdfMarkupStoreTest {
 
     @Test
     fun mergedActiveStrokesByPage_groupsResultsByExactPdfFilenameAndPage() {
-        val baseDir = createTempBaseDir()
+        val baseDir = createLiveBaseDir()
 
         val tabletA = PdfMarkupStore(baseDir, "tablet-a")
         tabletA.savePageMarkup(
@@ -186,7 +188,7 @@ class PdfMarkupStoreTest {
 
     @Test
     fun mergedActiveStrokes_prefersNewerTabletFileForSameStrokeId() {
-        val baseDir = createTempBaseDir()
+        val baseDir = createLiveBaseDir()
 
         val tabletA = PdfMarkupStore(baseDir, "tablet-a")
         tabletA.savePageMarkup(
@@ -214,6 +216,33 @@ class PdfMarkupStoreTest {
         assertEquals(0x00FF00, merged.first().color)
     }
 
+    @Test
+    fun savePageMarkup_missingJobFolder_writesNothingAndDoesNotCreateFolder() {
+        val baseDir = createTempBaseDir()
+        val store = PdfMarkupStore(baseDir, "tablet-a")
+
+        store.savePageMarkup(
+            jobFolderName = jobFolderName,
+            pdfFilename = "Plans.pdf",
+            page = 1,
+            strokes = listOf(stroke(id = "x")),
+            deletedStrokeIds = emptyList()
+        )
+
+        assertFalse(File(baseDir, jobFolderName).exists())
+    }
+
+    @Test
+    fun createTrackerChangeObserver_missingJobFolder_returnsNullAndDoesNotCreateFolder() {
+        val baseDir = createTempBaseDir()
+        val store = PdfMarkupStore(baseDir, "tablet-a")
+
+        val observer = store.createTrackerChangeObserver(jobFolderName) {}
+
+        assertNull(observer)
+        assertFalse(File(baseDir, jobFolderName).exists())
+    }
+
     private fun stroke(id: String, color: Int = 0xFF0000): PdfInkStroke {
         return PdfInkStroke(
             id = id,
@@ -226,6 +255,11 @@ class PdfMarkupStoreTest {
 
     private fun createTempBaseDir(): File {
         return Files.createTempDirectory("pdf-markup-store-test").toFile()
+    }
+
+    /** Base dir whose job folder already exists with its `.metadata` (stores refuse to write otherwise). */
+    private fun createLiveBaseDir(): File {
+        return createTempBaseDir().also { File(it, "$jobFolderName/.metadata").mkdirs() }
     }
 
     private fun createSymlinkOrJunction(link: File, target: File) {

@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data
 
+import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonElement
@@ -56,6 +57,7 @@ class SpecialtyProgressStore(
     companion object {
         const val ITEM_COMPLETION_KEY = "ITEM"
         private const val TRACKER_SCHEMA_V2 = 2
+        private const val TAG = "SpecialtyProgressStore"
         private val CHECKLIST_MODE_STATIONS = mapOf(
             "CNC" to SpecialtyStation.CNC,
             "HARDWOODS" to SpecialtyStation.HARDWOODS,
@@ -608,7 +610,18 @@ class SpecialtyProgressStore(
         _progressVersion.value = _progressVersion.value + 1L
     }
 
+    /**
+     * atomicWriteFile creates missing parents, so every per-job write checks the job is still live
+     * first: a stale edit must not recreate a renamed/archived job folder.
+     */
+    private fun jobIsLive(jobFolderName: String): Boolean {
+        if (isLiveJobFolder(baseDir, jobFolderName)) return true
+        Log.w(TAG, "Skipping write: job folder $jobFolderName is missing")
+        return false
+    }
+
     private fun writeTrackerProgress(jobFolderName: String, progress: SpecialtyTrackerProgress) {
+        if (!jobIsLive(jobFolderName)) return
         val root = JsonObject().apply {
             addProperty("tabletId", progress.tabletId)
             addProperty("schemaVersion", TRACKER_SCHEMA_V2)
@@ -683,6 +696,7 @@ class SpecialtyProgressStore(
         itemId: String,
         fields: Map<String, Any?>
     ) {
+        if (!jobIsLive(jobFolderName)) return
         val file = patchFile(jobFolderName, isChecklist)
 
         // Load existing patches, or start fresh.

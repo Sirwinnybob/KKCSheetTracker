@@ -5,6 +5,7 @@ import com.kkc.sheettracker.data.models.SpecialtyStation
 import com.kkc.sheettracker.data.models.TabletSpecialtyItem
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -26,6 +27,32 @@ class TabletSpecialtyItemsStoreTest {
 
         store.deleteItemTombstone(jobFolderName, "tablet:item-1")
         assertNoSidecar(sidecar)
+    }
+
+    @Test
+    fun mutations_missingJobFolder_writeNothingAndDoNotCreateFolder() = runBlocking {
+        val baseDir = Files.createTempDirectory("tablet-specialty-missing-job-test").toFile()
+        val store = TabletSpecialtyItemsStore(baseDir, "tablet-local")
+
+        store.saveItem(jobFolderName, testItem)
+        assertFalse(File(baseDir, jobFolderName).exists())
+
+        store.deleteItem(jobFolderName, "tablet:item-1")
+        assertFalse(File(baseDir, jobFolderName).exists())
+
+        store.deleteItemTombstone(jobFolderName, "tablet:item-1")
+        assertFalse(File(baseDir, jobFolderName).exists())
+    }
+
+    @Test
+    fun saveItem_liveJobFolder_stillWritesOwnFile() = runBlocking {
+        val baseDir = Files.createTempDirectory("tablet-specialty-live-job-test").toFile()
+        File(baseDir, "$jobFolderName/.metadata").mkdirs()
+        val store = TabletSpecialtyItemsStore(baseDir, "tablet-local")
+
+        store.saveItem(jobFolderName, testItem)
+
+        assertTrue(File(baseDir, "$jobFolderName/.metadata/admin/tablet_items_tablet-local.json").isFile)
     }
 
     private fun assertNoSidecar(sidecar: File) {

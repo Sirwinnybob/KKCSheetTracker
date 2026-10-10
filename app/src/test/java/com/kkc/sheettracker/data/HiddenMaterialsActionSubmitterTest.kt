@@ -21,6 +21,8 @@ class HiddenMaterialsActionSubmitterTest {
         server = MockWebServer()
         server.start()
         baseDir = Files.createTempDirectory("hidden-materials-submitter").toFile()
+        // Job-scoped sidecar writes are refused unless the job folder already has its .metadata.
+        java.io.File(baseDir, "123 - Job/.metadata").mkdirs()
         requestStore = HiddenMaterialsRequestStore(baseDir)
     }
 

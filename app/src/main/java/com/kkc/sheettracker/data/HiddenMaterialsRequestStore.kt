@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data
 
+import android.util.Log
 import com.google.gson.GsonBuilder
 import com.kkc.sheettracker.data.models.HiddenMaterialsMode
 import java.io.File
@@ -28,6 +29,10 @@ class HiddenMaterialsRequestStore(private val baseDir: File) {
 
     private val gson = GsonBuilder().setPrettyPrinting().create()
 
+    private companion object {
+        private const val TAG = "HiddenMaterialsRequestStore"
+    }
+
     /** Atomically writes this tablet's own request file (temp + ATOMIC_MOVE, see AtomicFileWriter). */
     fun writeRequest(
         mode: HiddenMaterialsMode,
@@ -53,6 +58,11 @@ class HiddenMaterialsRequestStore(private val baseDir: File) {
             hiddenMaterialsGlobalPath(baseDir, mode).parentFile!!
         } else {
             requireNotNull(jobId) { "job scope requires jobId" }
+            // atomicWriteFile creates missing parents: never recreate a renamed/archived job folder.
+            if (!isLiveJobFolder(baseDir, jobId)) {
+                Log.w(TAG, "Skipping write: job folder $jobId is missing")
+                return
+            }
             hiddenMaterialsJobPath(baseDir, mode, jobId).parentFile!!
         }
         val dest = File(dir, "hidden_materials_request.$tabletId.json")

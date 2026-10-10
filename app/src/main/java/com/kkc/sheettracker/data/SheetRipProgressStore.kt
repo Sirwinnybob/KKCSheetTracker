@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data
 
+import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
@@ -59,6 +60,11 @@ class SheetRipProgressStore(
     ) {
         if (readOnly) return
         if (itemId.isBlank()) return
+        // atomicWriteFile creates missing parents: never let a stale tap recreate a renamed/archived job.
+        if (!isLiveJobFolder(baseDir, jobFolderName)) {
+            Log.w(TAG, "Skipping write: job folder $jobFolderName is missing")
+            return
+        }
         val projectionKey = projectionKey(jobFolderName, itemId)
         val effectiveRevision = registerProjectionRevision(projectionKey, projectionRevision)
         val mutex = writeMutexByJob.getOrPut(jobFolderName) { Mutex() }
@@ -71,5 +77,9 @@ class SheetRipProgressStore(
             val body = gson.toJson(current)
             atomicWriteFile(sheetRipFile(jobFolderName), body)
         }
+    }
+
+    private companion object {
+        private const val TAG = "SheetRipProgressStore"
     }
 }

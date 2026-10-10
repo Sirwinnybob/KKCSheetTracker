@@ -343,6 +343,12 @@ class ProgressStore(
      */
     private fun appendActions(jobFolderName: String, entries: List<TrackerAction>) {
         if (readOnly || entries.isEmpty()) return
+        // appendTrackerEvent creates missing parents: a stale tap must not recreate a renamed or
+        // archived job folder. Nothing is appended and the in-memory index is left untouched.
+        if (!isLiveJobFolder(baseDir, jobFolderName)) {
+            android.util.Log.w("ProgressStore", "Skipping write: job folder $jobFolderName is missing")
+            return
+        }
         val writeLock = writeLockByJob.getOrPut(jobFolderName) { Any() }
         var appendedAny = false
         try {

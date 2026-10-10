@@ -154,6 +154,8 @@ class PdfMarkupStore(
         onChanged: () -> Unit
     ): FileObserver? {
         val dir = trackerDir(jobFolderName)
+        // mkdirs below would recreate a renamed/archived job folder just to watch it.
+        if (!dir.isDirectory && !isLiveJobFolder(baseDir, jobFolderName)) return null
         if (!dir.isDirectory && !dir.mkdirs()) return null
         return object : FileObserver(dir.absolutePath, MARKUP_OBSERVER_EVENTS) {
             override fun onEvent(event: Int, path: String?) {
@@ -198,6 +200,11 @@ class PdfMarkupStore(
 
     private fun saveTabletMarkup(jobFolderName: String, markup: PdfTabletMarkup) {
         val destFile = tabletMarkupFile(jobFolderName)
+        // atomicWriteFile creates missing parents: never let a stale save recreate a renamed/archived job.
+        if (!isLiveJobFolder(baseDir, jobFolderName)) {
+            android.util.Log.w(TAG, "Skipping write: job folder $jobFolderName is missing")
+            return
+        }
         atomicWriteFile(destFile, gson.toJson(markup))
         AppLog.d(
             TAG,

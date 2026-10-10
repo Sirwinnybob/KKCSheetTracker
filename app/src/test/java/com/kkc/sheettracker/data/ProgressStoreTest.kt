@@ -480,7 +480,22 @@ class ProgressStoreTest {
         assertEquals(5, decoded.first().page)
     }
 
-    private fun createTempBaseDir(): File = Files.createTempDirectory("progress-store-test").toFile()
+    @Test
+    fun appendActions_missingJobFolder_writeNothingAndDoNotCreateFolder() {
+        // Deliberately not createTempBaseDir(): that fixture creates the live <job>/.metadata.
+        val baseDir = Files.createTempDirectory("progress-store-missing-job-test").toFile()
+        val store = ProgressStore(baseDir, tabletId, File(baseDir, ".local"))
+
+        store.markSheetViewed(jobFolderName, "A.pdf", 3, "fp1")
+        store.markSheetComplete(jobFolderName, "A.pdf", 3, "fp1")
+
+        assertFalse(File(baseDir, jobFolderName).exists())
+    }
+
+    // A job folder with its .metadata is "live"; per-job stores refuse to write otherwise.
+    private fun createTempBaseDir(): File = Files.createTempDirectory("progress-store-test").toFile().also {
+        File(it, "$jobFolderName/.metadata").mkdirs()
+    }
 
     private fun writeTabletProgress(baseDir: File, jobFolderName: String, tabletId: String, progress: TabletProgress) {
         val trackerDir = File(baseDir, "$jobFolderName/CNC/.tracker").apply { mkdirs() }
