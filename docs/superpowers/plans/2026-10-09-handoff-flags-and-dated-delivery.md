@@ -3243,3 +3243,19 @@ git commit -m "chore: 8.8.0 — dated delivery schedule and handoff flags"
 - [ ] **Step 6: Deploy + manual checks (with the user).** Deploy with `.\gradlew.bat assembleRelease` then `adb install -r app\build\outputs\apk\release\app-release.apk` per connected tablet (the `adb-install-release.ps1` script has a unicode issue under `powershell -File`). Ask the user which job and dates to use; ask them to navigate to each screen and confirm. Dated delivery checks require HT's `worktree-office-kanban` branch deployed — confirm with the user first; until then verify only that v1 behavior is unchanged.
   - Delivery: (1) future-week date set in HT web shows under the right date after navigating forward and not in the banner; (2) schedule a job onto a dated slot from the tablet → HT Office job shows the date + tablet note; (3) remove it → Office date cleared; (4) fourth job into a full half-day → tablet notice; (5) queue offline, reconnect → lands within ~15 s, Pending clears; (6) on a Saturday the banner reads "Deliveries Next Week" with future days.
   - Flags: (1) set Ship loose in HT → tablet chip shows "Ship loose"; (2) change on tablet online → HT Truck list shows it; (3) change offline, reconnect → lands within ~30 s or when the office opens the job; (4) change `count` in the office then `truck` on the tablet → both survive.
+
+---
+
+# Addendum (2026-10-10) — post-merge fixes
+
+Spec: `C:\Scripts\Hours Tracker\docs\handoffs\2026-10-10-kkcsheettracker-fixes.md` (binding; supersedes the "3 jobs per half-day" global constraint with **6 jobs per day, AM/PM optional**).
+
+Execution order after Task 11: Task 14 → 15 → 12 → 16 → 17 → 18 → 13. Briefs live in the SDD workspace (`.superpowers/sdd/2026-10-09-handoff-flags-and-dated-delivery/task-14..18-brief.md`).
+
+- **Task 14 (fix 3):** `isLiveJobFolder(baseDir, job)` (= `<job>/.metadata` is a directory) in `AtomicFileWriter.kt`; `HandoffFlagRequestStore.appendTruckRequest` returns sealed `HandoffFlagWriteResult` (`Written`/`Invalid`/`JobMissing`/`StorageUnavailable`); no write and no folder creation for a missing job; `HandoffFlagsService.setTruck` returns it with `userMessage()` ("This job is no longer in Ready Jobs").
+- **Task 15 (fix 3):** the same guard on every other per-job writer in `data/`; signatures unchanged.
+- **Task 12 (amended):** the chip shows the `userMessage()` of a non-`Written` tap result (snackbar/toast).
+- **Task 16 (fix 1):** `MAX_DELIVERY_JOBS_PER_DAY = 6` replaces the per-half-day cap; `deliveryDayCount`; per-day capacity indicator; no clipping; 4–6 jobs per half-day stay readable.
+- **Task 17 (fixes 2, 4, 7):** per-job PUT always sends `tabletId` (clear = `{"date":null,"tabletId":…}`, one bare-`null` retry on 422); 404 = "no office job for this folder"; a 200 that doesn't place/remove the job is a refusal with HT's `failures`.
+- **Task 18 (fix 5):** weekend-today delivery shown first in the banner ("Deliveries Today & Next Week").
+- **Fix 6:** verified, no change — `requestedAt` is stamped at the tap/queue; the tablet never retries request files.
