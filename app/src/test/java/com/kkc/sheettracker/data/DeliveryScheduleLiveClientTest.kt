@@ -68,6 +68,59 @@ class DeliveryScheduleLiveClientTest {
     }
 
     @Test
+    fun `acceptsV2SnapshotFrame`() = runBlocking {
+        val fakeSocket = mock<WebSocket>()
+        val capturedListener = AtomicReference<WebSocketListener>()
+        val schedules = CopyOnWriteArrayList<DeliverySchedule>()
+        val connectionStates = CopyOnWriteArrayList<Boolean>()
+        val client = client(
+            fakeSocket = fakeSocket,
+            capturedListener = capturedListener,
+            onSchedule = { schedules.add(it) },
+            onConnectionState = { connectionStates.add(it) }
+        )
+
+        client.start()
+        waitUntil { capturedListener.get() != null }
+        capturedListener.get().onMessage(
+            fakeSocket,
+            """{"type":"snapshot","revision":1,"schedule":{"schemaVersion":2,"weekOf":"2026-10-12","slots":{},"datedSlots":{"2026-10-18_am":{"jobs":[{"jobNumber":"702","description":"SMITH","folderName":"702 - SMITH"}]}}}}"""
+        )
+
+        val delivered = schedules.single()
+        assertTrue(delivered.isDated)
+        assertEquals("702", delivered.slotByKey("2026-10-18_am").jobs.single().jobNumber)
+        assertEquals(listOf(true), connectionStates)
+        client.stop()
+    }
+
+    @Test
+    fun `acceptsV2FrameWithoutSlotsObject`() = runBlocking {
+        val fakeSocket = mock<WebSocket>()
+        val capturedListener = AtomicReference<WebSocketListener>()
+        val schedules = CopyOnWriteArrayList<DeliverySchedule>()
+        val connectionStates = CopyOnWriteArrayList<Boolean>()
+        val client = client(
+            fakeSocket = fakeSocket,
+            capturedListener = capturedListener,
+            onSchedule = { schedules.add(it) },
+            onConnectionState = { connectionStates.add(it) }
+        )
+
+        client.start()
+        waitUntil { capturedListener.get() != null }
+        capturedListener.get().onMessage(
+            fakeSocket,
+            """{"type":"snapshot","revision":1,"schedule":{"schemaVersion":2,"weekOf":"2026-10-12","datedSlots":{}}}"""
+        )
+
+        assertEquals(1, schedules.size)
+        assertTrue(schedules.single().isDated)
+        assertEquals(listOf(true), connectionStates)
+        client.stop()
+    }
+
+    @Test
     fun `dispatches valid schedule frames without changing connection state`() = runBlocking {
         val fakeSocket = mock<WebSocket>()
         val capturedListener = AtomicReference<WebSocketListener>()

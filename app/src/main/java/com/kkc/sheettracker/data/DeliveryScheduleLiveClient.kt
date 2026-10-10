@@ -170,7 +170,10 @@ class DeliveryScheduleLiveClient(
         }
 
     private fun parseValidSchedule(schedule: JsonObject): DeliverySchedule? {
-        if (schedule.get("slots")?.isJsonObject != true) return null
+        // v1 frames must carry a `slots` object; v2 frames carry `datedSlots` (and normally `slots`).
+        val hasSlots = schedule.get("slots")?.isJsonObject == true
+        val hasDatedSlots = schedule.get("datedSlots")?.isJsonObject == true
+        if (!hasSlots && !hasDatedSlots) return null
         return runCatching { parseDeliverySchedule(gson.toJson(schedule)) }.getOrNull()
     }
 
