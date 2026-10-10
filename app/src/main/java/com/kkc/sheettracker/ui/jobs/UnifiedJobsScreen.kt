@@ -81,7 +81,11 @@ import com.kkc.sheettracker.data.AdminSyncClient
 import com.kkc.sheettracker.data.AdminSyncConfig
 import com.kkc.sheettracker.data.DeliveryScheduleEditRequest
 import com.kkc.sheettracker.data.DeliveryScheduleRequestStore
-import com.kkc.sheettracker.data.DeliveryScheduleSlotEdit
+import com.kkc.sheettracker.data.DeliveryEditOutcome
+import com.kkc.sheettracker.data.DeliveryScheduleEditor
+import com.kkc.sheettracker.data.asDeliveryRemote
+import com.kkc.sheettracker.data.overlayPendingDeliveryRequest
+import com.kkc.sheettracker.data.pendingDeliverySlotKeys
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.JobBoardEdit
 import com.kkc.sheettracker.data.JobBoardRequestStore
@@ -375,6 +379,30 @@ fun UnifiedJobsScreen(
         value = adminSyncConfig.getServerUrl()
     }
     val adminSyncClient = remember(adminSyncServerUrl) { adminSyncServerUrl?.let { AdminSyncClient(it) } }
+    val deliveryEditor = remember(adminSyncClient, deliveryScheduleRequestStore, tabletId) {
+        DeliveryScheduleEditor(adminSyncClient?.asDeliveryRemote(), deliveryScheduleRequestStore, tabletId)
+    }
+    var deliveryNotices by remember { mutableStateOf(emptyList<String>()) }
+    var deliveryPendingRequest by remember { mutableStateOf<DeliveryScheduleEditRequest?>(null) }
+    // HT polls request files every 15 s and deletes them once applied; re-read ours on the same
+    // cadence while the dialog is open so "Pending" clears when the edit lands.
+    LaunchedEffect(showScheduleDialog, deliveryScheduleBinding.dialogSchedule) {
+        while (showScheduleDialog) {
+            deliveryPendingRequest = withContext(Dispatchers.IO) { deliveryScheduleRequestStore.readPending(tabletId) }
+            delay(15_000)
+        }
+    }
+    val deliveryDialogSchedule = remember(deliveryScheduleBinding.dialogSchedule, deliveryPendingRequest) {
+        overlayPendingDeliveryRequest(deliveryScheduleBinding.dialogSchedule, deliveryPendingRequest)
+    }
+    fun runDeliveryEdit(edit: suspend (DeliverySchedule) -> DeliveryEditOutcome) {
+        saveScope.launch {
+            val outcome = withContext(Dispatchers.IO) { edit(deliveryDialogSchedule) }
+            if (outcome is DeliveryEditOutcome.Applied) deliveryScheduleBinding.applyCanonicalResponse(outcome.schedule)
+            if (outcome.notices.isNotEmpty()) deliveryNotices = deliveryNotices + outcome.notices
+            deliveryPendingRequest = withContext(Dispatchers.IO) { deliveryScheduleRequestStore.readPending(tabletId) }
+        }
+    }
     val deliveryPickerJobs = remember(filteredCards) {
         filteredCards.map {
             DeliverySchedulePickerJob(
@@ -918,44 +946,17 @@ fun UnifiedJobsScreen(
 
     if (showScheduleDialog) {
         DeliveryScheduleDialog(
-            schedule = deliveryScheduleBinding.dialogSchedule,
-            onDismiss = { showScheduleDialog = false },
+            schedule = deliveryDialogSchedule,
+            onDismiss = { showScheduleDialog = false; deliveryNotices = emptyList() },
             isAdminMode = adminMode,
             availableJobs = deliveryPickerJobs,
-            onQueueSlotEdit = { slot, jobs ->
-                saveScope.launch {
-                    val applied = adminSyncClient?.applyDeliverySchedule(
-                        DeliveryScheduleEditRequest(
-                            tabletId = tabletId,
-                            requestedAt = java.time.Instant.now().toString(),
-                            slotEdits = listOf(
-                                DeliveryScheduleSlotEdit(slot = slot.trim().lowercase(), jobs = jobs.take(3))
-                            )
-                        )
-                    )
-                    if (!deliveryScheduleBinding.applyCanonicalResponse(applied)) {
-                        withContext(Dispatchers.IO) {
-                            deliveryScheduleRequestStore.queueSlotEdit(slot, jobs, tabletId)
-                        }
-                    }
-                }
-            },
-            onQueueReset = {
-                saveScope.launch {
-                    val applied = adminSyncClient?.applyDeliverySchedule(
-                        DeliveryScheduleEditRequest(
-                            tabletId = tabletId,
-                            requestedAt = java.time.Instant.now().toString(),
-                            resetAll = true
-                        )
-                    )
-                    if (!deliveryScheduleBinding.applyCanonicalResponse(applied)) {
-                        withContext(Dispatchers.IO) {
-                            deliveryScheduleRequestStore.queueReset(tabletId, deliveryScheduleBinding.dialogSchedule.weekOf)
-                        }
-                    }
-                }
-            }
+            onPlaceJob = { job, toSlot, fromSlot -> runDeliveryEdit { deliveryEditor.placeJob(it, job, toSlot, fromSlot) } },
+            onRemoveJob = { job, fromSlot -> runDeliveryEdit { deliveryEditor.removeJob(it, job, fromSlot) } },
+            onReplaceSlot = { slot, jobs -> runDeliveryEdit { deliveryEditor.replaceSlot(it, slot, jobs) } },
+            onResetWeek = { runDeliveryEdit { deliveryEditor.resetWeek(it) } },
+            notices = deliveryNotices,
+            onDismissNotices = { deliveryNotices = emptyList() },
+            pendingSlotKeys = pendingDeliverySlotKeys(deliveryPendingRequest)
         )
     }
 

@@ -1,9 +1,13 @@
 package com.kkc.sheettracker.ui.components
 
-import com.kkc.sheettracker.data.models.DELIVERY_DAYS
+import com.kkc.sheettracker.data.DeliveryDayState
+import com.kkc.sheettracker.data.DeliveryDayView
+import com.kkc.sheettracker.data.DeliveryWeekView
+import com.kkc.sheettracker.data.buildDeliveryWeek
+import com.kkc.sheettracker.data.defaultDeliveryWeekStart
+import com.kkc.sheettracker.data.shopToday
 import com.kkc.sheettracker.data.models.DELIVERY_PERIODS
 import com.kkc.sheettracker.data.models.DeliverySchedule
-import java.time.DayOfWeek
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
@@ -69,30 +73,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import com.kkc.sheettracker.data.models.DeliveryJob
 
-internal fun shouldShowDeliveryScheduleBanner(
-    schedule: DeliverySchedule,
-    showWhenEmpty: Boolean
-): Boolean = showWhenEmpty || !schedule.isEmpty
+internal fun shouldShowDeliveryScheduleBanner(week: DeliveryWeekView, showWhenEmpty: Boolean): Boolean =
+    showWhenEmpty || week.totalCount > 0
 
-internal fun totalDeliveryCount(schedule: DeliverySchedule): Int =
-    schedule.slots.values.sumOf { it.jobs.size }
+internal fun daysWithDeliveries(week: DeliveryWeekView): Set<LocalDate> =
+    week.days.filter { it.count > 0 }.map { it.date }.toSet()
 
-internal fun daysWithDeliveries(schedule: DeliverySchedule): Set<String> =
-    DELIVERY_DAYS.filter { day ->
-        DELIVERY_PERIODS.any { period -> schedule.slot(day, period).jobs.isNotEmpty() }
-    }.toSet()
-
-internal enum class DeliveryDayState { PAST, TODAY, FUTURE }
-
-internal fun deliveryDayState(dayIndex: Int, today: DayOfWeek): DeliveryDayState {
-    val todayIndex = today.value - 1 // DayOfWeek.MONDAY.value == 1 -> index 0
-    return when {
-        todayIndex !in DELIVERY_DAYS.indices -> DeliveryDayState.PAST // weekend: whole week is past
-        dayIndex < todayIndex -> DeliveryDayState.PAST
-        dayIndex == todayIndex -> DeliveryDayState.TODAY
-        else -> DeliveryDayState.FUTURE
-    }
-}
+/** After HT's Saturday rollover `weekOf` is next Monday, so the banner is about next week. */
+internal fun deliveryBannerTitle(week: DeliveryWeekView, today: LocalDate): String =
+    if (week.weekStart > today) "Deliveries Next Week" else "Deliveries This Week"
 
 private val DeliveryBannerSizeSpring: FiniteAnimationSpec<IntSize> =
     spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
@@ -114,18 +103,20 @@ fun DeliveryScheduleBanner(
     showWhenEmpty: Boolean = false,
     onJobSelected: (folderName: String) -> Unit = {}
 ) {
-    if (!shouldShowDeliveryScheduleBanner(schedule, showWhenEmpty)) return
+    val today = shopToday()
+    val week = remember(schedule, today) {
+        buildDeliveryWeek(schedule, defaultDeliveryWeekStart(schedule, today), today, includeEmptyWeekend = false)
+    }
+    if (!shouldShowDeliveryScheduleBanner(week, showWhenEmpty)) return
 
     var bannerExpanded by rememberSaveable { mutableStateOf(false) }
-    var expandedDays by remember { mutableStateOf(daysWithDeliveries(schedule)) }
-    var previousDeliveryDays by remember { mutableStateOf(daysWithDeliveries(schedule)) }
-    LaunchedEffect(schedule) {
-        val currentDeliveryDays = daysWithDeliveries(schedule)
+    var expandedDays by remember { mutableStateOf(daysWithDeliveries(week)) }
+    var previousDeliveryDays by remember { mutableStateOf(daysWithDeliveries(week)) }
+    LaunchedEffect(week) {
+        val currentDeliveryDays = daysWithDeliveries(week)
         expandedDays = expandedDays + (currentDeliveryDays - previousDeliveryDays)
         previousDeliveryDays = currentDeliveryDays
     }
-    val today = LocalDate.now().dayOfWeek
-    val totalCount = remember(schedule) { totalDeliveryCount(schedule) }
 
     val accentColor = MaterialTheme.colorScheme.primary
     Surface(
@@ -152,7 +143,7 @@ fun DeliveryScheduleBanner(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "$totalCount — Deliveries This Week",
+                    text = "${week.totalCount} — ${deliveryBannerTitle(week, today)}",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -175,8 +166,7 @@ fun DeliveryScheduleBanner(
                 exit = shrinkVertically(DeliveryBannerSizeSpring) + fadeOut(DeliveryBannerFadeOutTween)
             ) {
                 DeliveryDayStrip(
-                    schedule = schedule,
-                    today = today,
+                    week = week,
                     expandedDays = expandedDays,
                     onToggleDay = { day ->
                         expandedDays = if (day in expandedDays) expandedDays - day else expandedDays + day
@@ -202,10 +192,9 @@ private val DeliveryDaySegmentWidthSpring: FiniteAnimationSpec<Dp> =
 
 @Composable
 private fun DeliveryDayStrip(
-    schedule: DeliverySchedule,
-    today: DayOfWeek,
-    expandedDays: Set<String>,
-    onToggleDay: (String) -> Unit,
+    week: DeliveryWeekView,
+    expandedDays: Set<LocalDate>,
+    onToggleDay: (LocalDate) -> Unit,
     onJobSelected: (folderName: String) -> Unit
 ) {
     Row(
@@ -215,18 +204,11 @@ private fun DeliveryDayStrip(
             .padding(horizontal = KKCSpacing.l, vertical = KKCSpacing.s),
         horizontalArrangement = Arrangement.spacedBy(KKCSpacing.xs)
     ) {
-        DELIVERY_DAYS.forEachIndexed { dayIdx, day ->
-            val dayLabel = day.replaceFirstChar { it.uppercase() }
-            val dayCount = DELIVERY_PERIODS.sumOf { period -> schedule.slot(day, period).jobs.size }
-            val state = deliveryDayState(dayIdx, today)
+        week.days.forEach { day ->
             DeliveryDaySegment(
                 day = day,
-                dayLabel = dayLabel,
-                dayCount = dayCount,
-                state = state,
-                isExpanded = day in expandedDays,
-                schedule = schedule,
-                onToggle = { onToggleDay(day) },
+                isExpanded = day.date in expandedDays,
+                onToggle = { onToggleDay(day.date) },
                 onJobSelected = onJobSelected
             )
         }
@@ -235,16 +217,14 @@ private fun DeliveryDayStrip(
 
 @Composable
 private fun DeliveryDaySegment(
-    day: String,
-    dayLabel: String,
-    dayCount: Int,
-    state: DeliveryDayState,
+    day: DeliveryDayView,
     isExpanded: Boolean,
-    schedule: DeliverySchedule,
     onToggle: () -> Unit,
     onJobSelected: (folderName: String) -> Unit
 ) {
     val context = LocalContext.current
+    val state = day.state
+    val dayCount = day.count
     val isToday = state == DeliveryDayState.TODAY
     val contentAlpha = if (state == DeliveryDayState.PAST) 0.45f else 1f
     val borderColor = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
@@ -282,7 +262,7 @@ private fun DeliveryDaySegment(
                     text = buildString {
                         append(dayCount)
                         append(" — ")
-                        append(dayLabel)
+                        append(day.label)
                         if (isToday) append(" — Today")
                     },
                     style = MaterialTheme.typography.labelMedium,
@@ -293,7 +273,7 @@ private fun DeliveryDaySegment(
                 )
                 Spacer(Modifier.height(KKCSpacing.xs))
                 DELIVERY_PERIODS.forEach { period ->
-                    val slot = schedule.slot(day, period)
+                    val slot = day.slot(period)
                     Text(
                         text = period.uppercase(),
                         style = MaterialTheme.typography.labelSmall,
@@ -325,7 +305,7 @@ private fun DeliveryDaySegment(
             }
         } else {
             Text(
-                text = "$dayCount — $dayLabel",
+                text = "$dayCount — ${day.label}",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha),

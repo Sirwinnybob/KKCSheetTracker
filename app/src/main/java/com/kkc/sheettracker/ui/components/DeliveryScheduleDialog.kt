@@ -47,6 +47,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -100,8 +101,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
-import com.kkc.sheettracker.data.models.DELIVERY_DAY_LABELS
-import com.kkc.sheettracker.data.models.DELIVERY_DAYS
+import com.kkc.sheettracker.data.DeliveryDayState
+import com.kkc.sheettracker.data.DeliveryDayView
+import com.kkc.sheettracker.data.DeliveryWeekView
+import com.kkc.sheettracker.data.MAX_DELIVERY_JOBS_PER_SLOT
+import com.kkc.sheettracker.data.buildDeliveryWeek
+import com.kkc.sheettracker.data.defaultDeliveryWeekStart
+import com.kkc.sheettracker.data.shopToday
 import com.kkc.sheettracker.data.models.DELIVERY_PERIODS
 import com.kkc.sheettracker.data.models.DeliveryJob
 import com.kkc.sheettracker.data.models.DeliverySchedule
@@ -148,10 +154,19 @@ fun DeliveryScheduleDialog(
     onDismiss: () -> Unit,
     isAdminMode: Boolean = false,
     availableJobs: List<DeliverySchedulePickerJob> = emptyList(),
-    onQueueSlotEdit: ((slot: String, jobs: List<DeliveryJob>) -> Unit)? = null,
-    onQueueReset: (() -> Unit)? = null
+    onPlaceJob: ((job: DeliveryJob, toSlot: String, fromSlot: String?) -> Unit)? = null,
+    onRemoveJob: ((job: DeliveryJob, fromSlot: String) -> Unit)? = null,
+    onReplaceSlot: ((slot: String, jobs: List<DeliveryJob>) -> Unit)? = null,
+    onResetWeek: (() -> Unit)? = null,
+    notices: List<String> = emptyList(),
+    onDismissNotices: () -> Unit = {},
+    pendingSlotKeys: Set<String> = emptySet()
 ) {
     val context = LocalContext.current
+    val today = shopToday()
+    var weekOffset by remember { mutableIntStateOf(0) }
+    if (!schedule.isDated && weekOffset != 0) weekOffset = 0
+    val weekStart = defaultDeliveryWeekStart(schedule, today).plusWeeks(weekOffset.toLong())
     var editableSchedule by remember(schedule) { mutableStateOf(schedule) }
     var activeAddSlot by remember { mutableStateOf<String?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
@@ -169,29 +184,42 @@ fun DeliveryScheduleDialog(
         confirmReset = false
     }
 
-    fun queueSlot(slotKey: String, jobs: List<DeliveryJob>) {
-        val clipped = jobs.take(MAX_DELIVERY_JOBS_PER_SLOT)
-        editableSchedule = editableSchedule.withSlot(slotKey, clipped)
-        onQueueSlotEdit?.invoke(slotKey, clipped)
+    val week = remember(editableSchedule, weekStart, today, isAdminMode) {
+        buildDeliveryWeek(editableSchedule, weekStart, today, includeEmptyWeekend = isAdminMode && editableSchedule.isDated)
+    }
+    // Bounds are window coordinates of the visible week's cells; drop the old week's on navigation.
+    LaunchedEffect(weekStart) { slotBounds.clear() }
+
+    fun placeJob(job: DeliveryJob, toSlot: String, fromSlot: String?) {
+        val dest = editableSchedule.slotByKey(toSlot).jobs
+        if (dest.size >= MAX_DELIVERY_JOBS_PER_SLOT) return
+        var next = editableSchedule
+        if (fromSlot != null) next = next.withSlot(fromSlot, next.slotByKey(fromSlot).jobs.filterNot { it == job })
+        editableSchedule = next.withSlot(toSlot, dest + job)
+        onPlaceJob?.invoke(job, toSlot, fromSlot)
         pendingEdits += 1
     }
 
-    fun resetAll() {
-        editableSchedule = DeliverySchedule()
-        onQueueReset?.invoke()
+    fun removeJob(slotKey: String, index: Int) {
+        val jobs = editableSchedule.slotByKey(slotKey).jobs
+        val job = jobs.getOrNull(index) ?: return
+        editableSchedule = editableSchedule.withSlot(slotKey, jobs.filterIndexed { i, _ -> i != index })
+        onRemoveJob?.invoke(job, slotKey)
+        pendingEdits += 1
+    }
+
+    fun replaceSlot(slotKey: String, jobs: List<DeliveryJob>) {
+        val clipped = jobs.take(MAX_DELIVERY_JOBS_PER_SLOT)
+        editableSchedule = editableSchedule.withSlot(slotKey, clipped)
+        onReplaceSlot?.invoke(slotKey, clipped)
+        pendingEdits += 1
+    }
+
+    fun resetWeek() {
+        onResetWeek?.invoke()
         pendingEdits += 1
         confirmReset = false
         activeAddSlot = null
-    }
-
-    fun moveJob(fromSlotKey: String, fromIndex: Int, toSlotKey: String) {
-        if (fromSlotKey == toSlotKey) return
-        val sourceSlot = editableSchedule.slots[fromSlotKey] ?: DeliverySlot()
-        val destSlot = editableSchedule.slots[toSlotKey] ?: DeliverySlot()
-        if (destSlot.jobs.size >= MAX_DELIVERY_JOBS_PER_SLOT) return
-        val job = sourceSlot.jobs.getOrNull(fromIndex) ?: return
-        queueSlot(fromSlotKey, sourceSlot.jobs.filterIndexed { i, _ -> i != fromIndex })
-        queueSlot(toSlotKey, destSlot.jobs + job)
     }
 
     fun startDrag(job: DeliveryJob, originInWindow: Offset, sourceSlotKey: String?, sourceIndex: Int?) {
@@ -213,15 +241,15 @@ fun DeliveryScheduleDialog(
         if (drag != null && target != null) {
             val fromSlot = drag.sourceSlotKey
             val fromIndex = drag.sourceIndex
-            if (fromSlot != null && fromIndex != null) {
-                val sourceSlot = editableSchedule.slots[fromSlot] ?: DeliverySlot()
-                if (sourceSlot.jobs.getOrNull(fromIndex) == drag.job) {
-                    moveJob(fromSlot, fromIndex, target)
-                }
-            } else {
-                val destSlot = editableSchedule.slots[target] ?: DeliverySlot()
-                if (destSlot.jobs.size < MAX_DELIVERY_JOBS_PER_SLOT) {
-                    queueSlot(target, destSlot.jobs + drag.job)
+            val targetDay = week.days.firstOrNull { it.amKey == target || it.pmKey == target }
+            if (targetDay?.acceptsPlacement == true) {
+                if (fromSlot != null && fromIndex != null) {
+                    val sourceSlot = editableSchedule.slotByKey(fromSlot)
+                    if (fromSlot != target && sourceSlot.jobs.getOrNull(fromIndex) == drag.job) {
+                        placeJob(drag.job, target, fromSlot)
+                    }
+                } else {
+                    placeJob(drag.job, target, null)
                 }
             }
         }
@@ -247,20 +275,30 @@ fun DeliveryScheduleDialog(
                 TopAppBar(
                     title = {
                         Column {
-                            Text("This Week's Delivery Schedule")
-                            if (isAdminMode) {
-                                Text(
-                                    text = if (pendingEdits > 0) "$pendingEdits edit(s) queued" else "Admin editing",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            Text("Delivery Schedule")
+                            Text(
+                                text = buildString {
+                                    append("Week of ${week.weekStart.format(java.time.format.DateTimeFormatter.ofPattern("EEE M/d", java.util.Locale.US))}")
+                                    if (isAdminMode) append(if (pendingEdits > 0) " · $pendingEdits edit(s) sent" else " · Admin editing")
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     },
                     actions = {
-                        if (isAdminMode && onQueueReset != null) {
+                        if (schedule.isDated) {
+                            IconButton(onClick = { weekOffset -= 1 }, enabled = week.canGoBack) {
+                                Icon(Icons.Default.ChevronLeft, contentDescription = "Previous week")
+                            }
+                            TextButton(onClick = { weekOffset = 0 }, enabled = !week.isDefaultWeek) { Text("This week") }
+                            IconButton(onClick = { weekOffset += 1 }, enabled = week.canGoForward) {
+                                Icon(Icons.Default.ChevronRight, contentDescription = "Next week")
+                            }
+                        }
+                        if (isAdminMode && onResetWeek != null && week.isDefaultWeek) {
                             if (confirmReset) {
-                                TextButton(onClick = ::resetAll) { Text("Confirm Reset") }
+                                TextButton(onClick = ::resetWeek) { Text("Confirm: clear Mon–Fri dates") }
                                 TextButton(onClick = { confirmReset = false }) { Text("Cancel") }
                             } else {
                                 TextButton(onClick = { confirmReset = true }) { Text("Reset") }
@@ -291,44 +329,49 @@ fun DeliveryScheduleDialog(
                     verticalArrangement = Arrangement.spacedBy(KKCSpacing.xl)
                 ) {
                     Spacer(Modifier.height(KKCSpacing.s))
-                    if (isAdminMode && pendingEdits > 0) {
+                    if (isAdminMode && pendingSlotKeys.isNotEmpty()) {
                         Card(
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer
                             )
                         ) {
                             Text(
-                                text = "Queued edits will apply when Hours Tracker consumes this tablet's delivery schedule request, then this view will refresh from the master schedule.",
+                                text = "Edits go to Hours Tracker right away when it's reachable. Slots marked Pending are queued on this tablet and apply within about 15 seconds of reconnecting.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 modifier = Modifier.padding(KKCSpacing.cardPaddingSmall)
                             )
                         }
                     }
+                    if (notices.isNotEmpty()) {
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                            Row(Modifier.padding(KKCSpacing.cardPaddingSmall), verticalAlignment = Alignment.Top) {
+                                Column(Modifier.weight(1f)) {
+                                    notices.forEach { notice ->
+                                        Text(notice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                                    }
+                                }
+                                IconButton(onClick = onDismissNotices) {
+                                    Icon(Icons.Default.Close, contentDescription = "Dismiss messages")
+                                }
+                            }
+                        }
+                    }
 
                     DeliveryScheduleGrid(
-                        schedule = editableSchedule,
+                        week = week,
+                        pendingSlotKeys = pendingSlotKeys,
                         isAdminMode = isAdminMode,
                         activeAddSlot = activeAddSlot,
                         dragState = dragState,
                         hoveredSlotKey = hoveredSlotKey,
                         onStartAdd = { slotKey -> activeAddSlot = if (activeAddSlot == slotKey) null else slotKey },
                         onCancelAdd = { activeAddSlot = null },
-                        onAddJob = { slotKey, job ->
-                            val slot = editableSchedule.slots[slotKey] ?: DeliverySlot()
-                            if (slot.jobs.size < MAX_DELIVERY_JOBS_PER_SLOT) {
-                                queueSlot(slotKey, slot.jobs + job)
-                                activeAddSlot = null
-                            }
-                        },
+                        onAddJob = { slotKey, job -> placeJob(job, slotKey, null); activeAddSlot = null },
                         onSaveJob = { slotKey, index, job ->
-                            val slot = editableSchedule.slots[slotKey] ?: DeliverySlot()
-                            queueSlot(slotKey, slot.jobs.mapIndexed { i, existing -> if (i == index) job else existing })
+                            replaceSlot(slotKey, editableSchedule.slotByKey(slotKey).jobs.mapIndexed { i, e -> if (i == index) job else e })
                         },
-                        onRemoveJob = { slotKey, index ->
-                            val slot = editableSchedule.slots[slotKey] ?: DeliverySlot()
-                            queueSlot(slotKey, slot.jobs.filterIndexed { i, _ -> i != index })
-                        },
+                        onRemoveJob = ::removeJob,
                         onSlotBoundsChanged = { slotKey, rect -> slotBounds[slotKey] = rect },
                         onDragStart = ::startDrag,
                         onDragMove = ::updateDrag,
@@ -366,7 +409,8 @@ private fun rememberScrollStateCompat() = androidx.compose.foundation.rememberSc
 
 @Composable
 private fun DeliveryScheduleGrid(
-    schedule: DeliverySchedule,
+    week: DeliveryWeekView,
+    pendingSlotKeys: Set<String>,
     isAdminMode: Boolean,
     activeAddSlot: String?,
     context: Context,
@@ -384,7 +428,7 @@ private fun DeliveryScheduleGrid(
     onDragCancel: () -> Unit
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val dayCount = DELIVERY_DAYS.size
+        val dayCount = week.days.size.coerceAtLeast(1)
         val totalGapWidth = KKCSpacing.l * (dayCount - 1)
         val idealColumnWidth = (maxWidth - totalGapWidth) / dayCount
         val needsScroll = idealColumnWidth < DeliveryMinColumnWidth
@@ -396,11 +440,10 @@ private fun DeliveryScheduleGrid(
                 .let { if (needsScroll) it.scrollShadowBleed().horizontalScroll(rememberScrollStateCompat()).padding(horizontal = ScrollShadowBleed) else it },
             horizontalArrangement = Arrangement.spacedBy(KKCSpacing.l)
         ) {
-            DELIVERY_DAYS.forEachIndexed { dayIdx, day ->
+            week.days.forEach { day ->
                 DeliveryDayColumn(
                     day = day,
-                    dayLabel = DELIVERY_DAY_LABELS.getOrElse(dayIdx) { day.replaceFirstChar { it.uppercase() } },
-                    schedule = schedule,
+                    pendingSlotKeys = pendingSlotKeys,
                     isAdminMode = isAdminMode,
                     activeAddSlot = activeAddSlot,
                     context = context,
@@ -425,9 +468,8 @@ private fun DeliveryScheduleGrid(
 
 @Composable
 private fun DeliveryDayColumn(
-    day: String,
-    dayLabel: String,
-    schedule: DeliverySchedule,
+    day: DeliveryDayView,
+    pendingSlotKeys: Set<String>,
     isAdminMode: Boolean,
     activeAddSlot: String?,
     context: Context,
@@ -447,19 +489,20 @@ private fun DeliveryDayColumn(
 ) {
     Column(modifier = Modifier.width(columnWidth)) {
         Text(
-            text = dayLabel,
+            text = day.label + if (day.state == DeliveryDayState.TODAY) " · Today" else "",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
+            color = if (day.state == DeliveryDayState.PAST) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(bottom = KKCSpacing.xs)
         )
         DELIVERY_PERIODS.forEach { period ->
-            val slotKey = "${day}_${period}"
-            val slot = schedule.slot(day, period)
+            val slotKey = day.slotKey(period)
+            val slot = day.slot(period)
             val isHovered = hoveredSlotKey == slotKey
             val isValidDropTarget = dragState != null &&
                 dragState.sourceSlotKey != slotKey &&
-                slot.jobs.size < MAX_DELIVERY_JOBS_PER_SLOT
+                slot.jobs.size < MAX_DELIVERY_JOBS_PER_SLOT &&
+                day.acceptsPlacement
             val dragSourceIndex = if (dragState?.sourceSlotKey == slotKey) dragState.sourceIndex else null
             DeliveryPeriodCell(
                 slotKey = slotKey,
@@ -471,6 +514,8 @@ private fun DeliveryDayColumn(
                 isHovered = isHovered,
                 isValidDropTarget = isValidDropTarget,
                 dragSourceIndex = dragSourceIndex,
+                acceptsPlacement = day.acceptsPlacement,
+                isPending = slotKey in pendingSlotKeys,
                 onStartAdd = { onStartAdd(slotKey) },
                 onCancelAdd = onCancelAdd,
                 onAddJob = { job -> onAddJob(slotKey, job) },
@@ -498,6 +543,8 @@ private fun DeliveryPeriodCell(
     isHovered: Boolean,
     isValidDropTarget: Boolean,
     dragSourceIndex: Int?,
+    acceptsPlacement: Boolean = true,
+    isPending: Boolean = false,
     onStartAdd: () -> Unit,
     onCancelAdd: () -> Unit,
     onAddJob: (DeliveryJob) -> Unit,
@@ -545,21 +592,31 @@ private fun DeliveryPeriodCell(
                     text = period.uppercase(),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (isPending) {
+                    Spacer(Modifier.width(KKCSpacing.xs))
+                    Text(
+                        text = "Pending",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
+                Spacer(Modifier.weight(1f))
                 if (isAdminMode) {
                     DeliveryCapacityIndicator(count = slot.jobs.size, max = MAX_DELIVERY_JOBS_PER_SLOT)
-                    Spacer(Modifier.width(KKCSpacing.xs))
-                    FilledTonalIconButton(
-                        onClick = onStartAdd,
-                        enabled = slot.jobs.size < MAX_DELIVERY_JOBS_PER_SLOT
-                    ) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = "Add delivery",
-                            modifier = Modifier.size(20.dp)
-                        )
+                    if (acceptsPlacement) {
+                        Spacer(Modifier.width(KKCSpacing.xs))
+                        FilledTonalIconButton(
+                            onClick = onStartAdd,
+                            enabled = slot.jobs.size < MAX_DELIVERY_JOBS_PER_SLOT
+                        ) {
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = "Add delivery",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -1058,8 +1115,3 @@ private fun DeliveryAddJobPanel(
         }
     }
 }
-
-private fun DeliverySchedule.withSlot(slotKey: String, jobs: List<DeliveryJob>): DeliverySchedule =
-    copy(slots = slots + (slotKey to DeliverySlot(jobs = jobs)))
-
-private const val MAX_DELIVERY_JOBS_PER_SLOT = 3
