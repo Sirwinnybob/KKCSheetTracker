@@ -951,7 +951,7 @@ fun UnifiedJobsScreen(
                     )
                     if (!deliveryScheduleBinding.applyCanonicalResponse(applied)) {
                         withContext(Dispatchers.IO) {
-                            deliveryScheduleRequestStore.queueReset(tabletId)
+                            deliveryScheduleRequestStore.queueReset(tabletId, deliveryScheduleBinding.dialogSchedule.weekOf)
                         }
                     }
                 }
