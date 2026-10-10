@@ -130,6 +130,10 @@ import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.SpecialtyViewerDefaults
 import com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore
 import com.kkc.sheettracker.data.completionKeysForItem
+import com.kkc.sheettracker.data.handoffFlagRef
+import com.kkc.sheettracker.ui.handoff.HandoffItemUi
+import com.kkc.sheettracker.ui.handoff.HandoffTruckChip
+import com.kkc.sheettracker.ui.handoff.rememberHandoffFlags
 import com.kkc.sheettracker.data.loadAdminBoardStock
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodDocType
@@ -205,6 +209,18 @@ internal fun SpecialtyJobDetailScreen(
         filter = { isItemRelevantToMode(it, SpecialtySurfaceMode.SPECIALTY) }
     )
     val resolvedItems = loadedChecklist.items
+    val handoffFlags = rememberHandoffFlags(
+        basePath = scanState.snapshot.basePath,
+        jobFolderName = jobFolderName,
+        tabletId = tabletId,
+        editable = !readOnly
+    )
+    LaunchedEffect(handoffFlags.message) {
+        handoffFlags.message?.let { text ->
+            handoffFlags.consumeMessage()
+            snackbarHostState.showSnackbar(text)
+        }
+    }
 
     val sheetRipDoneVersion by specialtyStateStore.sheetRipDoneVersion.collectAsState()
     val hardwoodsProgressVersion by specialtyStateStore.hardwoodsProgressVersion.collectAsState()
@@ -455,9 +471,11 @@ internal fun SpecialtyJobDetailScreen(
                                 target = sheetRipTarget(rip),
                                 onSetDone = { completed -> onSetSheetRipDone(rip, completed) },
                                 enabled = !readOnly,
-                                onPreviewMolding = if (rip.moldingId != null) ({ previewMoldingItem = rip }) else null
+                                onPreviewMolding = if (rip.moldingId != null) ({ previewMoldingItem = rip }) else null,
+                                handoff = handoffFlags.uiFor(handoffFlagRef(rip))
                             )
                         },
+                        handoffFor = { item -> handoffFlags.uiFor(handoffFlagRef(item)) },
                         onToggle = onToggleChecked,
                         onView = onJumpToCabinet,
                         onEdit = onEditItem,
@@ -550,6 +568,7 @@ internal fun SpecialtyJobDetailScreen(
                                 onSetDone = { completed -> onSetSheetRipDone(item, completed) },
                                 enabled = !readOnly,
                                 onPreviewMolding = if (item.moldingId != null) ({ previewMoldingItem = item }) else null,
+                                handoff = handoffFlags.uiFor(handoffFlagRef(item)),
                                 modifier = Modifier.padding(
                                     start = 8.dp,
                                     top = if (index == 0) 8.dp else 0.dp,
@@ -655,7 +674,8 @@ internal fun SpecialtyJobDetailScreen(
                                         onPatchDims = { dims, qty, mat -> onPatchItemDims(resolved, dims, qty, mat) },
                                         onCheckedChange = { toggle, next -> onToggleChecked(resolved, toggle, next) },
                                         readOnly = readOnly,
-                                        collapseWhenComplete = true
+                                        collapseWhenComplete = true,
+                                        handoff = handoffFlags.uiFor(handoffFlagRef(resolved.item))
                                     )
                                 }
                             }
@@ -938,7 +958,8 @@ internal fun SpecialtyChecklistRow(
     myTabletId: String = "",
     readOnly: Boolean = false,
     /** Shrinks a fully checked item to its checkbox(es) and name so open items stand out; tap to expand. */
-    collapseWhenComplete: Boolean = false
+    collapseWhenComplete: Boolean = false,
+    handoff: HandoffItemUi? = null
 ) {
     val item = resolved.item
     val title = specialtyItemTitle(item.cabinetLabel, item.cabinetNumbers, item.name)
@@ -1040,6 +1061,7 @@ internal fun SpecialtyChecklistRow(
             }
         },
         inlineContent = {
+            handoff?.let { HandoffTruckChip(it) }
             SpecialtyItemDetails(
                 item = item,
                 onPatchDims = onPatchDims,
@@ -1289,7 +1311,8 @@ internal fun SpecialtySheetRipRow(
     onSetDone: (Boolean) -> Unit,
     onPreviewMolding: (() -> Unit)?,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    handoff: HandoffItemUi? = null
 ) {
     Surface(
         tonalElevation = 3.dp,
@@ -1320,6 +1343,7 @@ internal fun SpecialtySheetRipRow(
                     Icon(Icons.Filled.Visibility, contentDescription = "Preview ${item.name} molding profile")
                 }
             }
+            handoff?.let { HandoffTruckChip(it, Modifier.padding(start = 6.dp)) }
             Column(horizontalAlignment = Alignment.End) {
                 Text(text = "${(item.feet ?: 0.0).toInt()} ft", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                 Text(

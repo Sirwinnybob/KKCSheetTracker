@@ -245,6 +245,7 @@ internal fun ArchiveJobDetailHost(
                 onBack = { navController.popBackStack() },
                 overridePdfMarkupStore = session.pdfMarkupStore,
                 pdfMarkupReadOnly = true,
+                handoffEditable = false,
             )
         }
 

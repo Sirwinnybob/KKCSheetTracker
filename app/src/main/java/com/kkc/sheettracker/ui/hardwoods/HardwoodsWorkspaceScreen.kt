@@ -210,6 +210,10 @@ import com.kkc.sheettracker.ui.viewer.sanitizeVirtualAssemblyData
 import com.kkc.sheettracker.viewer3d.Model3DPane
 import com.kkc.sheettracker.viewer3d.ViewerServer
 import com.kkc.sheettracker.data.loadAdminBoardStock
+import com.kkc.sheettracker.data.handoffFlagRef
+import com.kkc.sheettracker.ui.handoff.HandoffItemUi
+import com.kkc.sheettracker.ui.handoff.HandoffTruckChip
+import com.kkc.sheettracker.ui.handoff.rememberHandoffFlags
 import com.kkc.sheettracker.data.models.AdminBoardStockItem
 import com.kkc.sheettracker.data.MoldingLibraryRepository
 import com.kkc.sheettracker.data.models.MoldingLibraryItem
@@ -445,7 +449,9 @@ fun HardwoodsWorkspaceScreen(
     onBack: () -> Unit,
     clockInState: ClockInState? = null,
     overridePdfMarkupStore: PdfMarkupStore? = null,
-    pdfMarkupReadOnly: Boolean = false
+    pdfMarkupReadOnly: Boolean = false,
+    tabletId: String = "",
+    handoffEditable: Boolean = true
 ) {
     val navBarDeco = LocalNavBarDecoration.current
     LaunchedEffect(Unit) {
@@ -746,6 +752,18 @@ fun HardwoodsWorkspaceScreen(
         value = withContext(Dispatchers.IO) {
             loadAdminBoardStock(baseDir = File(scanState.snapshot.basePath), jobFolderName = jobFolderName)
                 .filter { item -> isVisibleInHardwoodsRipList(item, isSawRipEntry) }
+        }
+    }
+    val handoffFlags = rememberHandoffFlags(
+        basePath = scanState.snapshot.basePath,
+        jobFolderName = jobFolderName,
+        tabletId = tabletId,
+        editable = handoffEditable && !pdfMarkupReadOnly && tabletId.isNotBlank()
+    )
+    LaunchedEffect(handoffFlags.message) {
+        handoffFlags.message?.let { text ->
+            handoffFlags.consumeMessage()
+            snackbar.showSnackbar(text)
         }
     }
     val pendingChangedByDoc = remember(availableDocuments, rowRevisionStateMap, rowProgressMap) {
@@ -1511,6 +1529,7 @@ fun HardwoodsWorkspaceScreen(
                         totalsDoneMap = totalsDoneMap,
                         sectionTitle = if (isSawRipEntry) "Rip List" else "Board Stock",
                         onPreviewMolding = { previewMoldingItem = it },
+                        handoffFor = { item -> handoffFlags.uiFor(handoffFlagRef(item)) },
                         modifier = Modifier.fillMaxSize()
                     )
                 } else if (selectedDoc == null) {
@@ -2687,7 +2706,8 @@ private fun HardwoodsBoardStockList(
     adminItems: List<AdminBoardStockItem> = emptyList(),
     sectionTitle: String = "Board Stock",
     onPreviewMolding: ((AdminBoardStockItem) -> Unit)? = null,
-    selectedSource: BoardStockSource? = null
+    selectedSource: BoardStockSource? = null,
+    handoffFor: (AdminBoardStockItem) -> HandoffItemUi? = { null }
 ) {
     val statusColors = KKCThemeColors.statusColors
     val scope = rememberCoroutineScope()
@@ -2863,6 +2883,7 @@ private fun HardwoodsBoardStockList(
                                 modifier = Modifier.fillMaxWidth().padding(6.dp),
                                 verticalArrangement = Arrangement.spacedBy(0.dp)
                             ) {
+                                    handoffFor(item)?.let { HandoffTruckChip(it) }
                                     @Suppress("NAME_SHADOWING")
                                     val isNoneItem = item.feet == null
                                     val showsTallyControls = showsHardwoodsBoardStockTallyControls(item, isSawRipEntry)

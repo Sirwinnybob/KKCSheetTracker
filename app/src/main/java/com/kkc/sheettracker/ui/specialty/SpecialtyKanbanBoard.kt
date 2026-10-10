@@ -93,6 +93,8 @@ import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.StatusBorderedCard
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.components.rememberKKCPillStyle
+import com.kkc.sheettracker.ui.handoff.HandoffItemUi
+import com.kkc.sheettracker.ui.handoff.HandoffTruckChip
 import com.kkc.sheettracker.ui.jobs.stationBarColor
 import com.kkc.sheettracker.ui.supply.rememberSupplyBoardState
 import kotlinx.coroutines.launch
@@ -239,7 +241,8 @@ internal fun SpecialtyKanbanCard(
     basePath: String,
     jobFolderName: String,
     modifier: Modifier = Modifier,
-    readOnly: Boolean = false
+    readOnly: Boolean = false,
+    handoff: HandoffItemUi? = null
 ) {
     val item = resolved.item
     val toggle = toggleState.toggle
@@ -308,6 +311,7 @@ internal fun SpecialtyKanbanCard(
                     trackColor = com.kkc.sheettracker.ui.components.emptyProgressSegmentColor()
                 )
             }
+            handoff?.let { HandoffTruckChip(it) }
             if (dots.isNotEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     dots.forEach { dot ->
@@ -536,6 +540,7 @@ internal fun SpecialtyKanbanBoard(
     basePath: String,
     jobFolderName: String,
     readOnly: Boolean = false,
+    handoffFor: (SpecialtyItem) -> HandoffItemUi? = { null },
     modifier: Modifier = Modifier
 ) {
     val board = rememberSupplyBoardState()
@@ -628,6 +633,7 @@ internal fun SpecialtyKanbanBoard(
                                 basePath = basePath,
                                 jobFolderName = jobFolderName,
                                 readOnly = readOnly,
+                                handoff = handoffFor(resolved.item),
                                 modifier = itemMotion.width(BOARD_CARD_WIDTH)
                             )
                         }

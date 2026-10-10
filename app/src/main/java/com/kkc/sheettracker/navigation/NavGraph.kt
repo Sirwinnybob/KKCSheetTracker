@@ -2119,6 +2119,7 @@ private fun JobsTabHost(
                 isDarkTheme = isDarkTheme,
                 isClockedInHere = isClockedInHere,
                 pdfMarkupReadOnly = isViewOnlyMode,
+                tabletId = tabletId,
                 onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
                 clockInState = clockInState,
                 onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
@@ -3644,6 +3645,7 @@ private fun LegacySingleStackNavigation(
                         isDarkTheme = preferDarkMode,
                         isClockedInHere = isClockedInHere,
                         pdfMarkupReadOnly = isViewOnlyMode,
+                        tabletId = tabletId,
                         onClockIn = { jobNumber, jobName -> onClockIn(jobNumber, jobName, folderName, "hardwoods") },
                         clockInState = clockInState,
                         onOpenThreeDTarget = { cabinet, assemblyPage, plansPage, room ->
