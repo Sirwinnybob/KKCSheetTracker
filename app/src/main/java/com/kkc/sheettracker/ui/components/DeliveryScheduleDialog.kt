@@ -93,6 +93,8 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -105,9 +107,10 @@ import androidx.compose.ui.zIndex
 import com.kkc.sheettracker.data.DeliveryDayState
 import com.kkc.sheettracker.data.DeliveryDayView
 import com.kkc.sheettracker.data.DeliveryWeekView
-import com.kkc.sheettracker.data.MAX_DELIVERY_JOBS_PER_SLOT
+import com.kkc.sheettracker.data.MAX_DELIVERY_JOBS_PER_DAY
 import com.kkc.sheettracker.data.buildDeliveryWeek
 import com.kkc.sheettracker.data.defaultDeliveryWeekStart
+import com.kkc.sheettracker.data.deliveryDayJobs
 import com.kkc.sheettracker.data.shopToday
 import com.kkc.sheettracker.data.models.DELIVERY_PERIODS
 import com.kkc.sheettracker.data.models.DeliveryJob
@@ -195,7 +198,8 @@ fun DeliveryScheduleDialog(
 
     fun placeJob(job: DeliveryJob, toSlot: String, fromSlot: String?) {
         val dest = editableSchedule.slotByKey(toSlot).jobs
-        if (dest.size >= MAX_DELIVERY_JOBS_PER_SLOT) return
+        // The limit is per day; the moving job doesn't count against its own destination day.
+        if (deliveryDayJobs(editableSchedule, toSlot).count { it != job } >= MAX_DELIVERY_JOBS_PER_DAY) return
         var next = editableSchedule
         if (fromSlot != null) next = next.withSlot(fromSlot, next.slotByKey(fromSlot).jobs.filterNot { it == job })
         editableSchedule = next.withSlot(toSlot, dest + job)
@@ -212,9 +216,8 @@ fun DeliveryScheduleDialog(
     }
 
     fun replaceSlot(slotKey: String, jobs: List<DeliveryJob>) {
-        val clipped = jobs.take(MAX_DELIVERY_JOBS_PER_SLOT)
-        editableSchedule = editableSchedule.withSlot(slotKey, clipped)
-        onReplaceSlot?.invoke(slotKey, clipped)
+        editableSchedule = editableSchedule.withSlot(slotKey, jobs)
+        onReplaceSlot?.invoke(slotKey, jobs)
         pendingEdits += 1
     }
 
@@ -503,14 +506,24 @@ private fun DeliveryDayColumn(
             color = if (day.state == DeliveryDayState.PAST) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(bottom = KKCSpacing.xs)
         )
+        // The six-delivery limit belongs to the whole day, so the meter sits once under the day label.
+        if (isAdminMode) {
+            DeliveryCapacityIndicator(
+                count = day.count,
+                max = MAX_DELIVERY_JOBS_PER_DAY,
+                modifier = Modifier.padding(bottom = KKCSpacing.xs)
+            )
+        }
+        val dayHasRoom = day.count < MAX_DELIVERY_JOBS_PER_DAY
         DELIVERY_PERIODS.forEach { period ->
             val slotKey = day.slotKey(period)
             val slot = day.slot(period)
             val isHovered = hoveredSlotKey == slotKey
+            // Full day: only a job already on this day (AM <-> PM) may still land here.
             val isValidDropTarget = dragState != null &&
                 dragState.sourceSlotKey != slotKey &&
-                slot.jobs.size < MAX_DELIVERY_JOBS_PER_SLOT &&
-                day.acceptsPlacement
+                day.acceptsPlacement &&
+                (dayHasRoom || dragState.sourceSlotKey == day.amKey || dragState.sourceSlotKey == day.pmKey)
             val dragSourceIndex = if (dragState?.sourceSlotKey == slotKey) dragState.sourceIndex else null
             DeliveryPeriodCell(
                 slotKey = slotKey,
@@ -523,6 +536,7 @@ private fun DeliveryDayColumn(
                 isValidDropTarget = isValidDropTarget,
                 dragSourceIndex = dragSourceIndex,
                 acceptsPlacement = day.acceptsPlacement && allowManualAdd,
+                canAdd = dayHasRoom,
                 isPending = slotKey in pendingSlotKeys,
                 onStartAdd = { onStartAdd(slotKey) },
                 onCancelAdd = onCancelAdd,
@@ -552,6 +566,8 @@ private fun DeliveryPeriodCell(
     isValidDropTarget: Boolean,
     dragSourceIndex: Int?,
     acceptsPlacement: Boolean = true,
+    /** False once the whole day (AM + PM) holds the maximum; the cell itself has no limit. */
+    canAdd: Boolean = true,
     isPending: Boolean = false,
     onStartAdd: () -> Unit,
     onCancelAdd: () -> Unit,
@@ -612,12 +628,10 @@ private fun DeliveryPeriodCell(
                 }
                 Spacer(Modifier.weight(1f))
                 if (isAdminMode) {
-                    DeliveryCapacityIndicator(count = slot.jobs.size, max = MAX_DELIVERY_JOBS_PER_SLOT)
                     if (acceptsPlacement) {
-                        Spacer(Modifier.width(KKCSpacing.xs))
                         FilledTonalIconButton(
                             onClick = onStartAdd,
-                            enabled = slot.jobs.size < MAX_DELIVERY_JOBS_PER_SLOT
+                            enabled = canAdd
                         ) {
                             Icon(
                                 Icons.Default.Add,
@@ -668,8 +682,11 @@ private fun DeliveryPeriodCell(
 }
 
 @Composable
-private fun DeliveryCapacityIndicator(count: Int, max: Int) {
-    Row(horizontalArrangement = Arrangement.spacedBy(KKCSpacing.xxs)) {
+private fun DeliveryCapacityIndicator(count: Int, max: Int, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.semantics { contentDescription = "$count of $max deliveries" },
+        horizontalArrangement = Arrangement.spacedBy(KKCSpacing.xxs)
+    ) {
         repeat(max) { i ->
             Box(
                 modifier = Modifier

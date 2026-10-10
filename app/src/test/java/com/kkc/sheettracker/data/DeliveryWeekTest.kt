@@ -69,6 +69,58 @@ class DeliveryWeekTest {
         assertEquals(1, week.totalCount)
     }
 
+    private fun jobs(prefix: String, count: Int) =
+        (1..count).map { DeliveryJob("$prefix$it", "J$prefix$it", folderName = "$prefix$it - J") }
+
+    @Test
+    fun sixJobDaySplitFourAmTwoPmCountsSixAndKeepsBothHalves() {
+        val am = jobs("1", 4)
+        val pm = jobs("2", 2)
+        val schedule = DeliverySchedule(
+            datedSlots = mapOf(
+                "2026-10-14_am" to DeliverySlot(am),
+                "2026-10-14_pm" to DeliverySlot(pm)
+            ),
+            weekOf = mon,
+            isDated = true
+        )
+        val day = buildDeliveryWeek(schedule, mon, today = mon, includeEmptyWeekend = false).days[2]
+        assertEquals(6, day.count)
+        assertEquals(am, day.am.jobs)
+        assertEquals(pm, day.pm.jobs)
+        assertEquals(MAX_DELIVERY_JOBS_PER_DAY, deliveryDayCount(schedule, "2026-10-14_am"))
+    }
+
+    @Test
+    fun deliveryDayCountSumsBothHalvesForDatedAndWeekdayKeys() {
+        val dated = DeliverySchedule(
+            datedSlots = mapOf("2026-10-14_am" to DeliverySlot(jobs("1", 3)), "2026-10-14_pm" to DeliverySlot(jobs("2", 1)), "2026-10-15_am" to DeliverySlot(jobs("3", 5))),
+            weekOf = mon,
+            isDated = true
+        )
+        assertEquals(4, deliveryDayCount(dated, "2026-10-14_am"))
+        assertEquals(4, deliveryDayCount(dated, "2026-10-14_pm"))
+        assertEquals(5, deliveryDayCount(dated, "2026-10-15_pm"))
+        assertEquals(0, deliveryDayCount(dated, "2026-10-16_am"))
+
+        val weekday = DeliverySchedule(slots = mapOf("monday_am" to DeliverySlot(jobs("4", 2)), "monday_pm" to DeliverySlot(jobs("5", 3)), "tuesday_am" to DeliverySlot(jobs("6", 1))))
+        assertEquals(5, deliveryDayCount(weekday, "monday_am"))
+        assertEquals(5, deliveryDayCount(weekday, "monday_pm"))
+        assertEquals(1, deliveryDayCount(weekday, "tuesday_pm"))
+
+        // Unknown keys fall back to the slot's own size.
+        assertEquals(0, deliveryDayCount(weekday, "someday_noon"))
+    }
+
+    @Test
+    fun jobWithOnlyAnAmKeyAndNoPmIsShownInThatDaysAm() {
+        val schedule = v2(mon, "2026-10-14_am" to job)
+        val day = buildDeliveryWeek(schedule, mon, today = mon, includeEmptyWeekend = false).days[2]
+        assertEquals(listOf(job), day.am.jobs)
+        assertTrue(day.pm.jobs.isEmpty())
+        assertEquals(1, day.count)
+    }
+
     @Test
     fun weekendDayShownOnlyWhenItHasJobsUnlessRequested() {
         val schedule = v2(mon, "2026-10-18_am" to job)

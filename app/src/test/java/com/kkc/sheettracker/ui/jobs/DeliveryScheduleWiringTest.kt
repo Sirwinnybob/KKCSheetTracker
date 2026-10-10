@@ -55,6 +55,30 @@ class DeliveryScheduleWiringTest {
         }
     }
 
+    @Test
+    fun noPerHalfDayCapSurvivesAnywhereInMain() {
+        val offenders = mainSourceFiles().filter { it.readText().contains("MAX_DELIVERY_JOBS_PER_SLOT") }
+        assertTrue("Per-half-day cap still referenced in: $offenders", offenders.isEmpty())
+        val dialog = source("ui/components/DeliveryScheduleDialog.kt")
+        assertTrue(dialog.contains("deliveryDayJobs("))
+        assertTrue(dialog.contains("MAX_DELIVERY_JOBS_PER_DAY"))
+        assertFalse(dialog.contains("jobs.take("))
+        // Six jobs plus both period labels must scroll inside the banner's fixed-height day segment.
+        val banner = source("ui/components/DeliveryScheduleBanner.kt")
+        assertTrue(banner.contains("Column(Modifier.verticalScroll(rememberScrollState()))"))
+        assertTrue(banner.contains(".height(DeliveryDaySegmentHeight)"))
+    }
+
+    private fun mainSourceFiles(): List<File> {
+        var dir = File(System.getProperty("user.dir") ?: ".").absoluteFile
+        repeat(8) {
+            val root = File(dir, "app/src/main").takeIf { it.isDirectory } ?: File(dir, "src/main").takeIf { it.isDirectory }
+            if (root != null) return root.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+            dir = dir.parentFile ?: return@repeat
+        }
+        error("Missing app/src/main")
+    }
+
     private fun source(relativePath: String): String {
         var dir = File(System.getProperty("user.dir") ?: ".").absoluteFile
         repeat(8) {

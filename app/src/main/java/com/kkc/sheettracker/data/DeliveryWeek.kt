@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.data
 
 import com.kkc.sheettracker.data.models.DELIVERY_DAYS
+import com.kkc.sheettracker.data.models.DeliveryJob
 import com.kkc.sheettracker.data.models.DeliverySchedule
 import com.kkc.sheettracker.data.models.DeliverySlot
 import com.kkc.sheettracker.data.models.datedSlotKey
@@ -17,7 +18,26 @@ import java.util.Locale
 /** Hours Tracker keys every delivery date in the shop's calendar, never UTC or the tablet's zone. */
 val SHOP_ZONE: ZoneId = ZoneId.of("America/Los_Angeles")
 
-const val MAX_DELIVERY_JOBS_PER_SLOT = 3
+/** The shop delivers at most this many jobs per DAY; the AM/PM half-day is optional and uncapped on its own. */
+const val MAX_DELIVERY_JOBS_PER_DAY = 6
+
+/**
+ * Jobs in the whole day of [slotKey] (its AM plus PM slots). A dated key counts that date's two
+ * slots, a weekday key counts that weekday's two slots, any other key just its own slot.
+ */
+fun deliveryDayCount(schedule: DeliverySchedule, slotKey: String): Int =
+    deliveryDayJobs(schedule, slotKey).size
+
+/** Every job in the AM and PM slots of [slotKey]'s day (see [deliveryDayCount] for the key rules). */
+fun deliveryDayJobs(schedule: DeliverySchedule, slotKey: String): List<DeliveryJob> {
+    val dated = parseDatedSlotKey(slotKey)
+    val keys = when {
+        dated != null -> listOf(datedSlotKey(dated.date, "am"), datedSlotKey(dated.date, "pm"))
+        isWeekdaySlotKey(slotKey) -> slotKey.substringBefore('_').let { listOf("${it}_am", "${it}_pm") }
+        else -> listOf(slotKey)
+    }
+    return keys.flatMap { schedule.slotByKey(it).jobs }
+}
 
 /** HT drops dated slots older than this from the file, so placing there would make a job vanish. */
 const val DELIVERY_HISTORY_DAYS = 14L

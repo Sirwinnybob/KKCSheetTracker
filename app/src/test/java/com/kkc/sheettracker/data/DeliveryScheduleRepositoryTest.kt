@@ -144,6 +144,22 @@ class DeliveryScheduleRepositoryTest {
     }
 
     @Test
+    fun v2JobWithOnlyAnAmKeyShowsInThatDaysAmAndPmStaysEmpty() {
+        // HT lists a job with a date but no half-day under AM; the tablet must not require a PM.
+        val s = parseDeliverySchedule(
+            """{"schemaVersion":2,"weekOf":"2026-10-12",
+                "datedSlots":{"2026-10-14_am":{"jobs":[{"jobNumber":"670","description":"ESCHRICH","folderName":"670 - ESCHRICH"}]}},
+                "slots":{}}"""
+        )
+        val day = buildDeliveryWeek(
+            s, java.time.LocalDate.of(2026, 10, 12), today = java.time.LocalDate.of(2026, 10, 12), includeEmptyWeekend = false
+        ).days[2]
+        assertEquals(listOf("670"), day.am.jobs.map { it.jobNumber })
+        assertTrue(day.pm.jobs.isEmpty())
+        assertEquals(1, deliveryDayCount(s, "2026-10-14_pm"))
+    }
+
+    @Test
     fun v1DocumentStillParsesIntoWeekdayGrid() {
         val s = parseDeliverySchedule("""{"schemaVersion":1,"slots":{"monday_pm":{"jobs":[{"jobNumber":"1","description":"One"}]}}}""")
         assertFalse(s.isDated)

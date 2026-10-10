@@ -78,7 +78,8 @@ class DeliveryScheduleRequestStore(
         val valid = jobs.filter { job ->
             job.jobNumber.isNotBlank() && job.description.isNotBlank() && (!dated || job.folderName.isNotBlank())
         }
-        val kept = valid.take(MAX_DELIVERY_JOBS_PER_SLOT)
+        // Safety cap only: the real limit is per day (six), enforced by the editor and HT.
+        val kept = valid.take(MAX_DELIVERY_JOBS_PER_DAY)
         val dropped = jobs.filterNot { it in kept }
         return lockFor(tabletId).withLock {
             val existing = when (val e = readExisting(tabletId)) {

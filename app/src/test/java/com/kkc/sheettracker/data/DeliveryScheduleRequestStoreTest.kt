@@ -46,6 +46,40 @@ class DeliveryScheduleRequestStoreTest {
     }
 
     @Test
+    fun sixJobDaySplitFourAmTwoPm_queuesAllSixAsOneEditPerSlot() = runBlocking {
+        val baseDir = Files.createTempDirectory("delivery-request-store-six").toFile()
+        val store = DeliveryScheduleRequestStore(baseDir)
+        fun job(n: Int) = DeliveryJob(jobNumber = "$n", description = "Job $n", folderName = "$n - Job")
+
+        val am = store.queueSlotEdit("2026-10-21_am", (1..4).map(::job), "tablet-1")
+        val pm = store.queueSlotEdit("2026-10-21_pm", (5..6).map(::job), "tablet-1")
+
+        assertTrue(am.queued && pm.queued)
+        assertTrue(am.droppedJobs.isEmpty() && pm.droppedJobs.isEmpty())
+        val request = store.readPending("tablet-1")!!
+        assertEquals(setOf("2026-10-21_am", "2026-10-21_pm"), request.slotEdits.map { it.slot }.toSet())
+        assertEquals(6, request.slotEdits.sumOf { it.jobs.size })
+        val schedule = overlayPendingDeliveryRequest(
+            com.kkc.sheettracker.data.models.DeliverySchedule(isDated = true, weekOf = java.time.LocalDate.of(2026, 10, 19)),
+            request
+        )
+        assertEquals(6, deliveryDayCount(schedule, "2026-10-21_am"))
+    }
+
+    @Test
+    fun oneSlotEditKeepsSixJobsAndDropsTheSeventh() = runBlocking {
+        val baseDir = Files.createTempDirectory("delivery-request-store-cap").toFile()
+        val store = DeliveryScheduleRequestStore(baseDir)
+        val seven = (1..7).map { DeliveryJob(jobNumber = "$it", description = "Job $it", folderName = "$it - Job") }
+
+        val result = store.queueSlotEdit("2026-10-21_am", seven, "tablet-1")
+
+        assertTrue(result.queued)
+        assertEquals(listOf(seven.last()), result.droppedJobs)
+        assertEquals(seven.take(6), store.readPending("tablet-1")!!.slotEdits.single().jobs)
+    }
+
+    @Test
     fun queueSlotEdit_mergesMultipleEditsBySlot() = runBlocking {
         val baseDir = Files.createTempDirectory("delivery-request-store-merge").toFile()
         val store = DeliveryScheduleRequestStore(baseDir)
@@ -130,15 +164,15 @@ class DeliveryScheduleRequestStoreTest {
     }
 
     @Test
-    fun atMostThreeJobsAndInvalidJobsDropped() = runBlocking {
+    fun atMostSixJobsAndInvalidJobsDropped() = runBlocking {
         val baseDir = Files.createTempDirectory("delivery-cap").toFile()
-        val jobs = (1..4).map { DeliveryJob("$it", "Job $it", folderName = "$it - Job") } +
+        val jobs = (1..7).map { DeliveryJob("$it", "Job $it", folderName = "$it - Job") } +
             DeliveryJob("", "No number", folderName = "x") +
             DeliveryJob("9", "", folderName = "y")
         val result = DeliveryScheduleRequestStore(baseDir).queueSlotEdit("2026-10-21_am", jobs, "tablet-1")
-        assertEquals(listOf("4", "", "9"), result.droppedJobs.map { it.jobNumber })
+        assertEquals(listOf("7", "", "9"), result.droppedJobs.map { it.jobNumber })
         val written = requestJson(baseDir).getAsJsonArray("slotEdits")[0].asJsonObject.getAsJsonArray("jobs")
-        assertEquals(3, written.size())
+        assertEquals(6, written.size())
     }
 
     @Test

@@ -201,7 +201,7 @@ class AdminSyncClient(serverUrl: String) {
         }
         if (parsed.isNotEmpty()) return parsed
         return when (status) {
-            409 -> "That half-day already has 3 deliveries"
+            409 -> "That day already has 6 deliveries"
             404 -> "Folder not found in Ready Jobs"
             else -> "The office job is closed or the request was invalid"
         }

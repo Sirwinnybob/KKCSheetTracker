@@ -33,7 +33,7 @@ sealed interface DeliveryEditOutcome {
 fun formatDeliveryFailure(f: DeliveryScheduleFailure): String {
     val why = f.reason.ifBlank {
         when (f.status) {
-            409 -> "that half-day already has 3 deliveries"
+            409 -> "that day already has $MAX_DELIVERY_JOBS_PER_DAY deliveries"
             404 -> "folder not found in Ready Jobs"
             400 -> "the office job is closed or invalid"
             else -> "refused by Hours Tracker (${f.status})"
@@ -59,8 +59,13 @@ class DeliveryScheduleEditor(
     suspend fun placeJob(current: DeliverySchedule, job: DeliveryJob, toSlot: String, fromSlot: String?): DeliveryEditOutcome {
         val dest = current.slotByKey(toSlot).jobs
         if (dest.any { it.sameJob(job) }) return DeliveryEditOutcome.Applied(current, emptyList())
-        if (dest.size >= MAX_DELIVERY_JOBS_PER_SLOT) {
-            return DeliveryEditOutcome.Refused(listOf("Job ${job.jobNumber} not placed: that half-day already has 3 deliveries"))
+        // The cap is per DAY, not per half-day. The moving job doesn't count against its own
+        // destination day, so an AM<->PM move inside a full day stays allowed.
+        val others = deliveryDayJobs(current, toSlot).count { !it.sameJob(job) }
+        if (others >= MAX_DELIVERY_JOBS_PER_DAY) {
+            return DeliveryEditOutcome.Refused(
+                listOf("Job ${job.jobNumber} not placed: that day already has $MAX_DELIVERY_JOBS_PER_DAY deliveries")
+            )
         }
         val dated = parseDatedSlotKey(toSlot)
         if (dated != null && job.folderName.isBlank()) {
@@ -100,7 +105,7 @@ class DeliveryScheduleEditor(
 
     /** Field edits inside one slot (job card edit). Always a whole-slot edit. */
     suspend fun replaceSlot(current: DeliverySchedule, slotKey: String, jobs: List<DeliveryJob>): DeliveryEditOutcome =
-        sendSlotEdits(listOf(DeliveryScheduleSlotEdit(slotKey, jobs.take(MAX_DELIVERY_JOBS_PER_SLOT))))
+        sendSlotEdits(listOf(DeliveryScheduleSlotEdit(slotKey, jobs)))
 
     /** Clears every job dated in the mirrored Mon-Fri week (`weekOf`..`weekOf+4`). */
     suspend fun resetWeek(current: DeliverySchedule): DeliveryEditOutcome {
@@ -116,7 +121,7 @@ class DeliveryScheduleEditor(
         val notices = mutableListOf<String>()
         edits.forEach { edit ->
             queue.queueSlotEdit(edit.slot, edit.jobs, tabletId).droppedJobs.forEach { dropped ->
-                notices += "Job ${dropped.jobNumber.ifBlank { "(no number)" }} not queued: missing job number, name or folder, or the half-day is full"
+                notices += "Job ${dropped.jobNumber.ifBlank { "(no number)" }} not queued: missing job number, name or folder, or too many for one slot"
             }
         }
         return DeliveryEditOutcome.Queued(notices)

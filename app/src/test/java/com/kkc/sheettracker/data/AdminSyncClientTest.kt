@@ -182,7 +182,7 @@ class AdminSyncClientTest {
         server.enqueue(MockResponse().setResponseCode(400).setBody("""{"detail":""}"""))
         server.enqueue(MockResponse().setResponseCode(422).setBody("""{"detail":[{"loc":["body"]}]}"""))
         val d = java.time.LocalDate.of(2026, 10, 16)
-        assertEquals(DeliveryJobDateResult.Refused(409, "That half-day already has 3 deliveries"), client.setDeliveryJobDate("a", d, null))
+        assertEquals(DeliveryJobDateResult.Refused(409, "That day already has 6 deliveries"), client.setDeliveryJobDate("a", d, null))
         assertEquals(DeliveryJobDateResult.Refused(404, "Folder not found in Ready Jobs"), client.setDeliveryJobDate("a", d, null))
         assertEquals(DeliveryJobDateResult.Refused(400, "The office job is closed or the request was invalid"), client.setDeliveryJobDate("a", d, null))
         assertEquals(DeliveryJobDateResult.Refused(422, "The office job is closed or the request was invalid"), client.setDeliveryJobDate("a", d, null))
