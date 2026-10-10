@@ -2,6 +2,7 @@ package com.kkc.sheettracker.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -9,6 +10,19 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+
+data class DeliveryScheduleApplyResult(
+    val schedule: com.kkc.sheettracker.data.models.DeliverySchedule,
+    val failures: List<com.kkc.sheettracker.data.models.DeliveryScheduleFailure>
+)
+
+sealed interface DeliveryJobDateResult {
+    data class Applied(val result: DeliveryScheduleApplyResult) : DeliveryJobDateResult
+    /** HT definitively refused this job (409 full, 404 folder unknown, 400/422 closed job or bad input). */
+    data class Refused(val status: Int, val reason: String) : DeliveryJobDateResult
+    /** 503, timeout, any other failure: retry via a slot edit / request file. */
+    object Unavailable : DeliveryJobDateResult
+}
 
 /**
  * Direct-write fast path to the Hours Tracker backend for admin-mode job order, job board, and
@@ -76,6 +90,13 @@ class AdminSyncClient(serverUrl: String) {
 
     /** Returns the canonical schedule on success, null on any failure (caller should fall back). */
     suspend fun applyDeliverySchedule(editRequest: DeliveryScheduleEditRequest): com.kkc.sheettracker.data.models.DeliverySchedule? =
+        applyDeliveryScheduleEdits(editRequest)?.schedule
+
+    /**
+     * Returns the canonical schedule plus any per-slot failures HT reported on success, null on any
+     * failure (caller should fall back to the request file).
+     */
+    suspend fun applyDeliveryScheduleEdits(editRequest: DeliveryScheduleEditRequest): DeliveryScheduleApplyResult? =
         withContext(Dispatchers.IO) {
             val slotEditsArray = JSONArray()
             editRequest.slotEdits.forEach { edit ->
@@ -105,9 +126,44 @@ class AdminSyncClient(serverUrl: String) {
             runCatching {
                 client.newCall(httpRequest).execute().use { response ->
                     if (!response.isSuccessful) return@use null
-                    parseDeliverySchedule(response.body?.string() ?: return@use null)
+                    val doc = parseDeliveryScheduleDocument(response.body?.string() ?: return@use null)
+                    DeliveryScheduleApplyResult(doc.schedule, doc.failures)
                 }
             }.getOrNull()
+        }
+
+    /**
+     * `PUT /api/delivery-schedule/jobs/{folderName}` — changes only this one job's Office delivery
+     * date, so it cannot clobber a job another tablet just placed. `date == null` clears it (JSON
+     * `null` body). Only call against a v2 server (schedule.isDated): an old server has no route.
+     */
+    suspend fun setDeliveryJobDate(folderName: String, date: java.time.LocalDate?, window: String?): DeliveryJobDateResult =
+        withContext(Dispatchers.IO) {
+            val url = baseUrl.toHttpUrl().newBuilder()
+                .addPathSegments("api/delivery-schedule/jobs")
+                .addPathSegment(folderName)
+                .build()
+            val bodyText = if (date == null) "null" else JSONObject().apply {
+                put("date", date.toString())
+                if (window != null) put("window", window)
+            }.toString()
+            val request = Request.Builder().url(url).put(bodyText.toRequestBody(jsonMediaType)).build()
+            runCatching {
+                client.newCall(request).execute().use { response ->
+                    val text = response.body?.string().orEmpty()
+                    when {
+                        response.isSuccessful -> {
+                            val doc = parseDeliveryScheduleDocument(text)
+                            DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(doc.schedule, doc.failures))
+                        }
+                        response.code in setOf(400, 404, 409, 422) -> DeliveryJobDateResult.Refused(
+                            response.code,
+                            runCatching { JSONObject(text).optString("detail") }.getOrNull().orEmpty()
+                        )
+                        else -> DeliveryJobDateResult.Unavailable
+                    }
+                }
+            }.getOrElse { DeliveryJobDateResult.Unavailable }
         }
 
     /**

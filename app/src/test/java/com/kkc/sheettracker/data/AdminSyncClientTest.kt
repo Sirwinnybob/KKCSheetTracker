@@ -109,6 +109,64 @@ class AdminSyncClientTest {
     }
 
     @Test
+    fun `applyDeliveryScheduleEdits surfaces failures`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"schemaVersion":2,"weekOf":"2026-10-12","slots":{},"datedSlots":{},
+                "failures":[{"slot":"2026-10-21_pm","jobNumber":"670","folderName":"670 - E","status":409,"reason":"full"}]}"""
+        ))
+        val result = client.applyDeliveryScheduleEdits(
+            DeliveryScheduleEditRequest("T1", "2026-10-09T17:00:00Z", slotEdits = listOf(
+                DeliveryScheduleSlotEdit("2026-10-21_pm", listOf(com.kkc.sheettracker.data.models.DeliveryJob("670", "E", folderName = "670 - E")))
+            ))
+        )
+        assertEquals(409, result!!.failures.single().status)
+        assertTrue(result.schedule.isDated)
+        val body = org.json.JSONObject(server.takeRequest().body.readUtf8())
+        assertEquals("2026-10-21_pm", body.getJSONArray("slotEdits").getJSONObject(0).getString("slot"))
+    }
+
+    @Test
+    fun `applyDeliveryScheduleEdits returns null on 503 so caller falls back to request file`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(503))
+        assertNull(client.applyDeliveryScheduleEdits(DeliveryScheduleEditRequest("T1", "2026-10-09T17:00:00Z")))
+    }
+
+    @Test
+    fun `setDeliveryJobDate puts date and window with encoded folder`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"schedule":{},"datedSlots":{"2026-10-21_pm":{"jobs":[{"jobNumber":"670","description":"E","folderName":"670 - ESCHRICH 1364 VICTORIAN"}]}},"weekOf":"2026-10-19","failures":[]}"""
+        ))
+        val result = client.setDeliveryJobDate("670 - ESCHRICH 1364 VICTORIAN", java.time.LocalDate.of(2026, 10, 21), "pm")
+        assertTrue(result is DeliveryJobDateResult.Applied)
+        val recorded = server.takeRequest()
+        assertEquals("PUT", recorded.method)
+        assertEquals("/api/delivery-schedule/jobs/670%20-%20ESCHRICH%201364%20VICTORIAN", recorded.path)
+        val body = org.json.JSONObject(recorded.body.readUtf8())
+        assertEquals("2026-10-21", body.getString("date"))
+        assertEquals("pm", body.getString("window"))
+    }
+
+    @Test
+    fun `setDeliveryJobDate null date sends JSON null body`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"schedule":{},"datedSlots":{},"weekOf":"2026-10-12","failures":[]}"""))
+        client.setDeliveryJobDate("670 - E", null, null)
+        assertEquals("null", server.takeRequest().body.readUtf8())
+    }
+
+    @Test
+    fun `setDeliveryJobDate maps refusals and unavailability`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(409).setBody("""{"detail":"Fri 10/16 AM already has 3 deliveries"}"""))
+        server.enqueue(MockResponse().setResponseCode(404).setBody("""{"detail":"Folder not found"}"""))
+        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"detail":"Job is closed"}"""))
+        server.enqueue(MockResponse().setResponseCode(503))
+        val d = java.time.LocalDate.of(2026, 10, 16)
+        assertEquals(DeliveryJobDateResult.Refused(409, "Fri 10/16 AM already has 3 deliveries"), client.setDeliveryJobDate("a", d, null))
+        assertEquals(DeliveryJobDateResult.Refused(404, "Folder not found"), client.setDeliveryJobDate("a", d, null))
+        assertEquals(DeliveryJobDateResult.Refused(400, "Job is closed"), client.setDeliveryJobDate("a", d, null))
+        assertEquals(DeliveryJobDateResult.Unavailable, client.setDeliveryJobDate("a", d, null))
+    }
+
+    @Test
     fun `applyDeliverySchedule returns null when server is unreachable`() = runBlocking {
         val unreachableUrl = server.url("/").toString().trimEnd('/')
         server.shutdown()
