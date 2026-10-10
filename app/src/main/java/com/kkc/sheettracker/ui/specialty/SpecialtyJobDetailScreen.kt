@@ -213,12 +213,14 @@ internal fun SpecialtyJobDetailScreen(
         basePath = scanState.snapshot.basePath,
         jobFolderName = jobFolderName,
         tabletId = tabletId,
-        editable = !readOnly
+        editable = !readOnly && tabletId.isNotBlank()
     )
     LaunchedEffect(handoffFlags.message) {
         handoffFlags.message?.let { text ->
+            // Launch the snackbar in the screen scope first: consuming the message changes this
+            // effect's key and would otherwise cancel a showSnackbar suspended in the effect.
+            coroutineScope.launch { snackbarHostState.showSnackbar(text) }
             handoffFlags.consumeMessage()
-            snackbarHostState.showSnackbar(text)
         }
     }
 

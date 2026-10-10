@@ -10,12 +10,30 @@ class HandoffFlagsWiringTest {
     fun specialtyDetailShowsChipsOnRowsKanbanAndSheetRips() {
         val src = source("ui/specialty/SpecialtyJobDetailScreen.kt")
         assertTrue(src.contains("rememberHandoffFlags("))
-        assertTrue(src.contains("editable = !readOnly"))
+        assertTrue(src.contains("editable = !readOnly && tabletId.isNotBlank()"))
         assertTrue(src.contains("handoff = handoffFlags.uiFor(handoffFlagRef(resolved.item))"))
         assertTrue(src.contains("handoff = handoffFlags.uiFor(handoffFlagRef(rip))"))
         assertTrue(src.contains("handoffFor = { item -> handoffFlags.uiFor(handoffFlagRef(item)) }"))
         assertTrue(src.contains("handoffFlags.message"))
         assertTrue(src.contains("consumeMessage()"))
+    }
+
+    @Test
+    fun refusedTapMessageIsShownBeforeItIsConsumed() {
+        // Consuming first changes the LaunchedEffect key and cancels a snackbar suspended in it.
+        listOf(
+            "ui/specialty/SpecialtyJobDetailScreen.kt" to "showSnackbar(text)",
+            "ui/hardwoods/HardwoodsWorkspaceScreen.kt" to "showSnackbar(text)"
+        ).forEach { (path, showCall) ->
+            val src = source(path)
+            val effect = src.indexOf("LaunchedEffect(handoffFlags.message)")
+            assertTrue(path, effect >= 0)
+            val show = src.indexOf(showCall, effect)
+            val consume = src.indexOf("consumeMessage()", effect)
+            assertTrue("$path show missing", show >= 0)
+            assertTrue("$path consume missing", consume >= 0)
+            assertTrue("$path must show before consuming", show < consume)
+        }
     }
 
     @Test

@@ -762,8 +762,10 @@ fun HardwoodsWorkspaceScreen(
     )
     LaunchedEffect(handoffFlags.message) {
         handoffFlags.message?.let { text ->
+            // Launch the snackbar in the screen scope first: consuming the message changes this
+            // effect's key and would otherwise cancel a showSnackbar suspended in the effect.
+            scope.launch { snackbar.showSnackbar(text) }
             handoffFlags.consumeMessage()
-            snackbar.showSnackbar(text)
         }
     }
     val pendingChangedByDoc = remember(availableDocuments, rowRevisionStateMap, rowProgressMap) {
