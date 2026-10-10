@@ -9,7 +9,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.Clock
 import java.time.Instant
@@ -22,7 +26,7 @@ import java.time.Instant
 object HandoffFlagsChangeSignal {
     private val _version = MutableStateFlow(0L)
     val version: StateFlow<Long> = _version.asStateFlow()
-    fun bump() { _version.value = _version.value + 1 }
+    fun bump() { _version.update { it + 1 } }
 }
 
 data class HandoffFlagsSnapshot(
@@ -52,11 +56,13 @@ fun handoffTruckDisplay(ref: HandoffFlagRef, snapshot: HandoffFlagsSnapshot): Ha
         return HandoffTruckDisplay(selected.label, selected, false, pending != null, selected == HandoffTruck.LOOSE, countLabel)
     }
     val entry = snapshot.truckList?.get(ref)
-    val effectiveTruck = entry?.effectiveTruck
+    // With no pin, effective == auto. Use autoTruck: the cached list's effectiveTruck is stale
+    // right after a tap back to Auto (it still reflects the old pin until the next fetch).
+    val autoTruck = entry?.autoTruck
     val (label, shipsLoose) = when {
         entry == null -> "Auto" to null
         entry.excluded -> "Auto · Excluded by office" to false
-        effectiveTruck != null -> "Auto · ${effectiveTruck.label}" to (effectiveTruck == HandoffTruck.LOOSE)
+        autoTruck != null -> "Auto · ${autoTruck.label}" to (autoTruck == HandoffTruck.LOOSE)
         else -> "Auto" to null
     }
     return HandoffTruckDisplay(label, null, true, pending != null, shipsLoose, countLabel)
@@ -76,25 +82,57 @@ class HandoffFlagsService(
 ) {
     private val requests = HandoffFlagRequestStore(baseDir, tabletId)
 
-    fun loadLocal(jobFolderName: String): HandoffFlagsSnapshot = HandoffFlagsSnapshot(
-        stored = loadHandoffItemFlags(baseDir, jobFolderName),
-        pending = requests.pendingTruckFlags(jobFolderName, Instant.now(clock))
-    )
+    /**
+     * Stored flags (handoff.json) plus this tablet's pending sidecar requests. File reads run on
+     * [Dispatchers.IO], so it is safe to call from a UI-scoped coroutine.
+     */
+    suspend fun loadLocal(jobFolderName: String): HandoffFlagsSnapshot = withContext(Dispatchers.IO) {
+        HandoffFlagsSnapshot(
+            stored = loadHandoffItemFlags(baseDir, jobFolderName),
+            pending = requests.pendingTruckFlags(jobFolderName, Instant.now(clock))
+        )
+    }
 
+    /** Auto placements from HT; null when HT is unreachable or [clientProvider] fails. */
     suspend fun fetchTruckList(jobFolderName: String): Map<HandoffFlagRef, HandoffTruckListEntry>? =
-        clientProvider()?.fetchTruckList(jobFolderName)
+        try {
+            clientProvider()?.fetchTruckList(jobFolderName)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Truck list fetch failed for $jobFolderName", e)
+            null
+        }
 
+    /**
+     * Records the tap. The sidecar append (mutex, file read/parse, atomic write) runs on
+     * [Dispatchers.IO]; the REST call is launched in [restScope] and never awaited. Returns false
+     * only when nothing was recorded anywhere (invalid ref, or the sidecar couldn't be written).
+     */
     suspend fun setTruck(jobFolderName: String, ref: HandoffFlagRef, truck: HandoffTruck?): Boolean {
         val requestedAt = Instant.now(clock).toString()
-        if (!requests.appendTruckRequest(jobFolderName, ref, truck, requestedAt)) return false
+        val recorded = withContext(Dispatchers.IO) {
+            requests.appendTruckRequest(jobFolderName, ref, truck, requestedAt)
+        }
+        if (!recorded) {
+            Log.w(TAG, "Truck flag tap not recorded for ${ref.key} in $jobFolderName (invalid ref or sidecar unwritable)")
+            return false
+        }
         HandoffFlagsChangeSignal.bump()
         restScope.launch {
-            when (val result = clientProvider()?.putTruck(jobFolderName, ref, truck, requestedAt)) {
-                HandoffFlagPutResult.Skipped -> HandoffFlagsChangeSignal.bump()
-                is HandoffFlagPutResult.Failed -> if (result.status == 400 || result.status == 422) {
-                    Log.w(TAG, "HT rejected flag body (${result.status}) for ${ref.key} in $jobFolderName — tablet bug")
+            try {
+                when (val result = clientProvider()?.putTruck(jobFolderName, ref, truck, requestedAt)) {
+                    HandoffFlagPutResult.Skipped -> HandoffFlagsChangeSignal.bump()
+                    is HandoffFlagPutResult.Failed -> if (result.status == 400 || result.status == 422) {
+                        Log.w(TAG, "HT rejected flag body (${result.status}) for ${ref.key} in $jobFolderName — tablet bug")
+                    }
+                    is HandoffFlagPutResult.Applied, null -> Unit
                 }
-                is HandoffFlagPutResult.Applied, null -> Unit
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The sidecar already carries the request; HT picks it up within 30 s.
+                Log.w(TAG, "Flag PUT failed for ${ref.key} in $jobFolderName", e)
             }
         }
         return true

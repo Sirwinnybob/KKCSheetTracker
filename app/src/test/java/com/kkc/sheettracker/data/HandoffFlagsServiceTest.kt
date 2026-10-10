@@ -71,6 +71,41 @@ class HandoffFlagsServiceTest {
     }
 
     @Test
+    fun autoRightAfterTapBackUsesAutoTruckNotStaleEffective() {
+        val list = mapOf(ref to HandoffTruckListEntry(ref, HandoffTruck.LOOSE, HandoffTruck.LATER, null, excluded = false))
+        val snapshot = HandoffFlagsSnapshot(
+            stored = mapOf(ref to HandoffItemFlags(HandoffTruck.LATER)),
+            pending = mapOf(ref to PendingTruckFlag(null, now)),
+            truckList = list
+        )
+        val d = handoffTruckDisplay(ref, snapshot)
+        assertEquals("Auto · Ship loose", d.label)
+        assertEquals(true, d.shipsLoose)
+        assertTrue(d.isAuto)
+        assertTrue(d.isPending)
+    }
+
+    @Test
+    fun throwingClientProviderDoesNotCrashOrLoseTheTap() = runBlocking {
+        val base = Files.createTempDirectory("handoff-svc-throw").toFile()
+        val uncaught = java.util.concurrent.CopyOnWriteArrayList<Throwable>()
+        val handler = kotlinx.coroutines.CoroutineExceptionHandler { _, t -> uncaught += t }
+        val restJob = SupervisorJob()
+        val service = HandoffFlagsService(
+            baseDir = base,
+            tabletId = "T1",
+            clientProvider = { throw IllegalStateException("datastore boom") },
+            restScope = CoroutineScope(restJob + Dispatchers.IO + handler)
+        )
+        assertTrue(service.setTruck("670 - E", ref, HandoffTruck.SHOP))
+        // Let the launched REST body run and fail.
+        restJob.children.toList().forEach { it.join() }
+        assertTrue("uncaught: $uncaught", uncaught.isEmpty())
+        assertNull(service.fetchTruckList("670 - E"))
+        assertEquals(HandoffTruck.SHOP, service.loadLocal("670 - E").pending.getValue(ref).truck)
+    }
+
+    @Test
     fun setTruckWritesSidecarThenPutsAndSkipBumpsSignal() = runBlocking {
         val server = MockWebServer().apply { start() }
         server.enqueue(MockResponse().setBody("""{"source":"board_stock","id":"5f0c","flags":null,"skipped":true}"""))
