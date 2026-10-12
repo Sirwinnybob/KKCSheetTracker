@@ -10,6 +10,34 @@ import org.junit.Test
 
 class HiddenMaterialsLifecycleGateTest {
 
+    @Test
+    fun replacementEffectAcceptsLiveUpdatesAndRejectsDisposedClientCallbacks() {
+        val gate = HiddenMaterialsLifecycleGate()
+        val store = HiddenMaterialsStateStore(
+            initialDocument = documentWith("initial"),
+            fallbackLoader = { documentWith("fallback") }
+        )
+        val oldBinding = HiddenMaterialsClientBinding(gate)
+        val oldSource = gate.bindSource()
+        oldBinding.bind(oldSource)
+        gate.begin(oldSource)
+        val oldDocumentCallback = oldBinding.documentCallback(store)
+        val oldConnectionCallback = oldBinding.connectionCallback(store)
+        oldDocumentCallback(documentWith("old-live"))
+
+        gate.dispose(oldSource)
+        val replacementBinding = HiddenMaterialsClientBinding(gate)
+        val replacementSource = gate.bindSource()
+        replacementBinding.bind(replacementSource)
+        gate.begin(replacementSource)
+        replacementBinding.documentCallback(store)(documentWith("replacement-live"))
+        oldDocumentCallback(documentWith("stale"))
+        oldConnectionCallback(false)
+
+        assertEquals("replacement-live", store.document.value.global.entries.single().material)
+        assertTrue(store.liveConnected)
+    }
+
     private fun documentWith(material: String): HiddenMaterialsDocument =
         HiddenMaterialsDocument(
             global = HiddenMaterialsGlobalDoc(

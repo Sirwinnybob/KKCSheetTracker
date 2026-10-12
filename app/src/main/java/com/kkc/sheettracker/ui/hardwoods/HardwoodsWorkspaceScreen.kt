@@ -509,36 +509,29 @@ fun HardwoodsWorkspaceScreen(
     }
     val hiddenMaterialsDocument by hiddenMaterialsStore.document.collectAsState()
     val hiddenMaterialsLifecycleGate = remember(jobFolderName, hiddenMaterialsMode) { HiddenMaterialsLifecycleGate() }
-    val hiddenMaterialsClientBinding = remember(jobFolderName, hiddenMaterialsMode, hiddenMaterialsLifecycleGate) {
-        HiddenMaterialsClientBinding(hiddenMaterialsLifecycleGate)
-    }
-    val hiddenMaterialsClient = remember(
+    val hiddenMaterialsLifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(
+        hiddenMaterialsLifecycleOwner,
         jobFolderName,
         hiddenMaterialsMode,
-        hiddenMaterialsClientBinding,
+        hiddenMaterialsLifecycleGate,
         hiddenMaterialsStore,
         hiddenMaterialsTabletId,
-        adminSyncConfig
+        adminSyncConfig,
+        pdfMarkupReadOnly
     ) {
-        HiddenMaterialsLiveClient(
+        val sourceToken = hiddenMaterialsLifecycleGate.bindSource()
+        // Binding and callbacks belong to this effect's source, including owner/config/store
+        // replacements. Remembering the binding outside the effect reclaims it with a new token.
+        val hiddenMaterialsClientBinding = HiddenMaterialsClientBinding(hiddenMaterialsLifecycleGate)
+        hiddenMaterialsClientBinding.bind(sourceToken)
+        val hiddenMaterialsClient = HiddenMaterialsLiveClient(
             config = adminSyncConfig,
             mode = hiddenMaterialsMode,
             tabletId = hiddenMaterialsTabletId,
             onDocument = hiddenMaterialsClientBinding.documentCallback(hiddenMaterialsStore),
             onConnectionState = hiddenMaterialsClientBinding.connectionCallback(hiddenMaterialsStore)
         )
-    }
-    val hiddenMaterialsLifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(
-        hiddenMaterialsLifecycleOwner,
-        jobFolderName,
-        hiddenMaterialsMode,
-        hiddenMaterialsClient,
-        hiddenMaterialsClientBinding,
-        hiddenMaterialsStore
-    ) {
-        val sourceToken = hiddenMaterialsLifecycleGate.bindSource()
-        hiddenMaterialsClientBinding.bind(sourceToken)
         var lifecycleJob: Job? = null
 
         fun cancelLifecycleJob() {
