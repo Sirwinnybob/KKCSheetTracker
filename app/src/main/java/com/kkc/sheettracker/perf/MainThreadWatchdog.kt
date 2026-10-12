@@ -3,6 +3,9 @@ package com.kkc.sheettracker.perf
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.system.Os
+import android.system.OsConstants
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -14,13 +17,18 @@ data class MainThreadStall(
     /** Main thread stack captured while it was stuck; empty on the closing event. */
     val stack: List<String>,
     /** True for the closing event, whose [blockedMs] is the stall's total length. */
-    val ended: Boolean
+    val ended: Boolean,
+    val stallId: String? = null,
+    val samples: List<MainThreadStallSample> = emptyList(),
+    val followUp: Boolean = false,
+    val longestWatchdogTickGapMs: Long? = null
 )
 
 /**
  * Detects a blocked main thread, which CPU% can never see: a hang on I/O or a lock costs no CPU.
  * Once a second it posts a no-op to the main looper; if that has not run within [stallMs] the main
- * thread is stuck, and its stack is captured right then so the log names the blocking call.
+ * thread is stuck. Up to four spaced stack/pressure snapshots show whether the call persists;
+ * bounded detail reports preserve that evidence even if the process dies before the stall ends.
  * Uses uptime rather than wall time, so a suspended device does not read as a stall; see
  * [StallTimeline] for the process-freeze case uptime alone does not cover.
  */
@@ -28,7 +36,8 @@ class MainThreadWatchdog(
     private val scope: CoroutineScope,
     private val onStall: (MainThreadStall) -> Unit,
     private val stallMs: Long = 2_000L,
-    private val probeIntervalMs: Long = 1_000L
+    private val probeIntervalMs: Long = 1_000L,
+    private val startupSnapshot: (Long) -> StartupSnapshot? = { null }
 ) {
     private class Probe {
         @Volatile
@@ -36,26 +45,76 @@ class MainThreadWatchdog(
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val clockTicksPerSecond = runCatching { Os.sysconf(OsConstants._SC_CLK_TCK) }
+        .getOrDefault(100L).takeIf { it > 0 } ?: 100L
 
     fun start() {
         scope.launch {
             var probe = post()
-            val timeline = StallTimeline(stallMs, probeIntervalMs, startMs = SystemClock.uptimeMillis())
+            var lastTickAt = SystemClock.uptimeMillis()
+            val timeline = StallTimeline(stallMs, probeIntervalMs, startMs = lastTickAt)
+            var diagnosticWindow: StallDiagnosticWindow? = null
             while (isActive) {
                 delay(probeIntervalMs)
-                when (val step = timeline.onTick(SystemClock.uptimeMillis(), probe.ranAtMs)) {
+                val now = SystemClock.uptimeMillis()
+                val tickGapMs = now - lastTickAt
+                lastTickAt = now
+                when (val step = timeline.onTick(now, probe.ranAtMs)) {
                     is StallTimeline.Step.ProbeAnswered -> {
                         step.endedStallMs?.let {
-                            onStall(MainThreadStall(blockedMs = it, stack = emptyList(), ended = true))
+                            val window = diagnosticWindow
+                            onStall(MainThreadStall(
+                                blockedMs = it, stack = emptyList(), ended = true,
+                                stallId = window?.stallId, samples = window?.samples.orEmpty(),
+                                longestWatchdogTickGapMs = maxOf(window?.longestWatchdogTickGapMs ?: 0, tickGapMs)
+                            ))
                         }
+                        diagnosticWindow = null
                         probe = post()
                     }
-                    is StallTimeline.Step.StallDetected ->
-                        onStall(MainThreadStall(blockedMs = step.blockedMs, stack = captureMainThreadStack(), ended = false))
-                    StallTimeline.Step.Waiting -> Unit
+                    is StallTimeline.Step.StallDetected -> {
+                        val window = StallDiagnosticWindow(
+                            "${Os.getpid()}-$now", now - step.blockedMs,
+                            sampleIntervalMs = probeIntervalMs,
+                            maxWatchdogTickGapMs = probeIntervalMs + stallMs
+                        )
+                        diagnosticWindow = window
+                        val samples = window.capture(now, tickGapMs) { captureSample(now, step.blockedMs) }.orEmpty()
+                        onStall(MainThreadStall(
+                            blockedMs = step.blockedMs, stack = samples.lastOrNull()?.stack.orEmpty(), ended = false,
+                            stallId = window.stallId, samples = samples,
+                            longestWatchdogTickGapMs = window.longestWatchdogTickGapMs
+                        ))
+                    }
+                    StallTimeline.Step.Waiting -> {
+                        val window = diagnosticWindow ?: continue
+                        val blockedMs = now - window.startedAtMs
+                        val samples = window.capture(now, tickGapMs) { captureSample(now, blockedMs) } ?: continue
+                        onStall(MainThreadStall(
+                            blockedMs = blockedMs, stack = samples.last().stack, ended = false,
+                            stallId = window.stallId, samples = samples, followUp = true,
+                            longestWatchdogTickGapMs = window.longestWatchdogTickGapMs
+                        ))
+                    }
                 }
             }
         }
+    }
+
+    private fun captureSample(nowMs: Long, blockedMs: Long): MainThreadStallSample {
+        val mainThread = Looper.getMainLooper().thread
+        val state = mainThread.state.name
+        val stack = captureMainThreadStack()
+        val pid = Os.getpid()
+        fun readProc(path: String) = runCatching { File(path).readText() }.getOrNull()
+        val pressure = parseStallSystemPressure(
+            readProc("/proc/loadavg"), readProc("/proc/meminfo"), readProc("/proc/self/status"),
+            readProc("/proc/self/stat")?.let(ProcStat::parseCpuTicks),
+            readProc("/proc/self/task/$pid/stat")?.let(ProcStat::parseCpuTicks), clockTicksPerSecond
+        )
+        return MainThreadStallSample(
+            nowMs, blockedMs, state, classifyStallWait(stack, state), stack, startupSnapshot(nowMs), pressure
+        )
     }
 
     private fun post(): Probe {

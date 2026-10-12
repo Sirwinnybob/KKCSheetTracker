@@ -3,6 +3,7 @@ package com.kkc.sheettracker.perf
 import android.content.Context
 import android.os.Build
 import android.os.PowerManager
+import android.os.SystemClock
 import android.system.Os
 import android.system.OsConstants
 import android.util.Log
@@ -29,7 +30,8 @@ import java.io.File
  *  - `idle_redraw_start` / `idle_redraw_end`: the app keeps drawing frames (`frames.fps`, plus
  *    `avgGpuMs` on API 31+) while the user does nothing — a compositor or animation loop, caught
  *    even where CPU stays low.
- *  - `main_thread_stall` / `main_thread_stall_end`: the UI thread blocked for 2 s+, with its stack.
+ *  - `main_thread_stall` / `main_thread_stall_detail` / `main_thread_stall_end`: the UI thread
+ *    blocked for 2 s+, with a shared stallId and up to four startup/stack/system-pressure samples.
  *  - `memory_growth`: resident memory climbing steadily.
  *
  * Android exposes no GPU utilisation to apps, so GPU cost is inferred from GPU/compositor thread
@@ -42,6 +44,7 @@ import java.io.File
  */
 object CpuSpikeMonitor {
     private const val TAG = "KKC_CPU_SPIKE_MONITOR"
+    private const val PREFS_NAME = "kkc_tracker"
     private const val SAMPLE_INTERVAL_MS = 5_000L
     private const val MAIN_STACK_MIN_PERCENT = 25.0
     private const val MAX_STARTS_PER_HOUR = 12
@@ -67,6 +70,8 @@ object CpuSpikeMonitor {
     private val frameStats = FrameWindowStats()
     private val frameCollector = FrameMetricsCollector(frameStats)
     private val limiter = RateLimiter(MAX_STARTS_PER_HOUR)
+    private val startupTrace = StartupTrace()
+    private var recordedStallId: String? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun install(context: Context) {
@@ -75,12 +80,19 @@ object CpuSpikeMonitor {
             if (installed) return
             appContext = context.applicationContext
             store = CpuSpikeLogStore(pendingDir = File(appContext.filesDir, "cpu_spike_logs/pending"))
+            refreshFromPreferences(appContext)
             installed = true
             lastInputMs = System.currentTimeMillis()
             startSampling()
-            MainThreadWatchdog(scope, ::recordStall).start()
+            MainThreadWatchdog(scope, ::recordStall, startupSnapshot = startupTrace::snapshot).start()
         }
     }
+
+    fun beginActivityStartup() = startupTrace.begin(SystemClock.uptimeMillis())
+
+    fun noteStartupStage(stage: String) = startupTrace.mark(stage, SystemClock.uptimeMillis())
+
+    fun finishActivityStartup() = startupTrace.finish(SystemClock.uptimeMillis())
 
     /** Call from the Activity's start/stop. Idle-redraw detection only applies while foreground. */
     fun setForeground(isForeground: Boolean) {
@@ -106,7 +118,8 @@ object CpuSpikeMonitor {
         currentTab: String? = null,
         currentRoute: String? = null,
         activeJobFolderName: String? = null,
-        basePath: String? = null
+        basePath: String? = null,
+        employeeName: String? = null
     ) {
         synchronized(this) {
             contextSnapshot = contextSnapshot.copy(
@@ -115,9 +128,21 @@ object CpuSpikeMonitor {
                 currentTab = currentTab ?: contextSnapshot.currentTab,
                 currentRoute = currentRoute ?: contextSnapshot.currentRoute,
                 activeJobFolderName = activeJobFolderName ?: contextSnapshot.activeJobFolderName,
-                basePath = basePath ?: contextSnapshot.basePath
+                basePath = basePath ?: contextSnapshot.basePath,
+                employeeName = employeeName ?: contextSnapshot.employeeName
             )
         }
+    }
+
+    /** Seed identity before the watchdog can report a stall during Activity startup. */
+    fun refreshFromPreferences(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        updateContext(
+            tabletId = prefs.getString("tablet_id", null),
+            basePath = prefs.getString("base_path", null),
+            workMode = prefs.getString("work_mode", null),
+            employeeName = prefs.getString("employee_name", "") ?: ""
+        )
     }
 
     fun updateNavigationContext(
@@ -219,8 +244,23 @@ object CpuSpikeMonitor {
     }
 
     private fun recordStall(stall: MainThreadStall) {
-        val type = if (stall.ended) "main_thread_stall_end" else "main_thread_stall"
-        if (!stall.ended && !limiter.tryAcquire(type, System.currentTimeMillis())) return
+        val type = when {
+            stall.ended -> "main_thread_stall_end"
+            stall.followUp -> "main_thread_stall_detail"
+            else -> "main_thread_stall"
+        }
+        if (!stall.ended && !stall.followUp) {
+            if (!limiter.tryAcquire(type, System.currentTimeMillis())) {
+                recordedStallId = null
+                return
+            }
+            recordedStallId = stall.stallId
+        } else if (stall.stallId != recordedStallId) {
+            return
+        }
+        if (stall.ended) recordedStallId = null
+        // Do not make a second system-service Binder call while investigating a Binder wait.
+        val binderWait = stall.samples.any { it.waitKind == "binder" || it.waitKind == "accessibility_binder" }
         logEntry(
             CpuSpikeEntry(
                 entryType = type,
@@ -228,9 +268,12 @@ object CpuSpikeMonitor {
                 cpuPercent = lastCpuPercent,
                 webViewShowing = WebViewBlurGate.shared.isActive.value,
                 foreground = foreground,
-                thermalStatus = thermalStatus(),
+                thermalStatus = if (binderWait) null else thermalStatus(),
                 blockedMs = stall.blockedMs,
-                mainThreadStack = stall.stack.takeIf { it.isNotEmpty() }
+                mainThreadStack = stall.stack.takeIf { it.isNotEmpty() },
+                stallId = stall.stallId,
+                stallSamples = stall.samples.takeIf { it.isNotEmpty() },
+                longestWatchdogTickGapMs = stall.longestWatchdogTickGapMs
             )
         )
     }

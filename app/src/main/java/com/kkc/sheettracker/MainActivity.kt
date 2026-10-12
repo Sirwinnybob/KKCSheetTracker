@@ -41,6 +41,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.doOnPreDraw
 import com.kkc.sheettracker.clock.ClockInNotificationContract
 import com.kkc.sheettracker.crash.CrashReporter
 import com.kkc.sheettracker.perf.CpuSpikeMonitor
@@ -91,6 +92,7 @@ import com.kkc.sheettracker.ui.components.PersistentNavigationBarHider
 import com.kkc.sheettracker.ui.theme.KKCThemeRepository
 import com.kkc.sheettracker.ui.theme.KKCTheme
 import com.kkc.sheettracker.ui.theme.SharedPreferencesKKCThemePreferenceStore
+import com.kkc.sheettracker.ui.theme.ThemeCatalogState
 import com.kkc.sheettracker.update.UpdateManager
 import com.kkc.sheettracker.update.ExternalAppUpdate
 import com.kkc.sheettracker.update.hasPendingUpdateNotification
@@ -132,12 +134,18 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        CpuSpikeMonitor.beginActivityStartup()
         super.onCreate(savedInstanceState)
+        CpuSpikeMonitor.noteStartupStage("edge_to_edge_setup")
         enableEdgeToEdge()
+        CpuSpikeMonitor.noteStartupStage("edge_to_edge_ready")
+        window.decorView.doOnPreDraw { CpuSpikeMonitor.finishActivityStartup() }
 
+        CpuSpikeMonitor.noteStartupStage("permissions_check")
         refreshOnboardingStep()
         if (pendingOnboardingStep != null) {
             setContent {
+                CpuSpikeMonitor.noteStartupStage("onboarding_composition")
                 KKCTheme(darkTheme = androidx.compose.foundation.isSystemInDarkTheme()) {
                     PersistentNavigationBarHider()
                     Surface(
@@ -172,6 +180,7 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        CpuSpikeMonitor.noteStartupStage("load_preferences")
         val prefs = getSharedPreferences("kkc_tracker", MODE_PRIVATE)
         // One-time rollout (8.5.8): turn Flexible Mode on for every tablet once. The marker keeps
         // a later manual opt-out from being overridden by future updates.
@@ -196,13 +205,16 @@ class MainActivity : ComponentActivity() {
         CrashReporter.updateContext(
             tabletId = tabletId,
             basePath = basePath,
-            workMode = prefs.getString("work_mode", null) ?: WorkMode.CNC.name
+            workMode = prefs.getString("work_mode", null) ?: WorkMode.CNC.name,
+            employeeName = prefs.getString("employee_name", "") ?: ""
         )
+        CpuSpikeMonitor.noteStartupStage("pending_report_flush")
         CrashReporter.flushPending(basePath)
         CpuSpikeMonitor.updateContext(
             tabletId = tabletId,
             basePath = basePath,
-            workMode = prefs.getString("work_mode", null) ?: WorkMode.CNC.name
+            workMode = prefs.getString("work_mode", null) ?: WorkMode.CNC.name,
+            employeeName = prefs.getString("employee_name", "") ?: ""
         )
         CpuSpikeMonitor.flushPending(basePath)
 
@@ -241,13 +253,16 @@ class MainActivity : ComponentActivity() {
 
         if (!migrationReady && !forceViewOnlyMode) {
             setContent {
+                CpuSpikeMonitor.noteStartupStage("migration_composition")
                 val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
                 val followSystemTheme = prefs.getBoolean("follow_system_theme", true)
                 val darkThemeOverride = prefs.getBoolean("dark_theme", false)
                 val isDarkTheme = if (followSystemTheme) systemDark else darkThemeOverride
                 val themePrefs = remember { SharedPreferencesKKCThemePreferenceStore(prefs) }
                 val themeRepository = remember(basePath) { KKCThemeRepository(File(basePath), themePrefs) }
-                val themeCatalog = remember(themeRepository) { themeRepository.loadCatalog() }
+                val themeScope = rememberCoroutineScope()
+                val themeState = remember(themeRepository) { ThemeCatalogState(themeScope, themeRepository::loadCatalog) }
+                val themeCatalog by themeState.catalog.collectAsState()
                 KKCTheme(darkTheme = isDarkTheme, themeTokens = themeCatalog.activeTheme.tokens) {
                     PersistentNavigationBarHider()
                     Surface(
@@ -276,6 +291,7 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        CpuSpikeMonitor.noteStartupStage("syncthing_start")
         val syncthingTarget = SyncthingInstallResolver.resolve(applicationContext)
         syncthingSupervisor = SyncthingSupervisor(
             context = applicationContext,
@@ -297,6 +313,7 @@ class MainActivity : ComponentActivity() {
         idleActivityTracker = IdleActivityTracker(config = idlePowerSaveConfig)
         idleActivityTracker.start()
 
+        CpuSpikeMonitor.noteStartupStage("repositories_start")
         val baseDir = File(basePath)
         val jobRepository = JobRepository(baseDir, isDebugBuild = BuildConfig.DEBUG)
         TrackerLamportClock.init(File(filesDir, "state"))
@@ -331,6 +348,7 @@ class MainActivity : ComponentActivity() {
         scanCoordinator.refresh(RefreshReason.APP_START, force = true)
 
         setContent {
+            CpuSpikeMonitor.noteStartupStage("initial_composition")
             val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
             val idlePhase by idleActivityTracker.phase.collectAsState()
             var followSystemTheme by remember { mutableStateOf(prefs.getBoolean("follow_system_theme", true)) }
@@ -366,9 +384,10 @@ class MainActivity : ComponentActivity() {
             var showViewOnlyNotice by rememberSaveable { mutableStateOf(isViewOnlyMode) }
             val themePrefs = remember { SharedPreferencesKKCThemePreferenceStore(prefs) }
             val themeRepository = remember(basePath) { KKCThemeRepository(File(basePath), themePrefs) }
-            var themeCatalog by remember(themeRepository) { mutableStateOf(themeRepository.loadCatalog()) }
+            val themeState = remember(themeRepository) { ThemeCatalogState(composeScope, themeRepository::loadCatalog) }
+            val themeCatalog by themeState.catalog.collectAsState()
             fun reloadThemeCatalog() {
-                themeCatalog = themeRepository.loadCatalog()
+                themeState.reload()
             }
 
             val featureFlags = remember { AppStateFeatureFlags(prefs, BuildConfig.DEBUG) }
@@ -423,6 +442,8 @@ class MainActivity : ComponentActivity() {
                         onEmployeeNameChanged = { name ->
                             employeeName = name
                             prefs.edit().putString("employee_name", name).apply()
+                            CrashReporter.updateContext(employeeName = name)
+                            CpuSpikeMonitor.updateContext(employeeName = name)
                         },
                         clockInState = clockInState,
                         onThemeChanged = { dark ->

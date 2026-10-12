@@ -10,6 +10,59 @@ import java.nio.file.Files
 
 class CpuSpikeMonitoringTest {
 
+    @Test
+    fun stallReportKeepsCorrelationAndStartupAndPressureSamplesInJson() {
+        val dir = Files.createTempDirectory("stall-diagnostics-json").toFile()
+        try {
+            val trace = StartupTrace().apply { begin(100); mark("edge_to_edge_setup", 140) }
+            val store = CpuSpikeLogStore(File(dir, "pending"))
+            val sample = MainThreadStallSample(
+                2_140, 2_000, "RUNNABLE", "accessibility_binder", listOf("android.os.BinderProxy.transactNative"),
+                trace.snapshot(2_140), parseStallSystemPressure("1.0 0.5 0.2 2/400 50", "MemAvailable: 1024000 kB", "VmRSS: 102400 kB", 140, 20, 100)
+            )
+            store.recordEntry(
+                dir, CpuSpikeContext(tabletId = "T-1", employeeName = "Morgan"), CpuSpikeEnvironment(),
+                CpuSpikeEntry("main_thread_stall_detail", "main_thread_stall", 0.0,
+                    stallId = "123-2140", stallSamples = listOf(sample), longestWatchdogTickGapMs = 1_020)
+            )
+            val json = JsonParser.parseString(File(dir, ".metadata/cpu_spikes").listFiles()!!.single().readText()).asJsonObject
+            assertEquals("123-2140", json["stallId"].asString)
+            assertEquals("Morgan", json["employeeName"].asString)
+            assertEquals(1_020L, json["longestWatchdogTickGapMs"].asLong)
+            val writtenSample = json["stallSamples"].asJsonArray.single().asJsonObject
+            assertEquals("accessibility_binder", writtenSample["waitKind"].asString)
+            assertEquals("edge_to_edge_setup", writtenSample["startup"].asJsonObject["latestStage"].asString)
+            assertEquals(2_040L, writtenSample["startup"].asJsonObject["elapsedMs"].asLong)
+            assertEquals(20L, writtenSample["systemPressure"].asJsonObject["mainThreadCpuTicks"].asLong)
+            assertEquals(100L, writtenSample["systemPressure"].asJsonObject["clockTicksPerSecond"].asLong)
+            assertEquals("android.os.BinderProxy.transactNative", writtenSample["stack"].asJsonArray.single().asString)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun employeeNameSurvivesPendingReportFlushWithoutChangingFilename() {
+        val dir = Files.createTempDirectory("cpu-employee").toFile()
+        try {
+            val pendingDir = File(dir, "pending")
+            val store = CpuSpikeLogStore(pendingDir)
+            store.recordEntry(
+                baseDir = null,
+                context = CpuSpikeContext(tabletId = "Tablet-A", employeeName = "Alex O'Neil \"Jr\""),
+                environment = CpuSpikeEnvironment(),
+                entry = CpuSpikeEntry("main_thread_stall", "main_thread_stall", 0.0)
+            )
+            val pending = pendingDir.listFiles()!!.single()
+            assertEquals("Alex O'Neil \"Jr\"", JsonParser.parseString(pending.readText()).asJsonObject["employeeName"].asString)
+            val flushed = store.flushPending(dir).single()
+            assertEquals("Alex O'Neil \"Jr\"", JsonParser.parseString(flushed.readText()).asJsonObject["employeeName"].asString)
+            assertTrue(flushed.name.endsWith("_Tablet-A_cpuspike.json"))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     // Fields after the parenthesised comm start at "state"; utime and stime are the 12th and 13th.
     private fun statLine(comm: String, utime: Long, stime: Long): String =
         "12345 ($comm) S 1 12345 0 0 -1 4194560 100 0 0 0 $utime $stime 0 0 20 0 30 0 1000 2000000 300 " +
@@ -56,6 +109,7 @@ class CpuSpikeMonitoringTest {
             )
             val file = File(dir, ".metadata/cpu_spikes").listFiles()!!.single()
             val json = JsonParser.parseString(file.readText()).asJsonObject
+            assertEquals("", json["employeeName"]?.asString)
             assertEquals(130.0, json["cpuPercent"].asDouble, 0.001)
             assertEquals(38.5, json["mainThreadCpuPercent"].asDouble, 0.001)
             assertEquals(2, json["schemaVersion"].asInt)

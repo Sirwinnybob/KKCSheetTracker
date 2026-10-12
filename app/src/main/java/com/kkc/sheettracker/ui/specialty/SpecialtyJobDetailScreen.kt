@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.ui.specialty
 
+import com.kkc.sheettracker.ui.components.rememberLazySectionExpansions
+
 import com.kkc.sheettracker.ui.jobs.stationBarColor
 
 import com.kkc.sheettracker.ui.components.KKCPillAction
@@ -28,13 +30,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -277,6 +276,10 @@ internal fun SpecialtyJobDetailScreen(
         buildSpecialtyDetailSections(resolvedItems = resolvedItems, stationOrder = stationOrder)
     }
     val activeExpandedSectionIds = expandedSectionIds ?: viewerDefaults.expandedSectionIds
+    val sectionExpansions = rememberLazySectionExpansions(
+        sections.map { it.id } + SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS,
+        activeExpandedSectionIds, listState
+    )
 
     val completedItems = resolvedItems.count { isChecklistItemComplete(it, completionOverrides) }
     val totalItems = resolvedItems.size
@@ -541,44 +544,39 @@ internal fun SpecialtyJobDetailScreen(
                     )
                 }
 
-                val sheetRipEntries = specialtySheetRipLazyRowEntries(orderKanbanCards(sheetRipItems, sheetRipIsDone))
+                val expansion = sectionExpansions.getValue(SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS)
+                val sheetRipEntries = specialtySheetRipLazyRowEntries(orderKanbanCards(sheetRipItems, sheetRipIsDone).take(expansion.rowCount(sheetRipItems.size)))
                 itemsIndexed(items = sheetRipEntries, key = { _, entry -> entry.key }) { index, entry ->
                     val item = entry.item
-                    AnimatedVisibility(
-                        modifier = Modifier.animateItem(),
-                        visible = sheetExpanded,
-                        enter = expandVertically(tween(300)) + fadeIn(tween(300)),
-                        exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
-                    ) {
-                        val isDark = LocalKKCIsDarkTheme.current
-                        val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
-                        val isLast = index == sheetRipEntries.lastIndex
-                        Box(
-                            modifier = Modifier
-                                .padding(bottom = if (isLast) 8.dp else 0.dp)
-                                .fillMaxWidth()
-                                .specialtySectionBackdrop(
-                                    color = backdropColor,
-                                    borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
-                                    isLast = isLast
-                                )
-                        ) {
-                            SpecialtySheetRipRow(
-                                item = item,
-                                isDone = sheetRipIsDone(item),
-                                target = sheetRipTarget(item),
-                                onSetDone = { completed -> onSetSheetRipDone(item, completed) },
-                                enabled = !readOnly,
-                                onPreviewMolding = if (item.moldingId != null) ({ previewMoldingItem = item }) else null,
-                                handoff = handoffFlags.uiFor(handoffFlagRef(item)),
-                                modifier = Modifier.padding(
-                                    start = 8.dp,
-                                    top = if (index == 0) 8.dp else 0.dp,
-                                    end = 8.dp,
-                                    bottom = 8.dp
-                                )
+                    val isDark = LocalKKCIsDarkTheme.current
+                    val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
+                    val isLast = index == sheetRipEntries.lastIndex
+                    Box(
+                        modifier = expansion.modifier()
+                            .animateItem(fadeInSpec = null, fadeOutSpec = null)
+                            .padding(bottom = if (isLast) 8.dp else 0.dp)
+                            .fillMaxWidth()
+                            .specialtySectionBackdrop(
+                                color = backdropColor,
+                                borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                                isLast = isLast
                             )
-                        }
+                    ) {
+                        SpecialtySheetRipRow(
+                            item = item,
+                            isDone = sheetRipIsDone(item),
+                            target = sheetRipTarget(item),
+                            onSetDone = { completed -> onSetSheetRipDone(item, completed) },
+                            enabled = !readOnly,
+                            onPreviewMolding = if (item.moldingId != null) ({ previewMoldingItem = item }) else null,
+                            handoff = handoffFlags.uiFor(handoffFlagRef(item)),
+                            modifier = Modifier.padding(
+                                start = 8.dp,
+                                top = if (index == 0) 8.dp else 0.dp,
+                                end = 8.dp,
+                                bottom = 8.dp
+                            )
+                        )
                     }
                 }
             }
@@ -619,67 +617,62 @@ internal fun SpecialtyJobDetailScreen(
                     }
 
                     // Open items stay on top in list order; finished ones sink to the bottom.
-                val sectionEntries = specialtyChecklistLazyRowEntries(
-                    sectionKey,
-                    orderKanbanCards(section.items) { isChecklistItemComplete(it, completionOverrides) }
-                )
+                    val expansion = sectionExpansions.getValue(sectionKey)
+                    val sectionEntries = specialtyChecklistLazyRowEntries(
+                        sectionKey,
+                        orderKanbanCards(section.items) { isChecklistItemComplete(it, completionOverrides) }.take(expansion.rowCount(section.items.size))
+                    )
                     itemsIndexed(items = sectionEntries, key = { _, entry -> entry.key }) { index, entry ->
                         val resolved = entry.item
                         val itemToggles = checklistTogglesForItem(resolved, completionOverrides)
-                        AnimatedVisibility(
-                            modifier = Modifier.animateItem(),
-                            visible = sectionExpanded,
-                            enter = expandVertically(tween(300)) + fadeIn(tween(300)),
-                            exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
+                        val isDark = LocalKKCIsDarkTheme.current
+                        val baseBackdrop = if (isDark) Color(0xFF22252A) else Color.White
+                        // Faint wash of the section color, continuing the header's gradient.
+                        val backdropColor = sectionTint
+                            ?.copy(alpha = if (isDark) 0.12f else 0.05f)
+                            ?.compositeOver(baseBackdrop)
+                            ?: baseBackdrop
+                        val backdropBorder = sectionTint?.copy(alpha = 0.35f)
+                            ?: MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                        val isLast = index == sectionEntries.lastIndex
+                        Box(
+                            modifier = expansion.modifier()
+                            .animateItem(fadeInSpec = null, fadeOutSpec = null)
+                                .padding(bottom = if (isLast) 8.dp else 0.dp)
+                                .fillMaxWidth()
+                                .specialtySectionBackdrop(
+                                    color = backdropColor,
+                                    borderColor = backdropBorder,
+                                    isLast = isLast
+                                )
                         ) {
-                            val isDark = LocalKKCIsDarkTheme.current
-                            val baseBackdrop = if (isDark) Color(0xFF22252A) else Color.White
-                            // Faint wash of the section color, continuing the header's gradient.
-                            val backdropColor = sectionTint
-                                ?.copy(alpha = if (isDark) 0.12f else 0.05f)
-                                ?.compositeOver(baseBackdrop)
-                                ?: baseBackdrop
-                            val backdropBorder = sectionTint?.copy(alpha = 0.35f)
-                                ?: MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
-                            val isLast = index == sectionEntries.lastIndex
-                            Box(
-                                modifier = Modifier
-                                    .padding(bottom = if (isLast) 8.dp else 0.dp)
-                                    .fillMaxWidth()
-                                    .specialtySectionBackdrop(
-                                        color = backdropColor,
-                                        borderColor = backdropBorder,
-                                        isLast = isLast
-                                    )
+                            Column(
+                                modifier = Modifier.padding(
+                                    start = 8.dp,
+                                    top = if (index == 0) 8.dp else 0.dp,
+                                    end = 8.dp,
+                                    bottom = 8.dp
+                                )
                             ) {
-                                Column(
-                                    modifier = Modifier.padding(
-                                        start = 8.dp,
-                                        top = if (index == 0) 8.dp else 0.dp,
-                                        end = 8.dp,
-                                        bottom = 8.dp
-                                    )
-                                ) {
-                                    SpecialtyChecklistRow(
-                                        resolved = resolved,
-                                        toggles = itemToggles,
-                                        inFlightUpdates = inFlightUpdates,
-                                        stationOrder = stationOrder,
-                                        onJumpToCabinet = onJumpToCabinet,
-                                        basePath = scanState.snapshot.basePath,
-                                        jobFolderName = jobFolderName,
-                                        onEditItem = onEditItem,
-                                        onDeleteItem = { itemId ->
-                                            deleteTargetItemId = itemId
-                                        },
-                                        myTabletId = specialtyStateStore.tabletId,
-                                        onPatchDims = { dims, qty, mat -> onPatchItemDims(resolved, dims, qty, mat) },
-                                        onCheckedChange = { toggle, next -> onToggleChecked(resolved, toggle, next) },
-                                        readOnly = readOnly,
-                                        collapseWhenComplete = true,
-                                        handoff = handoffFlags.uiFor(handoffFlagRef(resolved.item))
-                                    )
-                                }
+                                SpecialtyChecklistRow(
+                                    resolved = resolved,
+                                    toggles = itemToggles,
+                                    inFlightUpdates = inFlightUpdates,
+                                    stationOrder = stationOrder,
+                                    onJumpToCabinet = onJumpToCabinet,
+                                    basePath = scanState.snapshot.basePath,
+                                    jobFolderName = jobFolderName,
+                                    onEditItem = onEditItem,
+                                    onDeleteItem = { itemId ->
+                                        deleteTargetItemId = itemId
+                                    },
+                                    myTabletId = specialtyStateStore.tabletId,
+                                    onPatchDims = { dims, qty, mat -> onPatchItemDims(resolved, dims, qty, mat) },
+                                    onCheckedChange = { toggle, next -> onToggleChecked(resolved, toggle, next) },
+                                    readOnly = readOnly,
+                                    collapseWhenComplete = true,
+                                    handoff = handoffFlags.uiFor(handoffFlagRef(resolved.item))
+                                )
                             }
                         }
                     }

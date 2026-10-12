@@ -37,7 +37,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import com.kkc.sheettracker.ui.components.icons.MarkupPenIcon
 import com.kkc.sheettracker.ui.components.icons.ViewerSheetListIcon
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -635,7 +634,9 @@ fun ReferencePdfPane(
     }
 
     if (showToc && onOpenSheetNavigator == null) {
+        val navigatorListState = androidx.compose.foundation.lazy.rememberLazyListState()
         ReferenceTocSheet(
+            listState = navigatorListState,
             pageCount = totalPages,
             currentPage = currentPage,
             loadedCount = tocLoadedCount,
@@ -647,21 +648,24 @@ fun ReferencePdfPane(
             onDismiss = { showToc = false }
         )
 
-        LaunchedEffect(showToc, totalPages, currentPage, engine, matteColorArgb) {
+        LaunchedEffect(navigatorListState, totalPages, engine, matteColorArgb) {
             if (!showToc || totalPages <= 0 || engine == null) return@LaunchedEffect
-            for (page in buildReferenceTocLoadOrder(totalPages, currentPage)) {
-                if (!isActive) break
-                if (!tocThumbCache.containsKey(page)) {
-                    val thumb = withContext(Dispatchers.IO) {
-                        engine.renderThumbnail(page - 1, matteColorArgb = matteColorArgb)
+            snapshotFlow { navigatorListState.layoutInfo.visibleItemsInfo.map { it.index } }
+                .distinctUntilChanged()
+                .collectLatest { visibleIndices ->
+                    for (page in navigatorPreviewPages((1..totalPages).toList(), visibleIndices)) {
+                        if (!tocThumbCache.containsKey(page)) {
+                            val thumb = withContext(Dispatchers.IO) {
+                                engine.renderThumbnail(page - 1, matteColorArgb = matteColorArgb)
+                            }
+                            tocThumbCache[page] = thumb
+                        }
+                        tocLruOrder.remove(page)
+                        tocLruOrder.add(page)
+                        trimTocCache(tocThumbCache, tocLruOrder, maxEntries = 80)
+                        yield()
                     }
-                    tocThumbCache[page] = thumb
-                    tocLruOrder.remove(page)
-                    tocLruOrder.add(page)
-                    trimTocCache(tocThumbCache, tocLruOrder, maxEntries = 80)
                 }
-                yield()
-            }
         }
     }
 
@@ -1253,6 +1257,7 @@ private fun fittedPageBounds(viewSize: IntSize, aspect: Float): FittedPageBounds
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun ReferenceTocSheet(
+    listState: androidx.compose.foundation.lazy.LazyListState,
     pageCount: Int,
     currentPage: Int,
     loadedCount: Int,
@@ -1275,6 +1280,7 @@ private fun ReferenceTocSheet(
                 Text("Sheet Navigator", style = MaterialTheme.typography.titleLarge)
             }
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1312,7 +1318,10 @@ private fun ReferenceTocSheet(
                                         contentScale = ContentScale.Fit
                                     )
                                 } else {
-                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    Text(
+                                        if (tocThumbCache.containsKey(page)) "No preview" else "Loading preview…",
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
                                 }
                             }
                             Spacer(Modifier.width(10.dp))
@@ -1421,20 +1430,4 @@ private fun trimTocCache(
         val oldest = lruOrder.removeAt(0)
         cache.remove(oldest)
     }
-}
-
-private fun buildReferenceTocLoadOrder(pageCount: Int, currentPage: Int): List<Int> {
-    if (pageCount <= 0) return emptyList()
-    val clamped = currentPage.coerceIn(1, pageCount)
-    val ordered = ArrayList<Int>(pageCount)
-    ordered += clamped
-    var offset = 1
-    while (ordered.size < pageCount) {
-        val left = clamped - offset
-        if (left >= 1) ordered += left
-        val right = clamped + offset
-        if (right <= pageCount) ordered += right
-        offset++
-    }
-    return ordered
 }

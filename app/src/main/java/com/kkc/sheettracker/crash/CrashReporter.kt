@@ -50,7 +50,8 @@ object CrashReporter {
         updateContext(
             tabletId = prefs.getString("tablet_id", null),
             basePath = prefs.getString("base_path", null),
-            workMode = prefs.getString("work_mode", null)
+            workMode = prefs.getString("work_mode", null),
+            employeeName = prefs.getString("employee_name", "") ?: ""
         )
     }
 
@@ -60,7 +61,8 @@ object CrashReporter {
         currentTab: String? = null,
         currentRoute: String? = null,
         activeJobFolderName: String? = null,
-        basePath: String? = null
+        basePath: String? = null,
+        employeeName: String? = null
     ) {
         synchronized(this) {
             contextSnapshot = contextSnapshot.copy(
@@ -69,7 +71,8 @@ object CrashReporter {
                 currentTab = currentTab ?: contextSnapshot.currentTab,
                 currentRoute = currentRoute ?: contextSnapshot.currentRoute,
                 activeJobFolderName = activeJobFolderName ?: contextSnapshot.activeJobFolderName,
-                basePath = basePath ?: contextSnapshot.basePath
+                basePath = basePath ?: contextSnapshot.basePath,
+                employeeName = employeeName ?: contextSnapshot.employeeName
             )
         }
     }

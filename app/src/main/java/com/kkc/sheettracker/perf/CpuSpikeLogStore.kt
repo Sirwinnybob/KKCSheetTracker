@@ -12,7 +12,8 @@ data class CpuSpikeContext(
     val currentTab: String? = null,
     val currentRoute: String? = null,
     val activeJobFolderName: String? = null,
-    val basePath: String? = null
+    val basePath: String? = null,
+    val employeeName: String = ""
 )
 
 data class CpuSpikeEnvironment(
@@ -52,7 +53,11 @@ data class CpuSpikeEntry(
     /** Main-thread stall length in ms. */
     val blockedMs: Long? = null,
     /** Main thread stack captured while it was busy or blocked. */
-    val mainThreadStack: List<String>? = null
+    val mainThreadStack: List<String>? = null,
+    /** Shared by the opening, bounded detail reports, and closing report for one UI stall. */
+    val stallId: String? = null,
+    val stallSamples: List<MainThreadStallSample>? = null,
+    val longestWatchdogTickGapMs: Long? = null
 )
 
 class CpuSpikeLogStore(
@@ -163,7 +168,11 @@ class CpuSpikeLogStore(
             "thermalStatus" to entry.thermalStatus,
             "blockedMs" to entry.blockedMs,
             "mainThreadStack" to entry.mainThreadStack,
+            "stallId" to entry.stallId,
+            "stallSamples" to entry.stallSamples,
+            "longestWatchdogTickGapMs" to entry.longestWatchdogTickGapMs,
             "tabletId" to context.tabletId,
+            "employeeName" to context.employeeName,
             "workMode" to context.workMode,
             "currentTab" to context.currentTab,
             "currentRoute" to context.currentRoute,

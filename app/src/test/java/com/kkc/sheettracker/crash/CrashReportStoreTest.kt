@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.crash
 
+import com.google.gson.JsonParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -8,6 +9,28 @@ import java.io.File
 import java.nio.file.Files
 
 class CrashReportStoreTest {
+
+    @Test
+    fun employeeNameSurvivesPendingReportFlushWithoutChangingFilename() {
+        val baseDir = Files.createTempDirectory("crash-employee-shared").toFile()
+        val pendingDir = Files.createTempDirectory("crash-employee-pending").toFile()
+        try {
+            val store = CrashReportStore(pendingDir)
+            val result = store.recordCrash(
+                baseDir = null,
+                context = CrashReportContext(tabletId = "Tablet-A", employeeName = "Alex O'Neil \"Jr\""),
+                environment = CrashEnvironment(),
+                throwable = RuntimeException("example")
+            )
+            assertEquals("Alex O'Neil \"Jr\"", JsonParser.parseString(result.writtenFile.readText()).asJsonObject["employeeName"].asString)
+            val flushed = store.flushPending(baseDir).single()
+            assertEquals("Alex O'Neil \"Jr\"", JsonParser.parseString(flushed.readText()).asJsonObject["employeeName"].asString)
+            assertTrue(flushed.name.endsWith("_Tablet-A_crash.json"))
+        } finally {
+            baseDir.deleteRecursively()
+            pendingDir.deleteRecursively()
+        }
+    }
 
     @Test
     fun recordCrash_writesReadableJsonToSharedCrashDirectory() {
@@ -42,6 +65,7 @@ class CrashReportStoreTest {
         assertTrue(result.writtenFile.absolutePath.contains(".metadata${File.separator}crashes"))
         assertFalse(result.wrotePending)
         val json = result.writtenFile.readText()
+        assertEquals("", JsonParser.parseString(json).asJsonObject["employeeName"]?.asString)
         assertTrue(json.contains("\"tabletId\": \"Tablet / CNC #1\""))
         assertTrue(json.contains("\"workMode\": \"CNC\""))
         assertTrue(json.contains("\"currentTab\": \"jobs\""))

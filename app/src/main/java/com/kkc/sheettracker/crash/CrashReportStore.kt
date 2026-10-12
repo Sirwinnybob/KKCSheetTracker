@@ -14,7 +14,8 @@ data class CrashReportContext(
     val currentTab: String? = null,
     val currentRoute: String? = null,
     val activeJobFolderName: String? = null,
-    val basePath: String? = null
+    val basePath: String? = null,
+    val employeeName: String = ""
 )
 
 data class CrashEnvironment(
@@ -118,6 +119,7 @@ class CrashReportStore(
             "timestampMs" to timestampMs,
             "timestampLocal" to timestampFormat.get()!!.format(Date(timestampMs)),
             "tabletId" to context.tabletId,
+            "employeeName" to context.employeeName,
             "workMode" to context.workMode,
             "currentTab" to context.currentTab,
             "currentRoute" to context.currentRoute,

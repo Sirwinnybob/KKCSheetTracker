@@ -24,13 +24,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.compositeOver
 import com.kkc.sheettracker.ui.theme.kkcZebraTint
 import androidx.compose.material.icons.Icons
 import com.kkc.sheettracker.ui.components.icons.MarkupPenIcon
 import com.kkc.sheettracker.ui.components.icons.ViewerSheetListIcon
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -52,6 +52,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
@@ -67,6 +68,7 @@ import com.kkc.sheettracker.ui.components.NavBarPenDecoration
 import com.kkc.sheettracker.ui.components.PdfLabelScrollbar
 import com.kkc.sheettracker.ui.components.PdfViewportState
 import com.kkc.sheettracker.ui.components.ReferencePdfPane
+import com.kkc.sheettracker.ui.components.navigatorPreviewPages
 import com.kkc.sheettracker.ui.components.referencePdfThumbnailMatteColorArgb
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolbar
@@ -84,6 +86,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 data class UnifiedVirtualPageSource(
     val pdfFilename: String,
@@ -523,7 +527,7 @@ fun UnifiedReferenceViewer(
     missingText: String = "Reference PDF not found",
     unreadableText: String = "Unable to read PDF",
     // True while the caller is still resolving which PDF file to show (async lookup not yet
-    // complete) — shows a loading spinner instead of missingText so a job that legitimately has
+    // complete) — shows a loading message instead of missingText so a job that legitimately has
     // the PDF doesn't flash a false "not found" during the lookup.
     isResolving: Boolean = false,
     onTotalPagesChanged: (Int) -> Unit = {},
@@ -665,9 +669,9 @@ fun UnifiedReferenceViewer(
 
     var showSheetNavigator by remember(virtualMapping, defaultPdfFilename) { mutableStateOf(false) }
     var searchQuery by remember(virtualMapping, defaultPdfFilename) { mutableStateOf("") }
-    val tocThumbCache = remember(virtualMapping, defaultPdfFilename, preferDarkMode) { mutableStateMapOf<Int, Bitmap?>() }
-    val tocLruOrder = remember(virtualMapping, defaultPdfFilename, preferDarkMode) { mutableListOf<Int>() }
-    val tocLoadedCount by remember { derivedStateOf { tocThumbCache.count { it.value != null } } }
+    val tocThumbCache = remember(virtualMapping, defaultPdfFilename, preferDarkMode, fileIdentitySeed) { mutableStateMapOf<Int, Bitmap?>() }
+    val tocLruOrder = remember(tocThumbCache) { mutableListOf<Int>() }
+    val tocLoadedCount by remember(tocThumbCache) { derivedStateOf { tocThumbCache.count { it.value != null } } }
 
     LaunchedEffect(navigatorWarningMessage) {
         if (!navigatorWarningMessage.isNullOrBlank()) {
@@ -816,7 +820,7 @@ fun UnifiedReferenceViewer(
             // silently, with no explanation to the user.
             Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
                 if (isResolving) {
-                    CircularProgressIndicator()
+                    Text("Loading PDF…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     Text(missingText, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -969,30 +973,31 @@ fun UnifiedReferenceViewer(
     }
 
     if (showSheetNavigator) {
-        LaunchedEffect(showSheetNavigator, virtualMapping, clampedDisplayPage, effectiveTotalPages, resolvedPdfFilename, preferDarkMode) {
+        val navigatorListState = rememberLazyListState()
+        LaunchedEffect(navigatorListState, searchFilteredRows, virtualMapping, resolvedPdfFilename, preferDarkMode, fileIdentitySeed) {
             if (!showSheetNavigator || effectiveTotalPages <= 0) return@LaunchedEffect
-            for (page in buildVirtualTocLoadOrder(effectiveTotalPages, clampedDisplayPage)) {
-                if (!isActive) break
-                if (!tocThumbCache.containsKey(page)) {
-                    val request = thumbnailRequestForPage(page)
-                    val thumb = if (request != null) {
-                        withContext(Dispatchers.IO) {
-                            renderVirtualThumbnail(
-                                request.file,
-                                request.pageIndex,
-                                matteColorArgb = referencePdfThumbnailMatteColorArgb(preferDarkMode)
-                            )
+            snapshotFlow { navigatorListState.layoutInfo.visibleItemsInfo.map { it.index } }
+                .distinctUntilChanged()
+                .collectLatest { visibleIndices ->
+                    for (page in navigatorPreviewPages(searchFilteredRows.map { it.page }, visibleIndices)) {
+                        if (!tocThumbCache.containsKey(page)) {
+                            val thumb = withContext(Dispatchers.IO) {
+                                thumbnailRequestForPage(page)?.let { request ->
+                                    renderVirtualThumbnail(
+                                        request.file,
+                                        request.pageIndex,
+                                        matteColorArgb = referencePdfThumbnailMatteColorArgb(preferDarkMode)
+                                    )
+                                }
+                            }
+                            tocThumbCache[page] = thumb
                         }
-                    } else {
-                        null
+                        tocLruOrder.remove(page)
+                        tocLruOrder.add(page)
+                        trimVirtualTocCache(tocThumbCache, tocLruOrder, maxEntries = 40)
+                        yield()
                     }
-                    tocThumbCache[page] = thumb
-                    tocLruOrder.remove(page)
-                    tocLruOrder.add(page)
-                    trimVirtualTocCache(tocThumbCache, tocLruOrder, maxEntries = 40)
                 }
-                yield()
-            }
         }
 
         ModalBottomSheet(onDismissRequest = { showSheetNavigator = false }) {
@@ -1032,6 +1037,7 @@ fun UnifiedReferenceViewer(
                     }
                 }
                 LazyColumn(
+                    state = navigatorListState,
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -1074,9 +1080,9 @@ fun UnifiedReferenceViewer(
                                             contentDescription = "Page ${row.page}",
                                             modifier = Modifier.size(width = 120.dp, height = 90.dp)
                                         )
-                                        else -> CircularProgressIndicator(
-                                            modifier = Modifier.size(16.dp),
-                                            strokeWidth = 2.dp
+                                        else -> Text(
+                                            if (tocThumbCache.containsKey(row.page)) "No preview" else "Loading preview…",
+                                            style = MaterialTheme.typography.labelSmall
                                         )
                                     }
                                 }
@@ -1136,21 +1142,6 @@ fun UnifiedReferenceViewer(
             }
         }
     }
-}
-
-private fun buildVirtualTocLoadOrder(totalPages: Int, currentPage: Int): List<Int> {
-    if (totalPages <= 0) return emptyList()
-    val pages = mutableListOf<Int>()
-    pages += currentPage.coerceIn(1, totalPages)
-    var radius = 1
-    while (pages.size < totalPages) {
-        val left = currentPage - radius
-        val right = currentPage + radius
-        if (left >= 1) pages += left
-        if (right <= totalPages) pages += right
-        radius++
-    }
-    return pages.distinct()
 }
 
 private fun trimVirtualTocCache(

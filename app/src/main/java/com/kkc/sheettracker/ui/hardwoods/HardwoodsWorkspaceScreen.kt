@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.ui.hardwoods
 
+import com.kkc.sheettracker.ui.components.rememberLazySectionExpansions
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import androidx.compose.foundation.background
@@ -235,6 +237,12 @@ private data class HardwoodsPartSection(
     val material: String,
     val pagesLabel: String,
     val rows: List<HardwoodCutlistRow>
+)
+
+private data class VisibleHardwoodsPartSection(
+    val section: HardwoodsPartSection,
+    val rows: List<HardwoodCutlistRow>,
+    val hidden: Boolean
 )
 
 internal data class HardwoodsLazyRowEntry(
@@ -899,17 +907,39 @@ fun HardwoodsWorkspaceScreen(
         }
     }
     val displayRows = remember(partSections) { partSections.flatMap { it.rows } }
-    val lazyIndexByRowId = remember(partSections) {
-        val indexById = mutableMapOf<String, Int>()
-        var index = 0
-        partSections.forEach { section ->
-            index += 1 // header row
-            section.rows.forEach { row ->
-                indexById[row.rowId] = index
-                index += 1
-            }
+    val collapsedPartSections = remember(selectedDocType.name, partSections, collapsedPartSectionsByDoc) {
+        collapsedPartSectionsByDoc[selectedDocType.name]
+            ?: partSections.mapTo(linkedSetOf()) { hardwoodsPartSectionStateKey(selectedDocType.name, it.material) }
+    }
+    val visiblePartSections = remember(
+        partSections, showChangedOnly, selectedDocPendingChanged, hiddenMaterialsDocument,
+        jobFolderName, selectedDocType.name, showHiddenMaterials
+    ) {
+        partSections.mapNotNull { section ->
+            val sectionRows = if (showChangedOnly) section.rows.filter { it.rowId in selectedDocPendingChanged } else section.rows
+            val hidden = isHiddenIn(hiddenMaterialsDocument, jobFolderName, selectedDocType.name, section.material)
+            if (sectionRows.isEmpty() || (hidden && !showHiddenMaterials)) null
+            else VisibleHardwoodsPartSection(section, sectionRows, hidden)
         }
-        indexById
+    }
+    val partSectionKeys = visiblePartSections.map { hardwoodsPartSectionStateKey(selectedDocType.name, it.section.material) }
+    val partExpansions = rememberLazySectionExpansions(
+        partSectionKeys, partSectionKeys.toSet() - collapsedPartSections, listState,
+        // Programmatic row jumps need the complete list immediately for their index.
+        snapKeys = visiblePartSections.filter { visible -> visible.rows.any { it.rowId == initialRowId } }
+            .mapTo(linkedSetOf()) { hardwoodsPartSectionStateKey(selectedDocType.name, it.section.material) },
+        minimumRowHeight = 64.dp
+    )
+    val lazyIndexByRowId = remember(visiblePartSections, selectedDocType.name, collapsedPartSections) {
+        hardwoodsVisibleRowIndices(
+            visiblePartSections.map { visible ->
+                hardwoodsPartSectionStateKey(selectedDocType.name, visible.section.material) to visible.rows.map { it.rowId }
+            },
+            collapsedPartSections
+        )
+    }
+    var initialRowJumpHandled by remember(jobFolderName, initialRowId, selectedDocType) {
+        mutableStateOf(false)
     }
     val widthColorBands = remember(displayRows, statusColors.widthBandPalette) {
         val palette = statusColors.widthBandPalette
@@ -936,17 +966,30 @@ fun HardwoodsWorkspaceScreen(
             )
         }
     }
-    LaunchedEffect(initialRowId, selectedDocType, partSections.size, displayRows.size) {
+    LaunchedEffect(initialRowId, selectedDocType, visiblePartSections, collapsedPartSections) {
+        if (initialRowJumpHandled) return@LaunchedEffect
         val target = initialRowId
             ?.takeUnless { it == HARDWOODS_RIP_CUT_LIST_ROW_ID || it == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID || it == HARDWOODS_SAW_RIP_LIST_ROW_ID }
             ?: return@LaunchedEffect
+        val targetSection = visiblePartSections.firstOrNull { visible -> visible.rows.any { it.rowId == target } }
+            ?: return@LaunchedEffect
+        val targetSectionKey = hardwoodsPartSectionStateKey(selectedDocType.name, targetSection.section.material)
+        if (targetSectionKey in collapsedPartSections) {
+            collapsedPartSectionsByDoc = collapsedPartSectionsByDoc +
+                (selectedDocType.name to (collapsedPartSections - targetSectionKey))
+            return@LaunchedEffect // Resume after the expanded list has been composed.
+        }
         val idx = lazyIndexByRowId[target]
         if (idx != null) {
+            initialRowJumpHandled = true
             listState.animateScrollToItem(idx)
             highlightedRowId = target
-            delay(1800)
-            if (highlightedRowId == target) highlightedRowId = null
         }
+    }
+    LaunchedEffect(highlightedRowId) {
+        val target = highlightedRowId ?: return@LaunchedEffect
+        delay(1800)
+        if (highlightedRowId == target) highlightedRowId = null
     }
 
     fun firstAlphabeticalRoomFromIndex(): Pair<String, Int>? {
@@ -1606,40 +1649,18 @@ fun HardwoodsWorkspaceScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    val collapsedPartSections = remember(selectedDoc.docType.name, partSections, collapsedPartSectionsByDoc) {
-                        collapsedPartSectionsByDoc[selectedDoc.docType.name]
-                            ?: partSections.mapTo(linkedSetOf()) { section ->
-                                "${selectedDoc.docType.name}|${section.material}"
-                            }
-                    }
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = hardwoodsListBottomScrollPadding()),
                         verticalArrangement = Arrangement.spacedBy(0.dp)
                     ) {
-                        partSections.forEach { section ->
-                            val sectionRows = if (showChangedOnly) {
-                                section.rows.filter { row ->
-                                    row.rowId in selectedDocPendingChanged
-                                }
-                            } else {
-                                section.rows
-                            }
-                            if (sectionRows.isEmpty()) {
-                                return@forEach
-                            }
-                            val sectionHidden = isHiddenIn(
-                                hiddenMaterialsDocument,
-                                jobFolderName,
-                                selectedDoc.docType.name,
-                                section.material
-                            )
-                            if (sectionHidden && !showHiddenMaterials) {
-                                return@forEach
-                            }
+                        visiblePartSections.forEach { visibleSection ->
+                            val section = visibleSection.section
+                            val sectionRows = visibleSection.rows
+                            val sectionHidden = visibleSection.hidden
                             val sectionKey = section.material
-                            val sectionStateKey = "${selectedDoc.docType.name}|$sectionKey"
+                            val sectionStateKey = hardwoodsPartSectionStateKey(selectedDoc.docType.name, sectionKey)
                             val isCollapsed = sectionStateKey in collapsedPartSections
                             val sectionProgress = run {
                                 val totalPieces = sectionRows.sumOf { row ->
@@ -1728,19 +1749,17 @@ fun HardwoodsWorkspaceScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
-                            val sectionEntries = hardwoodsLazyRowEntries(
-                                docTypeName = selectedDoc.docType.name,
-                                sectionKey = sectionKey,
-                                rows = sectionRows
-                            )
-                            itemsIndexed(items = sectionEntries, key = { _, entry -> entry.key }) { entryIndex, entry ->
-                                AnimatedVisibility(
-                                    visible = !isCollapsed,
-                                    enter = expandVertically() + fadeIn(),
-                                    exit = shrinkVertically() + fadeOut()
-                                ) {
+                            val expansion = partExpansions.getValue(sectionStateKey)
+                            if (expansion.rowCount(sectionRows.size) > 0) {
+                                val sectionEntries = hardwoodsLazyRowEntries(
+                                    docTypeName = selectedDoc.docType.name,
+                                    sectionKey = sectionKey,
+                                    rows = sectionRows.take(expansion.rowCount(sectionRows.size))
+                                )
+                                itemsIndexed(items = sectionEntries, key = { _, entry -> entry.key }) { entryIndex, entry ->
+                                    // Only a screenful participates in the expansion.
                                     val row = entry.row
-                                    val rowUi = rowDisplayMap[row.rowId] ?: return@AnimatedVisibility
+                                    val rowUi = rowDisplayMap[row.rowId] ?: return@itemsIndexed
                                     val progress = rowProgressMap[selectedDoc.docType.name to row.rowId] ?: HardwoodRowProgress()
                                     val qty = row.qty.coerceAtLeast(0)
                                     val skippedCabs = skippedCabinetMap[selectedDoc.docType.name to row.rowId].orEmpty()
@@ -1803,7 +1822,7 @@ fun HardwoodsWorkspaceScreen(
                                         }
                                     }
                                     HardwoodsPartRow(
-                                        modifier = Modifier.padding(horizontal = 6.dp),
+                                        modifier = expansion.modifier().padding(horizontal = 6.dp),
                                         zebraIndex = entryIndex,
                                         rowUi = rowUi,
                                         qty = qty,
@@ -2082,9 +2101,13 @@ private fun HardwoodsPartRow(
     val visuals = hardwoodsRowVisualStyle(state = rowState, widthBand = widthBand)
     val statusColors = KKCThemeColors.statusColors
     val completionFlash = remember(rowUi.row.rowId) { Animatable(0f) }
+    val isComplete = qty > 0 && done == qty && rowState == HardwoodsRowState.COMPLETE
+    val completionTransition = remember(rowUi.row.rowId) { HardwoodsCompletionTransition(isComplete) }
     LaunchedEffect(rowState, done, qty) {
-        if (qty > 0 && done == qty && rowState == HardwoodsRowState.COMPLETE) {
-            completionFlash.snapTo(0f)
+        val becameComplete = completionTransition.update(isComplete)
+        // Reset any animation cancelled by another status change.
+        completionFlash.snapTo(0f)
+        if (becameComplete) {
             completionFlash.animateTo(1f, animationSpec = tween(durationMillis = 100))
             completionFlash.animateTo(0f, animationSpec = tween(durationMillis = 200))
         }
@@ -2725,6 +2748,10 @@ private fun HardwoodsBoardStockList(
     var expandedMaterialSections by rememberSaveable(jobFolderName, sectionsToShow, adminItems) {
         mutableStateOf(emptySet<String>())
     }
+    val boardStockListState = rememberLazyListState()
+    val boardStockSectionKeys = adminItems.map { "ADMIN|${it.material.ifBlank { "—" }}" }.distinct() +
+        sectionsToShow.flatMap { section -> section.materials.map { "${section.source.name}|${it.material}" } }
+    val boardStockExpansions = rememberLazySectionExpansions(boardStockSectionKeys, expandedMaterialSections, boardStockListState)
     val widthBandPalette = statusColors.widthBandPalette
     val widthColorBands = remember(sectionsToShow, widthBandPalette) {
         val seen = LinkedHashMap<String, Color>()
@@ -2745,6 +2772,7 @@ private fun HardwoodsBoardStockList(
 
     LazyColumn(
         modifier = modifier,
+        state = boardStockListState,
         contentPadding = PaddingValues(bottom = hardwoodsListBottomScrollPadding()),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
@@ -2853,195 +2881,190 @@ private fun HardwoodsBoardStockList(
                         )
                     }
                 }
-                val adminEntries = adminBoardStockLazyRowEntries(material, groupItems)
+                val expansion = boardStockExpansions.getValue(adminMatKey)
+                val adminEntries = adminBoardStockLazyRowEntries(material, groupItems.take(expansion.rowCount(groupItems.size)))
                 items(items = adminEntries, key = { it.key }) { entry ->
-                    AnimatedVisibility(
-                        visible = matExpanded,
-                        enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut()
+                    val item = entry.item
+                    val isDark = LocalKKCIsDarkTheme.current
+                    val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
+                    Surface(
+                        shape = if (entry.isLast) {
+                            RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp)
+                        } else {
+                            RoundedCornerShape(0.dp)
+                        },
+                        color = backdropColor,
+                        border = if (entry.isLast) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)) else null,
+                        shadowElevation = if (entry.isLast) 2.dp else 0.dp,
+                        modifier = expansion.modifier().fillMaxWidth().padding(top = 0.dp, bottom = if (entry.isLast) 6.dp else 0.dp)
                     ) {
-                        val item = entry.item
-                        val isDark = LocalKKCIsDarkTheme.current
-                        val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
-                        Surface(
-                            shape = if (entry.isLast) {
-                                RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp)
-                            } else {
-                                RoundedCornerShape(0.dp)
-                            },
-                            color = backdropColor,
-                            border = if (entry.isLast) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)) else null,
-                            shadowElevation = if (entry.isLast) 2.dp else 0.dp,
-                            modifier = Modifier.fillMaxWidth().padding(top = 0.dp, bottom = if (entry.isLast) 6.dp else 0.dp)
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(0.dp)
                         ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth().padding(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(0.dp)
-                            ) {
-                                    handoffFor(item)?.let { HandoffTruckChip(it) }
-                                    @Suppress("NAME_SHADOWING")
-                                    val isNoneItem = item.feet == null
-                                    val showsTallyControls = showsHardwoodsBoardStockTallyControls(item, isSawRipEntry)
-                                    val allowsSkip = allowsHardwoodsBoardStockSkip(item)
-                                    val boards = if (isNoneItem) 0
-                                                 else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
-                                    val tallyKey = progressStore.makeAdminBoardStockTallyKey(material, item.id)
-                                    val skipKey = progressStore.makeAdminBoardStockSkipKey(material, item.id)
-                                    val materialSkipApplied = isHardwoodsBoardStockMaterialSkipApplied(item, materialSkipped)
-                                    val itemSkipApplied = allowsSkip && (totalsDoneMap[skipKey] ?: 0) > 0
-                                    val itemSkipped = !isNoneItem && (materialSkipApplied || itemSkipApplied)
-                                    val sheetSawTally = item.mode.equals("sheet", ignoreCase = true) && isSawRipEntry
-                                    val sheetTallyState = if (sheetSawTally) {
-                                        resolveSheetRipTallyState(
-                                            totalsDoneMap[tallyKey],
-                                            sheetRipDone[item.id] == true,
-                                            boards
-                                        )
-                                    } else null
-                                    val done = if (itemSkipped || isNoneItem) 0
-                                               else sheetTallyState?.done
-                                                   ?: (totalsDoneMap[tallyKey] ?: 0).coerceIn(0, boards)
-                                    val rowState = when {
-                                        isNoneItem   -> ProgressState.SKIPPED
-                                        itemSkipped  -> ProgressState.SKIPPED
-                                        boards <= 0  -> ProgressState.NOT_STARTED
-                                        done >= boards -> ProgressState.COMPLETE
-                                        done > 0     -> ProgressState.IN_PROGRESS
-                                        else         -> ProgressState.NOT_STARTED
-                                    }
-                                    Surface(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).heightIn(min = 36.dp),
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = hardwoodsBoardStockRowBackgroundTint(
-                                            materialSkipped = materialSkipApplied,
-                                            isNoneItem = isNoneItem,
-                                            rowSkipped = itemSkipped,
-                                            surfaceVariant = MaterialTheme.colorScheme.surfaceVariant,
-                                            status = statusColors
-                                        ),
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                                        tonalElevation = 0.5.dp
+                                handoffFor(item)?.let { HandoffTruckChip(it) }
+                                @Suppress("NAME_SHADOWING")
+                                val isNoneItem = item.feet == null
+                                val showsTallyControls = showsHardwoodsBoardStockTallyControls(item, isSawRipEntry)
+                                val allowsSkip = allowsHardwoodsBoardStockSkip(item)
+                                val boards = if (isNoneItem) 0
+                                             else kotlin.math.ceil(item.feet / item.ripLength.toDouble()).toInt().coerceAtLeast(0)
+                                val tallyKey = progressStore.makeAdminBoardStockTallyKey(material, item.id)
+                                val skipKey = progressStore.makeAdminBoardStockSkipKey(material, item.id)
+                                val materialSkipApplied = isHardwoodsBoardStockMaterialSkipApplied(item, materialSkipped)
+                                val itemSkipApplied = allowsSkip && (totalsDoneMap[skipKey] ?: 0) > 0
+                                val itemSkipped = !isNoneItem && (materialSkipApplied || itemSkipApplied)
+                                val sheetSawTally = item.mode.equals("sheet", ignoreCase = true) && isSawRipEntry
+                                val sheetTallyState = if (sheetSawTally) {
+                                    resolveSheetRipTallyState(
+                                        totalsDoneMap[tallyKey],
+                                        sheetRipDone[item.id] == true,
+                                        boards
+                                    )
+                                } else null
+                                val done = if (itemSkipped || isNoneItem) 0
+                                           else sheetTallyState?.done
+                                               ?: (totalsDoneMap[tallyKey] ?: 0).coerceIn(0, boards)
+                                val rowState = when {
+                                    isNoneItem   -> ProgressState.SKIPPED
+                                    itemSkipped  -> ProgressState.SKIPPED
+                                    boards <= 0  -> ProgressState.NOT_STARTED
+                                    done >= boards -> ProgressState.COMPLETE
+                                    done > 0     -> ProgressState.IN_PROGRESS
+                                    else         -> ProgressState.NOT_STARTED
+                                }
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).heightIn(min = 36.dp),
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = hardwoodsBoardStockRowBackgroundTint(
+                                        materialSkipped = materialSkipApplied,
+                                        isNoneItem = isNoneItem,
+                                        rowSkipped = itemSkipped,
+                                        surfaceVariant = MaterialTheme.colorScheme.surfaceVariant,
+                                        status = statusColors
+                                    ),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                                    tonalElevation = 0.5.dp
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(3.dp).fillMaxHeight()
+                                                .background(
+                                                    if (isNoneItem) MaterialTheme.colorScheme.outlineVariant
+                                                    else statusColors.inProgress
+                                                )
+                                        )
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .width(3.dp).fillMaxHeight()
-                                                    .background(
-                                                        if (isNoneItem) MaterialTheme.colorScheme.outlineVariant
-                                                        else statusColors.inProgress
-                                                    )
-                                            )
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                                Text(
+                                                    item.name.ifBlank { "—" },
+                                                    style = DimensionTextStyle,
+                                                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                                                )
+                                                hardwoodsBoardStockUnitLabel(item)?.let { unitLabel ->
                                                     Text(
-                                                        item.name.ifBlank { "—" },
-                                                        style = DimensionTextStyle,
-                                                        maxLines = 1, overflow = TextOverflow.Ellipsis
+                                                        unitLabel,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                                     )
-                                                    hardwoodsBoardStockUnitLabel(item)?.let { unitLabel ->
-                                                        Text(
-                                                            unitLabel,
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            fontWeight = FontWeight.SemiBold,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                                        )
-                                                    }
-                                                    if (isNoneItem) {
-                                                        Text("None needed for this job",
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-                                                    } else {
-                                                        Text(hardwoodsBoardStockRequirementLabel(boards, item.ripLength, item.feet),
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                    }
-                                                }
-                                                if (item.moldingId != null && onPreviewMolding != null) {
-                                                    IconButton(onClick = { onPreviewMolding(item) }) {
-                                                        Icon(Icons.Filled.Visibility, contentDescription = "Preview ${item.name}")
-                                                    }
                                                 }
                                                 if (isNoneItem) {
-                                                    Surface(shape = RoundedCornerShape(3.dp),
-                                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)) {
-                                                        Text("NONE", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                                            style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                    }
-                                                } else if (showsTallyControls) {
-                                                    fun projectSheetSawCompletion(actualDone: Int) {
-                                                        val projectionRevision = sheetRipProgressStore.nextProjectionRevision(jobFolderName, item.id)
-                                                        scope.launch(Dispatchers.IO) {
-                                                            sheetRipProgressStore.setDone(
-                                                                jobFolderName,
-                                                                item.id,
-                                                                actualDone >= boards && boards > 0,
-                                                                projectionRevision = projectionRevision
-                                                            )
-                                                        }
-                                                    }
-                                                    fun setSheetSawTally(nextDone: Int) {
-                                                        val clampedDone = nextDone.coerceIn(0, boards)
-                                                        progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, clampedDone)
-                                                        projectSheetSawCompletion(clampedDone)
-                                                    }
-                                                    fun adjustSheetSawTally(delta: Int) {
-                                                        val actualDone = progressStore.adjustAdminBoardStockDone(
+                                                    Text("None needed for this job",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                                                } else {
+                                                    Text(hardwoodsBoardStockRequirementLabel(boards, item.ripLength, item.feet),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                            }
+                                            if (item.moldingId != null && onPreviewMolding != null) {
+                                                IconButton(onClick = { onPreviewMolding(item) }) {
+                                                    Icon(Icons.Filled.Visibility, contentDescription = "Preview ${item.name}")
+                                                }
+                                            }
+                                            if (isNoneItem) {
+                                                Surface(shape = RoundedCornerShape(3.dp),
+                                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)) {
+                                                    Text("NONE", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                        style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                            } else if (showsTallyControls) {
+                                                fun projectSheetSawCompletion(actualDone: Int) {
+                                                    val projectionRevision = sheetRipProgressStore.nextProjectionRevision(jobFolderName, item.id)
+                                                    scope.launch(Dispatchers.IO) {
+                                                        sheetRipProgressStore.setDone(
                                                             jobFolderName,
-                                                            material,
                                                             item.id,
-                                                            maxCount = boards,
-                                                            delta = delta,
-                                                            fallbackDoneCount = sheetTallyState?.done ?: 0
+                                                            actualDone >= boards && boards > 0,
+                                                            projectionRevision = projectionRevision
                                                         )
-                                                        projectSheetSawCompletion(actualDone)
                                                     }
-                                                    TallyStepButton(icon = Icons.Default.Remove, contentDescription = "Done -",
-                                                        containerColor = statusColors.bad, enabled = !itemSkipped && done > 0,
-                                                        onClick = {
-                                                            if (sheetSawTally) adjustSheetSawTally(delta = -1)
-                                                            else progressStore.decrementAdminBoardStockDone(jobFolderName, material, item.id, maxCount = boards)
-                                                        },
-                                                        onLongClick = {
-                                                            if (sheetSawTally) setSheetSawTally(0)
-                                                            else progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, doneCount = 0)
-                                                            true
-                                                        })
-                                                    ProgressPill(done = done, total = boards, state = rowState,
-                                                        skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f))
-                                                    TallyStepButton(icon = Icons.Default.Add, contentDescription = "Done +",
-                                                        containerColor = statusColors.completeBorder, enabled = !itemSkipped && done < boards,
-                                                        onClick = {
-                                                            if (sheetSawTally) adjustSheetSawTally(delta = 1)
-                                                            else progressStore.incrementAdminBoardStockDone(jobFolderName, material, item.id, maxCount = boards)
-                                                        },
-                                                        onLongClick = {
-                                                            if (sheetSawTally) setSheetSawTally(boards)
-                                                            else progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, doneCount = boards)
-                                                            true
-                                                        })
-                                                    if (allowsSkip && !materialSkipped) {
-                                                        if (itemSkipped) {
-                                                            Button(onClick = { progressStore.setAdminBoardStockSkipped(jobFolderName, material, item.id, false) },
-                                                                colors = ButtonDefaults.buttonColors(containerColor = statusColors.skipBorder, contentColor = Color.White),
-                                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp), modifier = Modifier.heightIn(min = 32.dp)) {
-                                                                Text("SKIPPED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                                                            }
-                                                        } else {
-                                                            MaterialSkipPill(skipped = false, onClick = { progressStore.setAdminBoardStockSkipped(jobFolderName, material, item.id, true) })
+                                                }
+                                                fun setSheetSawTally(nextDone: Int) {
+                                                    val clampedDone = nextDone.coerceIn(0, boards)
+                                                    progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, clampedDone)
+                                                    projectSheetSawCompletion(clampedDone)
+                                                }
+                                                fun adjustSheetSawTally(delta: Int) {
+                                                    val actualDone = progressStore.adjustAdminBoardStockDone(
+                                                        jobFolderName,
+                                                        material,
+                                                        item.id,
+                                                        maxCount = boards,
+                                                        delta = delta,
+                                                        fallbackDoneCount = sheetTallyState?.done ?: 0
+                                                    )
+                                                    projectSheetSawCompletion(actualDone)
+                                                }
+                                                TallyStepButton(icon = Icons.Default.Remove, contentDescription = "Done -",
+                                                    containerColor = statusColors.bad, enabled = !itemSkipped && done > 0,
+                                                    onClick = {
+                                                        if (sheetSawTally) adjustSheetSawTally(delta = -1)
+                                                        else progressStore.decrementAdminBoardStockDone(jobFolderName, material, item.id, maxCount = boards)
+                                                    },
+                                                    onLongClick = {
+                                                        if (sheetSawTally) setSheetSawTally(0)
+                                                        else progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, doneCount = 0)
+                                                        true
+                                                    })
+                                                ProgressPill(done = done, total = boards, state = rowState,
+                                                    skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f))
+                                                TallyStepButton(icon = Icons.Default.Add, contentDescription = "Done +",
+                                                    containerColor = statusColors.completeBorder, enabled = !itemSkipped && done < boards,
+                                                    onClick = {
+                                                        if (sheetSawTally) adjustSheetSawTally(delta = 1)
+                                                        else progressStore.incrementAdminBoardStockDone(jobFolderName, material, item.id, maxCount = boards)
+                                                    },
+                                                    onLongClick = {
+                                                        if (sheetSawTally) setSheetSawTally(boards)
+                                                        else progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, doneCount = boards)
+                                                        true
+                                                    })
+                                                if (allowsSkip && !materialSkipped) {
+                                                    if (itemSkipped) {
+                                                        Button(onClick = { progressStore.setAdminBoardStockSkipped(jobFolderName, material, item.id, false) },
+                                                            colors = ButtonDefaults.buttonColors(containerColor = statusColors.skipBorder, contentColor = Color.White),
+                                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp), modifier = Modifier.heightIn(min = 32.dp)) {
+                                                            Text("SKIPPED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                                                         }
+                                                    } else {
+                                                        MaterialSkipPill(skipped = false, onClick = { progressStore.setAdminBoardStockSkipped(jobFolderName, material, item.id, true) })
                                                     }
                                                 }
                                             }
                                         }
-                                }
+                                    }
                             }
                         }
                     }
@@ -3121,104 +3144,99 @@ private fun HardwoodsBoardStockList(
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
+                val expansion = boardStockExpansions.getValue(materialKey)
                 val lineEntries = boardStockLazyRowEntries(
                     sourceKey = sourceKey,
                     material = materialSection.material,
-                    rows = materialSection.rows
+                    rows = materialSection.rows.take(expansion.rowCount(materialSection.rows.size))
                 )
                 items(items = lineEntries, key = { it.key }) { entry ->
-                    AnimatedVisibility(
-                        visible = materialExpanded,
-                        enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut()
+                    val line = entry.row
+                    val isDark = LocalKKCIsDarkTheme.current
+                    val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
+                    Surface(
+                        shape = if (entry.isLast) {
+                            RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp)
+                        } else {
+                            RoundedCornerShape(0.dp)
+                        },
+                        color = backdropColor,
+                        border = if (entry.isLast) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)) else null,
+                        shadowElevation = if (entry.isLast) 2.dp else 0.dp,
+                        modifier = expansion.modifier().fillMaxWidth().padding(top = 0.dp, bottom = if (entry.isLast) 6.dp else 0.dp)
                     ) {
-                        val line = entry.row
-                        val isDark = LocalKKCIsDarkTheme.current
-                        val backdropColor = if (isDark) Color(0xFF22252A) else Color.White
-                        Surface(
-                            shape = if (entry.isLast) {
-                                RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 10.dp)
-                            } else {
-                                RoundedCornerShape(0.dp)
-                            },
-                            color = backdropColor,
-                            border = if (entry.isLast) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)) else null,
-                            shadowElevation = if (entry.isLast) 2.dp else 0.dp,
-                            modifier = Modifier.fillMaxWidth().padding(top = 0.dp, bottom = if (entry.isLast) 6.dp else 0.dp)
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(0.dp)
                         ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth().padding(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(0.dp)
-                            ) {
-                                    val key = progressStore.makeBoardStockTallyKey(line.material, line.normalizedWidth, line.source.name)
-                                    val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(line.material, line.normalizedWidth, line.source.name)
-                                    val lineSkipped = materialSkipped || ((totalsDoneMap[lineSkippedKey] ?: 0) > 0)
-                                    val done = (totalsDoneMap[key] ?: 0).coerceIn(0, line.neededRips)
-                                    val widthBand = widthColorBands[normalizeWidthForGrouping(line.width)] ?: statusColors.notStarted
-                                    val rowState = when {
-                                        lineSkipped -> ProgressState.SKIPPED
-                                        line.neededRips <= 0 -> ProgressState.NOT_STARTED
-                                        done >= line.neededRips -> ProgressState.COMPLETE
-                                        done > 0 -> ProgressState.IN_PROGRESS
-                                        else -> ProgressState.NOT_STARTED
-                                    }
-                                    Surface(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).heightIn(min = 36.dp),
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = hardwoodsBoardStockRowBackgroundTint(
-                                            materialSkipped = materialSkipped,
-                                            isNoneItem = false,
-                                            rowSkipped = lineSkipped,
-                                            surfaceVariant = MaterialTheme.colorScheme.surfaceVariant,
-                                            status = statusColors
-                                        ),
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                                        tonalElevation = 0.5.dp
-                                    ) {
-                                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                            Box(modifier = Modifier.width(3.dp).fillMaxHeight().background(widthBand))
-                                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                        Text(line.width, style = DimensionTextStyle)
-                                                        Text("Need ${line.neededRips} rips", style = MaterialTheme.typography.bodySmall,
-                                                            color = MaterialTheme.colorScheme.onSurface, fontStyle = FontStyle.Italic)
-                                                    }
-                                                    Text("Total ${formatLinearFeet(line.totalFeet)} ft",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                val key = progressStore.makeBoardStockTallyKey(line.material, line.normalizedWidth, line.source.name)
+                                val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(line.material, line.normalizedWidth, line.source.name)
+                                val lineSkipped = materialSkipped || ((totalsDoneMap[lineSkippedKey] ?: 0) > 0)
+                                val done = (totalsDoneMap[key] ?: 0).coerceIn(0, line.neededRips)
+                                val widthBand = widthColorBands[normalizeWidthForGrouping(line.width)] ?: statusColors.notStarted
+                                val rowState = when {
+                                    lineSkipped -> ProgressState.SKIPPED
+                                    line.neededRips <= 0 -> ProgressState.NOT_STARTED
+                                    done >= line.neededRips -> ProgressState.COMPLETE
+                                    done > 0 -> ProgressState.IN_PROGRESS
+                                    else -> ProgressState.NOT_STARTED
+                                }
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).heightIn(min = 36.dp),
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = hardwoodsBoardStockRowBackgroundTint(
+                                        materialSkipped = materialSkipped,
+                                        isNoneItem = false,
+                                        rowSkipped = lineSkipped,
+                                        surfaceVariant = MaterialTheme.colorScheme.surfaceVariant,
+                                        status = statusColors
+                                    ),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                                    tonalElevation = 0.5.dp
+                                ) {
+                                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                        Box(modifier = Modifier.width(3.dp).fillMaxHeight().background(widthBand))
+                                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                    Text(line.width, style = DimensionTextStyle)
+                                                    Text("Need ${line.neededRips} rips", style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurface, fontStyle = FontStyle.Italic)
                                                 }
-                                                val canDecrementRip = !lineSkipped && done > 0
-                                                val canIncrementRip = !lineSkipped && done < line.neededRips
-                                                TallyStepButton(icon = Icons.Default.Remove, contentDescription = "Rip done -",
-                                                    containerColor = statusColors.bad, enabled = true,
-                                                    onClick = { progressStore.decrementBoardStockRipDone(jobFolderName = jobFolderName, material = line.material, normalizedWidth = line.normalizedWidth, source = line.source.name, maxCount = line.neededRips) },
-                                                    onLongClick = { if (canDecrementRip) { progressStore.setBoardStockRipDone(jobFolderName, line.material, line.normalizedWidth, line.source.name, 0); true } else false })
-                                                ProgressPill(done = done, total = line.neededRips, state = rowState,
-                                                    skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f))
-                                                TallyStepButton(icon = Icons.Default.Add, contentDescription = "Rip done +",
-                                                    containerColor = statusColors.completeBorder, enabled = true,
-                                                    onClick = { progressStore.incrementBoardStockRipDone(jobFolderName = jobFolderName, material = line.material, normalizedWidth = line.normalizedWidth, source = line.source.name, maxCount = line.neededRips) },
-                                                    onLongClick = { if (canIncrementRip) { progressStore.setBoardStockRipDone(jobFolderName, line.material, line.normalizedWidth, line.source.name, line.neededRips); true } else false })
-                                                if (lineSkipped) {
-                                                    Button(onClick = { progressStore.setBoardStockRipSkipped(jobFolderName, line.material, line.normalizedWidth, line.source.name, false) },
-                                                        colors = ButtonDefaults.buttonColors(containerColor = statusColors.skipBorder, contentColor = Color.White),
-                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp), modifier = Modifier.heightIn(min = 32.dp)) {
-                                                        Text("SKIPPED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                                                    }
-                                                } else {
-                                                    OutlinedButton(onClick = { progressStore.setBoardStockRipSkipped(jobFolderName, line.material, line.normalizedWidth, line.source.name, true) },
-                                                        border = BorderStroke(1.dp, statusColors.skipBorder.copy(alpha = 0.85f)),
-                                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = statusColors.skipBorder),
-                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp), modifier = Modifier.heightIn(min = 32.dp)) {
-                                                        Text("Skip", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                                                    }
+                                                Text("Total ${formatLinearFeet(line.totalFeet)} ft",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                            val canDecrementRip = !lineSkipped && done > 0
+                                            val canIncrementRip = !lineSkipped && done < line.neededRips
+                                            TallyStepButton(icon = Icons.Default.Remove, contentDescription = "Rip done -",
+                                                containerColor = statusColors.bad, enabled = true,
+                                                onClick = { progressStore.decrementBoardStockRipDone(jobFolderName = jobFolderName, material = line.material, normalizedWidth = line.normalizedWidth, source = line.source.name, maxCount = line.neededRips) },
+                                                onLongClick = { if (canDecrementRip) { progressStore.setBoardStockRipDone(jobFolderName, line.material, line.normalizedWidth, line.source.name, 0); true } else false })
+                                            ProgressPill(done = done, total = line.neededRips, state = rowState,
+                                                skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f))
+                                            TallyStepButton(icon = Icons.Default.Add, contentDescription = "Rip done +",
+                                                containerColor = statusColors.completeBorder, enabled = true,
+                                                onClick = { progressStore.incrementBoardStockRipDone(jobFolderName = jobFolderName, material = line.material, normalizedWidth = line.normalizedWidth, source = line.source.name, maxCount = line.neededRips) },
+                                                onLongClick = { if (canIncrementRip) { progressStore.setBoardStockRipDone(jobFolderName, line.material, line.normalizedWidth, line.source.name, line.neededRips); true } else false })
+                                            if (lineSkipped) {
+                                                Button(onClick = { progressStore.setBoardStockRipSkipped(jobFolderName, line.material, line.normalizedWidth, line.source.name, false) },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = statusColors.skipBorder, contentColor = Color.White),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp), modifier = Modifier.heightIn(min = 32.dp)) {
+                                                    Text("SKIPPED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                                }
+                                            } else {
+                                                OutlinedButton(onClick = { progressStore.setBoardStockRipSkipped(jobFolderName, line.material, line.normalizedWidth, line.source.name, true) },
+                                                    border = BorderStroke(1.dp, statusColors.skipBorder.copy(alpha = 0.85f)),
+                                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = statusColors.skipBorder),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp), modifier = Modifier.heightIn(min = 32.dp)) {
+                                                    Text("Skip", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                                                 }
                                             }
                                         }
-                                }
+                                    }
                             }
                         }
                     }
