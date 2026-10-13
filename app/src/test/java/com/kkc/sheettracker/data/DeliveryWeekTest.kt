@@ -5,6 +5,7 @@ import com.kkc.sheettracker.data.models.DeliverySchedule
 import com.kkc.sheettracker.data.models.DeliverySlot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Clock
@@ -239,5 +240,45 @@ class DeliveryWeekTest {
         assertEquals(listOf(job), overlaid.slotByKey("2026-10-15_pm").jobs)
         assertEquals(setOf("2026-10-15_pm"), pendingDeliverySlotKeys(request))
         assertEquals(schedule, overlayPendingDeliveryRequest(schedule, null))
+    }
+
+    @Test
+    fun weekendTodayDayShowsSaturdayDeliveryAsToday() {
+        val s = v2(nextMon, "2026-10-17_am" to job)
+        val day = weekendTodayDay(s, sat)!!
+        assertEquals(sat, day.date)
+        assertEquals(DeliveryDayState.TODAY, day.state)
+        assertEquals(listOf(job), day.am.jobs)
+        assertEquals("2026-10-17_am", day.amKey)
+        assertEquals("2026-10-17_pm", day.pmKey)
+        assertTrue(day.acceptsPlacement)
+        assertEquals(1, day.count)
+    }
+
+    @Test
+    fun weekendTodayDayShowsSundayPmDelivery() {
+        val s = v2(nextMon, "2026-10-18_pm" to job)
+        val day = weekendTodayDay(s, sun)!!
+        assertEquals(sun, day.date)
+        assertEquals(DeliveryDayState.TODAY, day.state)
+        assertEquals(listOf(job), day.pm.jobs)
+    }
+
+    @Test
+    fun weekendTodayDayIsNullWithNoJobToday() {
+        // A job on Sunday does not make Saturday visible.
+        assertNull(weekendTodayDay(v2(nextMon, "2026-10-18_am" to job), sat))
+        assertNull(weekendTodayDay(v2(nextMon), sat))
+    }
+
+    @Test
+    fun weekendTodayDayIsNullOnAWeekday() {
+        assertNull(weekendTodayDay(v2(mon, "2026-10-14_am" to job), wed))
+    }
+
+    @Test
+    fun weekendTodayDayIsNullForV1Schedule() {
+        val v1 = DeliverySchedule(slots = mapOf("monday_am" to DeliverySlot(listOf(job))))
+        assertNull(weekendTodayDay(v1, sat))
     }
 }

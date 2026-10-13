@@ -6,6 +6,7 @@ import com.kkc.sheettracker.data.DeliveryWeekView
 import com.kkc.sheettracker.data.buildDeliveryWeek
 import com.kkc.sheettracker.data.defaultDeliveryWeekStart
 import com.kkc.sheettracker.data.shopToday
+import com.kkc.sheettracker.data.weekendTodayDay
 import com.kkc.sheettracker.data.models.DELIVERY_PERIODS
 import com.kkc.sheettracker.data.models.DeliverySchedule
 import androidx.compose.animation.AnimatedVisibility
@@ -74,14 +75,31 @@ import androidx.compose.ui.unit.Constraints
 import com.kkc.sheettracker.data.models.DeliveryJob
 
 internal fun shouldShowDeliveryScheduleBanner(week: DeliveryWeekView, showWhenEmpty: Boolean): Boolean =
-    showWhenEmpty || week.totalCount > 0
+    shouldShowDeliveryScheduleBanner(week, showWhenEmpty, weekendToday = null)
+
+/** [weekendToday] is today's own delivery day on a Saturday/Sunday (see `weekendTodayDay`). */
+internal fun shouldShowDeliveryScheduleBanner(
+    week: DeliveryWeekView,
+    showWhenEmpty: Boolean,
+    weekendToday: DeliveryDayView?
+): Boolean = showWhenEmpty || week.totalCount > 0 || (weekendToday?.count ?: 0) > 0
 
 internal fun daysWithDeliveries(week: DeliveryWeekView): Set<LocalDate> =
     week.days.filter { it.count > 0 }.map { it.date }.toSet()
 
 /** After HT's Saturday rollover `weekOf` is next Monday, so the banner is about next week. */
 internal fun deliveryBannerTitle(week: DeliveryWeekView, today: LocalDate): String =
-    if (week.weekStart > today) "Deliveries Next Week" else "Deliveries This Week"
+    deliveryBannerTitle(week, today, weekendToday = null)
+
+internal fun deliveryBannerTitle(
+    week: DeliveryWeekView,
+    today: LocalDate,
+    weekendToday: DeliveryDayView?
+): String = when {
+    weekendToday != null -> "Deliveries Today & Next Week"
+    week.weekStart > today -> "Deliveries Next Week"
+    else -> "Deliveries This Week"
+}
 
 private val DeliveryBannerSizeSpring: FiniteAnimationSpec<IntSize> =
     spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
@@ -107,13 +125,17 @@ fun DeliveryScheduleBanner(
     val week = remember(schedule, today) {
         buildDeliveryWeek(schedule, defaultDeliveryWeekStart(schedule, today), today, includeEmptyWeekend = false)
     }
-    if (!shouldShowDeliveryScheduleBanner(week, showWhenEmpty)) return
+    // Saturday/Sunday: HT's weekOf already points at next Monday, so a delivery dated today would
+    // otherwise be invisible. It leads the strip, ahead of the coming week.
+    val weekendToday = remember(schedule, today) { weekendTodayDay(schedule, today) }
+    if (!shouldShowDeliveryScheduleBanner(week, showWhenEmpty, weekendToday)) return
 
+    val deliveryDays = daysWithDeliveries(week) + listOfNotNull(weekendToday?.date)
     var bannerExpanded by rememberSaveable { mutableStateOf(false) }
-    var expandedDays by remember { mutableStateOf(daysWithDeliveries(week)) }
-    var previousDeliveryDays by remember { mutableStateOf(daysWithDeliveries(week)) }
-    LaunchedEffect(week) {
-        val currentDeliveryDays = daysWithDeliveries(week)
+    var expandedDays by remember { mutableStateOf(deliveryDays) }
+    var previousDeliveryDays by remember { mutableStateOf(deliveryDays) }
+    LaunchedEffect(week, weekendToday) {
+        val currentDeliveryDays = daysWithDeliveries(week) + listOfNotNull(weekendToday?.date)
         expandedDays = expandedDays + (currentDeliveryDays - previousDeliveryDays)
         previousDeliveryDays = currentDeliveryDays
     }
@@ -143,7 +165,7 @@ fun DeliveryScheduleBanner(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${week.totalCount} — ${deliveryBannerTitle(week, today)}",
+                    text = "${week.totalCount + (weekendToday?.count ?: 0)} — ${deliveryBannerTitle(week, today, weekendToday)}",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -167,6 +189,7 @@ fun DeliveryScheduleBanner(
             ) {
                 DeliveryDayStrip(
                     week = week,
+                    weekendToday = weekendToday,
                     expandedDays = expandedDays,
                     onToggleDay = { day ->
                         expandedDays = if (day in expandedDays) expandedDays - day else expandedDays + day
@@ -193,6 +216,7 @@ private val DeliveryDaySegmentWidthSpring: FiniteAnimationSpec<Dp> =
 @Composable
 private fun DeliveryDayStrip(
     week: DeliveryWeekView,
+    weekendToday: DeliveryDayView?,
     expandedDays: Set<LocalDate>,
     onToggleDay: (LocalDate) -> Unit,
     onJobSelected: (folderName: String) -> Unit
@@ -204,7 +228,7 @@ private fun DeliveryDayStrip(
             .padding(horizontal = KKCSpacing.l, vertical = KKCSpacing.s),
         horizontalArrangement = Arrangement.spacedBy(KKCSpacing.xs)
     ) {
-        week.days.forEach { day ->
+        (listOfNotNull(weekendToday) + week.days).forEach { day ->
             DeliveryDaySegment(
                 day = day,
                 isExpanded = day.date in expandedDays,

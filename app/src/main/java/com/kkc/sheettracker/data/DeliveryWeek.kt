@@ -87,49 +87,72 @@ data class DeliveryWeekView(
     val totalCount: Int get() = days.sumOf { it.count }
 }
 
+/**
+ * One day's view, shared by [buildDeliveryWeek] and [weekendTodayDay]. A dated schedule keys the
+ * day by [date]; a v1 schedule keys it by [weekdayName] (`monday`...), which must then be non-null.
+ */
+private fun buildDeliveryDay(
+    schedule: DeliverySchedule,
+    date: LocalDate,
+    weekdayName: String?,
+    today: LocalDate
+): DeliveryDayView {
+    val amKey: String
+    val pmKey: String
+    if (schedule.isDated) {
+        amKey = datedSlotKey(date, "am")
+        pmKey = datedSlotKey(date, "pm")
+    } else {
+        requireNotNull(weekdayName) { "v1 delivery day needs a weekday name" }
+        amKey = "${weekdayName}_am"
+        pmKey = "${weekdayName}_pm"
+    }
+    return DeliveryDayView(
+        date = date,
+        label = date.format(DAY_LABEL),
+        am = schedule.slotByKey(amKey),
+        pm = schedule.slotByKey(pmKey),
+        amKey = amKey,
+        pmKey = pmKey,
+        state = when {
+            date < today -> DeliveryDayState.PAST
+            date == today -> DeliveryDayState.TODAY
+            else -> DeliveryDayState.FUTURE
+        },
+        acceptsPlacement = !schedule.isDated || date >= today.minusDays(DELIVERY_HISTORY_DAYS)
+    )
+}
+
+/**
+ * On Saturday/Sunday HT's `weekOf` is the coming Monday, so a delivery dated today sits in the week
+ * BEFORE `weekOf` and the week view never shows it. Returns today's day when the schedule is dated,
+ * today is a weekend day and it has at least one job; otherwise null.
+ */
+fun weekendTodayDay(schedule: DeliverySchedule, today: LocalDate): DeliveryDayView? {
+    if (!schedule.isDated) return null
+    if (today.dayOfWeek != DayOfWeek.SATURDAY && today.dayOfWeek != DayOfWeek.SUNDAY) return null
+    return buildDeliveryDay(schedule, today, null, today).takeIf { it.count > 0 }
+}
+
 fun buildDeliveryWeek(
     schedule: DeliverySchedule,
     weekStart: LocalDate,
     today: LocalDate,
     includeEmptyWeekend: Boolean
 ): DeliveryWeekView {
-    val historyCutoff = today.minusDays(DELIVERY_HISTORY_DAYS)
     val days = (0L until 7L).mapNotNull { offset ->
         val date = weekStart.plusDays(offset)
         val weekend = offset >= 5
-        val amKey: String
-        val pmKey: String
-        if (schedule.isDated) {
-            amKey = datedSlotKey(date, "am")
-            pmKey = datedSlotKey(date, "pm")
-        } else {
-            if (weekend) return@mapNotNull null
-            amKey = "${DELIVERY_DAYS[offset.toInt()]}_am"
-            pmKey = "${DELIVERY_DAYS[offset.toInt()]}_pm"
-        }
-        val am = schedule.slotByKey(amKey)
-        val pm = schedule.slotByKey(pmKey)
-        if (weekend && !includeEmptyWeekend && am.jobs.isEmpty() && pm.jobs.isEmpty()) return@mapNotNull null
-        DeliveryDayView(
-            date = date,
-            label = date.format(DAY_LABEL),
-            am = am,
-            pm = pm,
-            amKey = amKey,
-            pmKey = pmKey,
-            state = when {
-                date < today -> DeliveryDayState.PAST
-                date == today -> DeliveryDayState.TODAY
-                else -> DeliveryDayState.FUTURE
-            },
-            acceptsPlacement = !schedule.isDated || date >= historyCutoff
-        )
+        if (!schedule.isDated && weekend) return@mapNotNull null
+        val day = buildDeliveryDay(schedule, date, DELIVERY_DAYS.getOrNull(offset.toInt()), today)
+        if (weekend && !includeEmptyWeekend && day.count == 0) return@mapNotNull null
+        day
     }
     return DeliveryWeekView(
         weekStart = weekStart,
         days = days,
         isDefaultWeek = weekStart == defaultDeliveryWeekStart(schedule, today),
-        canGoBack = schedule.isDated && weekStart.minusDays(1) >= historyCutoff,
+        canGoBack = schedule.isDated && weekStart.minusDays(1) >= today.minusDays(DELIVERY_HISTORY_DAYS),
         canGoForward = schedule.isDated
     )
 }
