@@ -30,7 +30,7 @@ sealed interface DeliveryEditOutcome {
     data class Refused(override val notices: List<String>) : DeliveryEditOutcome
 }
 
-fun formatDeliveryFailure(f: DeliveryScheduleFailure): String {
+fun formatDeliveryFailure(f: DeliveryScheduleFailure, removal: Boolean = false): String {
     val why = f.reason.ifBlank {
         when (f.status) {
             409 -> "that day already has $MAX_DELIVERY_JOBS_PER_DAY deliveries"
@@ -39,7 +39,7 @@ fun formatDeliveryFailure(f: DeliveryScheduleFailure): String {
             else -> "refused by Hours Tracker (${f.status})"
         }
     }
-    return "Job ${f.jobNumber.ifBlank { f.folderName }} not placed: $why"
+    return "Job ${f.jobNumber.ifBlank { f.folderName }} ${if (removal) "was not removed" else "not placed"}: $why"
 }
 
 /**
@@ -75,9 +75,11 @@ class DeliveryScheduleEditor(
             when (val r = remote.setJobDate(job.folderName, dated.date, dated.period, tabletId)) {
                 is DeliveryJobDateResult.Applied -> {
                     // HT can answer 200 without placing the job (e.g. its folder is no longer a
-                    // real office job); the reply's failures say why. That is a refusal, not a move.
+                    // real office job); the reply's failures say why. The job did not move, but HT's
+                    // regenerated schedule is canonical, so hand it back with the notices.
                     if (r.result.schedule.slotByKey(toSlot).jobs.none { it.sameJob(job) }) {
-                        return DeliveryEditOutcome.Refused(
+                        return DeliveryEditOutcome.Applied(
+                            r.result.schedule,
                             r.result.failures.map(::formatDeliveryFailure)
                                 .ifEmpty { listOf("Job ${job.jobNumber} not placed: Hours Tracker did not schedule it") }
                         )
@@ -106,8 +108,9 @@ class DeliveryScheduleEditor(
             when (val r = remote.setJobDate(job.folderName, null, null, tabletId)) {
                 is DeliveryJobDateResult.Applied -> {
                     if (r.result.schedule.slotByKey(fromSlot).jobs.any { it.sameJob(job) }) {
-                        return DeliveryEditOutcome.Refused(
-                            r.result.failures.map(::formatDeliveryFailure)
+                        return DeliveryEditOutcome.Applied(
+                            r.result.schedule,
+                            r.result.failures.map { formatDeliveryFailure(it, removal = true) }
                                 .ifEmpty { listOf("Job ${job.jobNumber} was not removed: Hours Tracker kept its date") }
                         )
                     }

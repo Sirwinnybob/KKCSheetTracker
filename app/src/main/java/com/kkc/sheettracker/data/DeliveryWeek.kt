@@ -127,9 +127,14 @@ private fun buildDeliveryDay(
  * On Saturday/Sunday HT's `weekOf` is the coming Monday, so a delivery dated today sits in the week
  * BEFORE `weekOf` and the week view never shows it. Returns today's day when the schedule is dated,
  * today is a weekend day and it has at least one job; otherwise null.
+ *
+ * [weekStart] is the Monday of the week the banner displays. If today is not before it (HT has not
+ * rewritten `weekOf` yet, so the displayed Mon-Sun week already holds today), the week view shows
+ * today itself and a second copy here would duplicate the day.
  */
-fun weekendTodayDay(schedule: DeliverySchedule, today: LocalDate): DeliveryDayView? {
+fun weekendTodayDay(schedule: DeliverySchedule, today: LocalDate, weekStart: LocalDate): DeliveryDayView? {
     if (!schedule.isDated) return null
+    if (today >= weekStart) return null
     if (today.dayOfWeek != DayOfWeek.SATURDAY && today.dayOfWeek != DayOfWeek.SUNDAY) return null
     return buildDeliveryDay(schedule, today, null, today).takeIf { it.count > 0 }
 }

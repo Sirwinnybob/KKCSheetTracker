@@ -127,7 +127,7 @@ fun DeliveryScheduleBanner(
     }
     // Saturday/Sunday: HT's weekOf already points at next Monday, so a delivery dated today would
     // otherwise be invisible. It leads the strip, ahead of the coming week.
-    val weekendToday = remember(schedule, today) { weekendTodayDay(schedule, today) }
+    val weekendToday = remember(schedule, today, week.weekStart) { weekendTodayDay(schedule, today, week.weekStart) }
     if (!shouldShowDeliveryScheduleBanner(week, showWhenEmpty, weekendToday)) return
 
     val deliveryDays = daysWithDeliveries(week) + listOfNotNull(weekendToday?.date)

@@ -4,7 +4,6 @@ import com.kkc.sheettracker.data.buildDeliveryWeek
 import com.kkc.sheettracker.data.defaultDeliveryWeekStart
 import com.kkc.sheettracker.data.models.DeliveryJob
 import com.kkc.sheettracker.data.models.DeliverySchedule
-import com.kkc.sheettracker.data.weekendTodayDay
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -54,6 +53,22 @@ class DeliveryScheduleBannerTest {
 
     private fun weekendSchedule(slotKey: String) =
         DeliverySchedule(isDated = true, weekOf = mon.plusWeeks(1)).withSlot(slotKey, listOf(job))
+
+    private fun weekendTodayDay(s: DeliverySchedule, today: java.time.LocalDate) =
+        com.kkc.sheettracker.data.weekendTodayDay(s, today, defaultDeliveryWeekStart(s, today))
+
+    @Test
+    fun staleWeekOfDoesNotDuplicateSaturdayInTheBanner() {
+        // HT has not rolled weekOf yet: it is still this Monday, so the week view already holds Saturday.
+        val s = DeliverySchedule(isDated = true, weekOf = mon).withSlot("2026-10-17_am", listOf(job))
+        val w = week(s, sat)
+        val today = weekendTodayDay(s, sat)
+        assertNull(today)
+        assertEquals(1, w.days.count { it.date == sat })
+        assertEquals(1, w.totalCount)
+        assertEquals("Deliveries This Week", deliveryBannerTitle(w, sat, today))
+        assertTrue(shouldShowDeliveryScheduleBanner(w, showWhenEmpty = false, weekendToday = today))
+    }
 
     @Test
     fun saturdayWithTodaysJobTitlesTodayAndNextWeek() {

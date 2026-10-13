@@ -242,6 +242,19 @@ class DeliveryWeekTest {
         assertEquals(schedule, overlayPendingDeliveryRequest(schedule, null))
     }
 
+    private fun weekendTodayDay(s: DeliverySchedule, today: LocalDate) =
+        weekendTodayDay(s, today, defaultDeliveryWeekStart(s, today))
+
+    @Test
+    fun weekendTodayDayIsNullWhenTodayIsInsideTheDisplayedWeek() {
+        // Stale file: weekOf is still this Monday, so Mon-Sun already includes Saturday.
+        val stale = v2(mon, "2026-10-17_am" to job)
+        assertNull(weekendTodayDay(stale, sat, weekStart = mon))
+        assertNull(weekendTodayDay(stale, sat))
+        // Only a week that starts after today leaves today out.
+        assertEquals(sat, weekendTodayDay(v2(nextMon, "2026-10-17_am" to job), sat, weekStart = nextMon)!!.date)
+    }
+
     @Test
     fun weekendTodayDayShowsSaturdayDeliveryAsToday() {
         val s = v2(nextMon, "2026-10-17_am" to job)

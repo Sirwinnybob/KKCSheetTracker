@@ -52,19 +52,21 @@ class DeliveryScheduleEditorTest {
     }
 
     @Test
-    fun putAppliedWithoutTheJobAndWithFailuresIsRefusedWithFormattedFailure() = runBlocking {
+    fun putAppliedWithoutTheJobAndWithFailuresKeepsHtScheduleWithFormattedFailure() = runBlocking {
         val failure = DeliveryScheduleFailure("2026-10-21_pm", "670", "670 - ESCHRICH", 404, "")
-        val remote = FakeRemote(put = DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(v2, listOf(failure))))
+        val ht = DeliveryScheduleApplyResult(v2, listOf(failure))
+        val remote = FakeRemote(put = DeliveryJobDateResult.Applied(ht))
         val outcome = DeliveryScheduleEditor(remote, FakeQueue(), "T1").placeJob(v2, a, "2026-10-21_pm", null)
-        assertEquals(DeliveryEditOutcome.Refused(listOf("Job 670 not placed: no office job for this folder")), outcome)
+        assertEquals(DeliveryEditOutcome.Applied(ht.schedule, listOf("Job 670 not placed: no office job for this folder")), outcome)
     }
 
     @Test
-    fun putAppliedWithoutTheJobAndWithoutFailuresIsRefusedWithGenericText() = runBlocking {
-        val remote = FakeRemote(put = DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(v2, emptyList())))
+    fun putAppliedWithoutTheJobAndWithoutFailuresKeepsHtScheduleWithGenericText() = runBlocking {
+        val ht = DeliveryScheduleApplyResult(v2, emptyList())
+        val remote = FakeRemote(put = DeliveryJobDateResult.Applied(ht))
         val outcome = DeliveryScheduleEditor(remote, FakeQueue(), "T1").placeJob(v2, a, "2026-10-21_pm", null)
         assertEquals(
-            DeliveryEditOutcome.Refused(listOf("Job 670 not placed: Hours Tracker did not schedule it")),
+            DeliveryEditOutcome.Applied(ht.schedule, listOf("Job 670 not placed: Hours Tracker did not schedule it")),
             outcome
         )
     }
@@ -78,20 +80,25 @@ class DeliveryScheduleEditorTest {
     }
 
     @Test
-    fun removeAppliedWhileJobStillInSlotIsRefused() = runBlocking {
+    fun removeAppliedWhileJobStillInSlotKeepsHtSchedule() = runBlocking {
         val current = v2.withSlot("2026-10-21_pm", listOf(a, b))
-        val remote = FakeRemote(put = DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(current, emptyList())))
+        val ht = DeliveryScheduleApplyResult(current, emptyList())
+        val remote = FakeRemote(put = DeliveryJobDateResult.Applied(ht))
         val outcome = DeliveryScheduleEditor(remote, FakeQueue(), "T1").removeJob(current, a, "2026-10-21_pm")
-        assertEquals(DeliveryEditOutcome.Refused(listOf("Job 670 was not removed: Hours Tracker kept its date")), outcome)
+        assertEquals(DeliveryEditOutcome.Applied(ht.schedule, listOf("Job 670 was not removed: Hours Tracker kept its date")), outcome)
     }
 
     @Test
-    fun removeAppliedWhileJobStillInSlotUsesFormattedFailures() = runBlocking {
+    fun removeAppliedWhileJobStillInSlotUsesRemovalWordingForFailures() = runBlocking {
         val current = v2.withSlot("2026-10-21_pm", listOf(a))
         val failure = DeliveryScheduleFailure("", "670", "670 - ESCHRICH", 400, "")
-        val remote = FakeRemote(put = DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(current, listOf(failure))))
+        val ht = DeliveryScheduleApplyResult(current, listOf(failure))
+        val remote = FakeRemote(put = DeliveryJobDateResult.Applied(ht))
         val outcome = DeliveryScheduleEditor(remote, FakeQueue(), "T1").removeJob(current, a, "2026-10-21_pm")
-        assertEquals(DeliveryEditOutcome.Refused(listOf("Job 670 not placed: the office job is closed or invalid")), outcome)
+        assertEquals(
+            DeliveryEditOutcome.Applied(ht.schedule, listOf("Job 670 was not removed: the office job is closed or invalid")),
+            outcome
+        )
     }
 
     @Test
