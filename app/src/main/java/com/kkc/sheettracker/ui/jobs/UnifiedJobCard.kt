@@ -382,7 +382,7 @@ fun UnifiedJobCard(
                         FilterChip(
                             selected = false,
                             onClick = { model.onViewCoverSheetClick?.invoke() },
-                            label = { Text("Delivery") },
+                            label = { Text("Cover") },
                             leadingIcon = {
                                 Icon(
                                     imageVector = ReferenceDeliveryIcon,

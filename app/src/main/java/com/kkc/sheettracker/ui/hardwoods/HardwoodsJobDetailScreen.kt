@@ -338,7 +338,7 @@ fun HardwoodsJobDetailScreen(
                     }, ReferencePlansIcon))
                 }
                 if (hasDeliverySheet) {
-                    add(KKCPillAction("Delivery", {
+                    add(KKCPillAction("Cover", {
                         suppressLeavePrompt = true
                         onOpenReferenceDocument(ReferenceDocType.DELIVERY_SHEETS, 1)
                     }, ReferenceDeliverySheetIcon))

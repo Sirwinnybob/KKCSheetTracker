@@ -637,7 +637,7 @@ fun AssemblyViewerScreen(
     fun sourceLabel(source: PaneSource): String = when (source) {
         PaneSource.PLANS -> "Plans"
         PaneSource.ASSEMBLY -> "Assembly"
-        PaneSource.DELIVERY -> "Delivery"
+        PaneSource.DELIVERY -> "Cover"
         PaneSource.PULLS -> "Pulls"
         PaneSource.OTHER -> "Other"
         PaneSource.THREE_D -> "3D"
@@ -1495,7 +1495,7 @@ private fun RowScope.PaneSourceControlsInline(
         )
         source("Plans", PaneSource.PLANS, ReferencePlansIcon)
         source("Assembly", PaneSource.ASSEMBLY, ReferenceAssemblyIcon)
-        source("Delivery", PaneSource.DELIVERY, ReferenceDeliverySheetIcon)
+        source("Cover", PaneSource.DELIVERY, ReferenceDeliverySheetIcon)
         if (hasPulls) source("Pulls", PaneSource.PULLS, ReferencePullsIcon)
         source("3D", PaneSource.THREE_D, ReferenceView3DIcon)
         source("Checklist", PaneSource.CHECKLIST, LibraryStandardsIcon)

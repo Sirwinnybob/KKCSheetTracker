@@ -144,7 +144,7 @@ fun ReferencePdfViewerScreen(
                         when (docType) {
                             ReferenceDocType.ASSEMBLY -> "Assembly Sheets"
                             ReferenceDocType.PLANS_ELEVATIONS -> "Plans & Elevations"
-                            ReferenceDocType.DELIVERY_SHEETS -> "Delivery"
+                            ReferenceDocType.DELIVERY_SHEETS -> "Cover"
                             ReferenceDocType.SHEET -> "Sheet"
                             ReferenceDocType.PULLS -> "Pulls"
                         },

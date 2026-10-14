@@ -197,7 +197,7 @@ private fun PaneDropdown(
 private fun AssemblyPaneView.displayName(): String = when (this) {
     AssemblyPaneView.ASSEMBLY -> "Assembly"
     AssemblyPaneView.PLANS -> "Plans"
-    AssemblyPaneView.DELIVERY -> "Delivery"
+    AssemblyPaneView.DELIVERY -> "Cover"
     AssemblyPaneView.THREE_D -> "3D"
     AssemblyPaneView.CHECKLIST -> "Checklist"
 }
