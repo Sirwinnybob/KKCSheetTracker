@@ -28,10 +28,56 @@ class DeliveryScheduleWiringTest {
         assertFalse(dialog.contains("onDragEnd = { onDragEnd() }"))
         assertFalse(dialog.contains("onDragStart = { onDragStart(job"))
         val screen = source("ui/jobs/UnifiedJobsScreen.kt")
-        assertTrue(screen.contains("Mutex()"))
-        assertTrue(screen.contains("withLock"))
-        assertTrue(screen.contains("overlayPendingDeliveryRequest(latestDialogSchedule"))
-        assertTrue(screen.contains("rememberUpdatedState(deliveryScheduleBinding.dialogSchedule)"))
+        assertTrue(screen.contains("private val deliveryEditMutex = Mutex()"))
+        val runner = source("ui/jobs/DeliveryEditRunner.kt")
+        assertTrue(runner.contains("mutex.withLock"))
+        // The fresh schedule is read from the store (not composition) inside the lock.
+        assertTrue(runner.contains("overlayPendingDeliveryRequest(currentSchedule(), readPending())"))
+    }
+
+    @Test
+    fun deliveryEditsOutliveTheJobsRouteAndNeverCrashOnQueueFailure() {
+        val screen = source("ui/jobs/UnifiedJobsScreen.kt")
+        val runDeliveryEdit = screen.substringAfter("fun runDeliveryEdit(").substringBefore("val deliveryPickerJobs")
+        assertFalse(runDeliveryEdit.contains("withFrameNanos"))
+        assertFalse(runDeliveryEdit.contains("saveScope"))
+        assertTrue(runDeliveryEdit.contains("deliveryEditRunner.run("))
+        assertTrue(runDeliveryEdit.contains("currentSchedule = { deliveryScheduleForJobsScreen(latestCurrentDeliverySchedule()) }"))
+        assertTrue(screen.contains("rememberUpdatedState(currentDeliverySchedule)"))
+        assertTrue(screen.contains("hasPendingRequest = { deliveryScheduleRequestStore.readPending(tabletId) != null }"))
+        assertFalse(screen.contains("rememberUpdatedState(deliveryScheduleBinding.dialogSchedule)"))
+        // Process-lifetime scope, not the composition's rememberCoroutineScope().
+        assertTrue(screen.contains("CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)"))
+        assertTrue(screen.contains("DeliveryEditRunner(deliveryEditScope, deliveryEditMutex)"))
+        assertTrue(screen.contains("currentDeliverySchedule: () -> DeliverySchedule = { deliverySchedule }"))
+        val runner = source("ui/jobs/DeliveryEditRunner.kt")
+        assertTrue(runner.contains("catch (e: CancellationException)"))
+        assertTrue(runner.contains("throw e"))
+        assertTrue(runner.contains("catch (e: Exception)"))
+        // Every Jobs-screen call site reads the live store value, not a composed snapshot.
+        val nav = source("navigation/NavGraph.kt")
+        val callSites = nav.split("ui.jobs.UnifiedJobsScreen(").drop(1)
+        assertTrue(callSites.isNotEmpty())
+        callSites.forEach { assertTrue(it.substringBefore("onJobClick").contains("currentDeliverySchedule = currentDeliverySchedule")) }
+        assertTrue(nav.contains("currentDeliverySchedule = { deliveryScheduleStore.schedule.value }"))
+    }
+
+    @Test
+    fun legacyScheduleCapsEachHalfDayAtThreeInTheDialog() {
+        val dialog = source("ui/components/DeliveryScheduleDialog.kt")
+        assertTrue(dialog.contains("MAX_DELIVERY_JOBS_PER_LEGACY_SLOT"))
+        assertTrue(dialog.contains("legacyHalfDayCap = !schedule.isDated"))
+        assertTrue(dialog.contains("canAdd = dayHasRoom && slotHasRoom"))
+    }
+
+    @Test
+    fun dragHitTestOnlyConsidersTheVisibleWeek() {
+        val dialog = source("ui/components/DeliveryScheduleDialog.kt")
+        assertFalse(dialog.contains("LaunchedEffect(weekStart) { slotBounds.clear() }"))
+        val updateDrag = dialog.substringAfter("fun updateDrag(").substringBefore("fun endDrag(")
+        assertTrue(updateDrag.contains("week.days"))
+        assertTrue(updateDrag.contains("amKey"))
+        assertTrue(updateDrag.contains("pmKey"))
     }
 
     @Test

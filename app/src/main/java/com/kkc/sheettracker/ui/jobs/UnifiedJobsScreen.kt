@@ -61,7 +61,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -122,11 +121,12 @@ import com.kkc.sheettracker.ui.components.animateEntrance
 import com.kkc.sheettracker.ui.components.mergeActiveReorder
 import com.kkc.sheettracker.ui.detail.RestoreArchivedJobSheet
 import com.kkc.sheettracker.ui.detail.restoreActionVisible
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -159,6 +159,13 @@ internal fun shouldRunUnifiedJobsBackgroundWork(active: Boolean): Boolean = acti
 internal fun shouldLoadUnifiedJobsLabels(active: Boolean): Boolean = active
 
 internal fun deliveryScheduleForJobsScreen(schedule: DeliverySchedule): DeliverySchedule = schedule
+
+// Delivery edits must outlive the Jobs route (an offline edit waits ~10 s before it is queued) and
+// stay serialized across screen instances, so the scope and lock are process-lifetime. Lazy so
+// plain JVM tests that touch this file never initialize the Main dispatcher.
+private val deliveryEditScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
+private val deliveryEditMutex = Mutex()
+private val deliveryEditRunner by lazy { DeliveryEditRunner(deliveryEditScope, deliveryEditMutex) }
 
 internal fun applyCanonicalDeliverySchedule(
     schedule: DeliverySchedule?,
@@ -193,6 +200,8 @@ fun UnifiedJobsScreen(
     jobRepository: JobRepository,
     deliverySchedule: DeliverySchedule,
     onDeliveryScheduleApplied: (DeliverySchedule) -> Unit,
+    /** The store's live schedule, read when an edit runs (outside composition). */
+    currentDeliverySchedule: () -> DeliverySchedule = { deliverySchedule },
     basePath: String,
     tabletId: String,
     isDebugBuild: Boolean,
@@ -385,7 +394,13 @@ fun UnifiedJobsScreen(
     }
     val adminSyncClient = remember(adminSyncServerUrl) { adminSyncServerUrl?.let { AdminSyncClient(it) } }
     val deliveryEditor = remember(adminSyncClient, deliveryScheduleRequestStore, tabletId) {
-        DeliveryScheduleEditor(adminSyncClient?.asDeliveryRemote(), deliveryScheduleRequestStore, tabletId)
+        DeliveryScheduleEditor(
+            adminSyncClient?.asDeliveryRemote(),
+            deliveryScheduleRequestStore,
+            tabletId,
+            // While our request file waits for HT, edits join it instead of racing it online.
+            hasPendingRequest = { deliveryScheduleRequestStore.readPending(tabletId) != null }
+        )
     }
     var deliveryNotices by remember { mutableStateOf(emptyList<String>()) }
     var deliveryPendingRequest by remember { mutableStateOf<DeliveryScheduleEditRequest?>(null) }
@@ -403,28 +418,30 @@ fun UnifiedJobsScreen(
     // Drag gestures outlive recompositions, so edits must never close over this composition's
     // schedule/editor/binding: read the latest through updated state, and serialize edits so each
     // one is built from the schedule (plus our own pending request) left by the previous one.
-    val latestDialogSchedule by rememberUpdatedState(deliveryScheduleBinding.dialogSchedule)
+    val latestCurrentDeliverySchedule by rememberUpdatedState(currentDeliverySchedule)
     val latestDeliveryEditor by rememberUpdatedState(deliveryEditor)
     val latestDeliveryBinding by rememberUpdatedState(deliveryScheduleBinding)
-    val deliveryEditMutex = remember { Mutex() }
+    val latestDeliveryRequestStore by rememberUpdatedState(deliveryScheduleRequestStore)
+    val latestTabletId by rememberUpdatedState(tabletId)
     // Bumped after a refused/noticed edit so the dialog reverts its optimistic local change.
     var deliveryEditRevision by remember { mutableIntStateOf(0) }
+    // Runs in a process-lifetime scope (see deliveryEditRunner): leaving the Jobs route must not
+    // cancel an offline edit before it is queued. The schedule is read from the store inside the
+    // runner's lock, so a queued edit sees the canonical result of the one before it. State writes
+    // after this screen is gone land in forgotten remembered state and are harmless.
     fun runDeliveryEdit(edit: suspend (DeliveryScheduleEditor, DeliverySchedule) -> DeliveryEditOutcome) {
-        saveScope.launch {
-            deliveryEditMutex.withLock {
-                val pending = withContext(Dispatchers.IO) { deliveryScheduleRequestStore.readPending(tabletId) }
-                val current = overlayPendingDeliveryRequest(latestDialogSchedule, pending)
-                val outcome = withContext(Dispatchers.IO) { edit(latestDeliveryEditor, current) }
-                if (outcome is DeliveryEditOutcome.Applied) {
-                    latestDeliveryBinding.applyCanonicalResponse(outcome.schedule)
-                    // Let the new canonical schedule recompose into latestDialogSchedule before the next queued edit reads it.
-                    repeat(2) { withFrameNanos { } }
-                }
-                if (outcome.notices.isNotEmpty()) deliveryNotices = deliveryNotices + outcome.notices
-                deliveryPendingRequest = withContext(Dispatchers.IO) { deliveryScheduleRequestStore.readPending(tabletId) }
-                if (outcome is DeliveryEditOutcome.Refused || outcome.notices.isNotEmpty()) deliveryEditRevision += 1
-            }
-        }
+        deliveryEditRunner.run(
+            editor = { latestDeliveryEditor },
+            currentSchedule = { deliveryScheduleForJobsScreen(latestCurrentDeliverySchedule()) },
+            readPending = { latestDeliveryRequestStore.readPending(latestTabletId) },
+            onApplied = { latestDeliveryBinding.applyCanonicalResponse(it) },
+            onResult = { result ->
+                if (result.notices.isNotEmpty()) deliveryNotices = deliveryNotices + result.notices
+                deliveryPendingRequest = result.pending
+                if (result.revert) deliveryEditRevision += 1
+            },
+            edit = edit
+        )
     }
     val deliveryPickerJobs = remember(filteredCards) {
         filteredCards.map {

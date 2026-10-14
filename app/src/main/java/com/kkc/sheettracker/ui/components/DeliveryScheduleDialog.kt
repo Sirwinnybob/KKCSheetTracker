@@ -108,6 +108,7 @@ import com.kkc.sheettracker.data.DeliveryDayState
 import com.kkc.sheettracker.data.DeliveryDayView
 import com.kkc.sheettracker.data.DeliveryWeekView
 import com.kkc.sheettracker.data.MAX_DELIVERY_JOBS_PER_DAY
+import com.kkc.sheettracker.data.MAX_DELIVERY_JOBS_PER_LEGACY_SLOT
 import com.kkc.sheettracker.data.buildDeliveryWeek
 import com.kkc.sheettracker.data.defaultDeliveryWeekStart
 import com.kkc.sheettracker.data.deliveryDayJobs
@@ -193,13 +194,12 @@ fun DeliveryScheduleDialog(
     val week = remember(editableSchedule, weekStart, today, isAdminMode) {
         buildDeliveryWeek(editableSchedule, weekStart, today, includeEmptyWeekend = isAdminMode && editableSchedule.isDated)
     }
-    // Bounds are window coordinates of the visible week's cells; drop the old week's on navigation.
-    LaunchedEffect(weekStart) { slotBounds.clear() }
-
     fun placeJob(job: DeliveryJob, toSlot: String, fromSlot: String?) {
         val dest = editableSchedule.slotByKey(toSlot).jobs
         // The limit is per day; the moving job doesn't count against its own destination day.
         if (deliveryDayJobs(editableSchedule, toSlot).count { it != job } >= MAX_DELIVERY_JOBS_PER_DAY) return
+        // A v1 (undated) HT also caps each half-day at 3 and quarantines a request that exceeds it.
+        if (!editableSchedule.isDated && dest.count { it != job } >= MAX_DELIVERY_JOBS_PER_LEGACY_SLOT) return
         var next = editableSchedule
         if (fromSlot != null) next = next.withSlot(fromSlot, next.slotByKey(fromSlot).jobs.filterNot { it == job })
         editableSchedule = next.withSlot(toSlot, dest + job)
@@ -238,7 +238,11 @@ fun DeliveryScheduleDialog(
         val updated = current.copy(dragOffset = current.dragOffset + delta)
         dragState = updated
         val pointerApprox = dragOriginWindow + updated.dragOffset
-        hoveredSlotKey = slotBounds.entries.firstOrNull { (_, rect) -> rect.contains(pointerApprox) }?.key
+        // Bounds (window coordinates) are kept for every week ever shown; only the visible week's
+        // cells may be hit, so a stale off-screen week's rect can never capture the drop.
+        val visibleKeys = week.days.flatMapTo(HashSet()) { listOf(it.amKey, it.pmKey) }
+        hoveredSlotKey = slotBounds.entries
+            .firstOrNull { (key, rect) -> key in visibleKeys && rect.contains(pointerApprox) }?.key
     }
 
     fun endDrag() {
@@ -369,6 +373,8 @@ fun DeliveryScheduleDialog(
                         pendingSlotKeys = pendingSlotKeys,
                         // v2 jobs need a folderName to be dated; manual entry has none, so placement is drag-only.
                         allowManualAdd = !schedule.isDated,
+                        // v1 HT rejects a 4th job in one half-day, so undated schedules cap each slot at 3.
+                        legacyHalfDayCap = !schedule.isDated,
                         isAdminMode = isAdminMode,
                         activeAddSlot = activeAddSlot,
                         dragState = dragState,
@@ -420,6 +426,7 @@ private fun DeliveryScheduleGrid(
     week: DeliveryWeekView,
     pendingSlotKeys: Set<String>,
     allowManualAdd: Boolean,
+    legacyHalfDayCap: Boolean,
     isAdminMode: Boolean,
     activeAddSlot: String?,
     context: Context,
@@ -454,6 +461,7 @@ private fun DeliveryScheduleGrid(
                     day = day,
                     pendingSlotKeys = pendingSlotKeys,
                     allowManualAdd = allowManualAdd,
+                    legacyHalfDayCap = legacyHalfDayCap,
                     isAdminMode = isAdminMode,
                     activeAddSlot = activeAddSlot,
                     context = context,
@@ -481,6 +489,7 @@ private fun DeliveryDayColumn(
     day: DeliveryDayView,
     pendingSlotKeys: Set<String>,
     allowManualAdd: Boolean,
+    legacyHalfDayCap: Boolean,
     isAdminMode: Boolean,
     activeAddSlot: String?,
     context: Context,
@@ -519,10 +528,13 @@ private fun DeliveryDayColumn(
             val slotKey = day.slotKey(period)
             val slot = day.slot(period)
             val isHovered = hoveredSlotKey == slotKey
+            // v1 only: the half-day itself is full at 3 (v2 days have no per-half-day limit).
+            val slotHasRoom = !legacyHalfDayCap || slot.jobs.size < MAX_DELIVERY_JOBS_PER_LEGACY_SLOT
             // Full day: only a job already on this day (AM <-> PM) may still land here.
             val isValidDropTarget = dragState != null &&
                 dragState.sourceSlotKey != slotKey &&
                 day.acceptsPlacement &&
+                slotHasRoom &&
                 (dayHasRoom || dragState.sourceSlotKey == day.amKey || dragState.sourceSlotKey == day.pmKey)
             val dragSourceIndex = if (dragState?.sourceSlotKey == slotKey) dragState.sourceIndex else null
             DeliveryPeriodCell(
@@ -536,7 +548,7 @@ private fun DeliveryDayColumn(
                 isValidDropTarget = isValidDropTarget,
                 dragSourceIndex = dragSourceIndex,
                 acceptsPlacement = day.acceptsPlacement && allowManualAdd,
-                canAdd = dayHasRoom,
+                canAdd = dayHasRoom && slotHasRoom,
                 isPending = slotKey in pendingSlotKeys,
                 onStartAdd = { onStartAdd(slotKey) },
                 onCancelAdd = onCancelAdd,
