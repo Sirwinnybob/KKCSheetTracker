@@ -29,7 +29,7 @@ class DeliveryEditRunnerTest {
     private val editor = DeliveryScheduleEditor(null, object : DeliveryScheduleQueue {
         override suspend fun queueSlotEdit(slot: String, jobs: List<DeliveryJob>, tabletId: String) =
             DeliveryQueueResult(true, emptyList())
-        override suspend fun queueReset(tabletId: String, mirroredWeekOf: LocalDate?) = Unit
+        override suspend fun queueReset(tabletId: String, mirroredWeekOf: LocalDate?) = true
     }, "T1")
 
     private fun runner(logged: MutableList<Throwable> = mutableListOf()) = DeliveryEditRunner(

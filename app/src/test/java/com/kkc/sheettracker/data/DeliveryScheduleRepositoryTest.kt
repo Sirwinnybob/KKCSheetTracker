@@ -156,7 +156,7 @@ class DeliveryScheduleRepositoryTest {
         ).days[2]
         assertEquals(listOf("670"), day.am.jobs.map { it.jobNumber })
         assertTrue(day.pm.jobs.isEmpty())
-        assertEquals(1, deliveryDayCount(s, "2026-10-14_pm"))
+        assertEquals(1, deliveryDayJobs(s, "2026-10-14_pm").size)
     }
 
     @Test
@@ -212,6 +212,29 @@ class DeliveryScheduleRepositoryTest {
         assertTrue(s.isDated)
         assertEquals("670", s.slot("thursday", "pm").jobs.single().jobNumber)
         assertEquals("670", s.slotByKey("2026-10-15_pm").jobs.single().jobNumber)
+    }
+
+    @Test
+    fun datedSlotsThatIsNotAnObjectLeavesTheDocumentUndated() {
+        listOf("[]", "\"x\"", "null", "5").forEach { notAnObject ->
+            val s = parseDeliverySchedule(
+                """{"schemaVersion":2,"weekOf":"2026-10-12","datedSlots":$notAnObject,
+                    "slots":{"monday_am":{"jobs":[{"jobNumber":"1","description":"One"}]}}}"""
+            )
+            assertFalse("datedSlots=$notAnObject", s.isDated)
+            assertNull(s.weekOf)
+            assertTrue(s.datedSlots.isEmpty())
+            assertEquals("1", s.slot("monday", "am").jobs.single().jobNumber)
+        }
+    }
+
+    @Test
+    fun slotsWinsWhenBothSlotsAndScheduleObjectsArePresent() {
+        val s = parseDeliverySchedule(
+            """{"slots":{"monday_am":{"jobs":[{"jobNumber":"1","description":"From slots"}]}},
+                "schedule":{"monday_am":{"jobs":[{"jobNumber":"2","description":"From schedule"}]}}}"""
+        )
+        assertEquals("1", s.slot("monday", "am").jobs.single().jobNumber)
     }
 
     @Test

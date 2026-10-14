@@ -1,5 +1,7 @@
 package com.kkc.sheettracker.data
 
+import com.kkc.sheettracker.data.models.DeliverySchedule
+import com.kkc.sheettracker.data.models.DeliveryScheduleDocument
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -11,10 +13,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-data class DeliveryScheduleApplyResult(
-    val schedule: com.kkc.sheettracker.data.models.DeliverySchedule,
-    val failures: List<com.kkc.sheettracker.data.models.DeliveryScheduleFailure>
-)
+/** A parsed schedule plus the per-job `failures` HT reported (`schedule` and `failures` fields). */
+typealias DeliveryScheduleApplyResult = DeliveryScheduleDocument
+
+/** HTTP statuses that mean HT definitively refused a per-job delivery PUT (everything else is "unavailable"). */
+private val JOB_DATE_REFUSAL_STATUSES = setOf(400, 404, 409, 422)
 
 sealed interface DeliveryJobDateResult {
     data class Applied(val result: DeliveryScheduleApplyResult) : DeliveryJobDateResult
@@ -31,10 +34,13 @@ sealed interface DeliveryJobDateResult {
 
 /**
  * Direct-write fast path to the Hours Tracker backend for admin-mode job order, job board, and
- * delivery schedule edits. Every method returns null/false on ANY failure (timeout, connection
- * refused, non-2xx) so the caller can fall back to the existing per-tablet request-file stores
- * (ProductionOrderRequestStore / JobBoardRequestStore / DeliveryScheduleRequestStore) — no retry
- * loop here, since a stalled UI gesture is worse than an immediate fallback.
+ * delivery schedule edits. The production-order, job-board, hidden-materials and delivery-schedule
+ * POST methods return null/false on ANY failure (timeout, connection refused, non-2xx) so the caller
+ * can fall back to the existing per-tablet request-file stores (ProductionOrderRequestStore /
+ * JobBoardRequestStore / DeliveryScheduleRequestStore) — no retry loop here, since a stalled UI
+ * gesture is worse than an immediate fallback. [setDeliveryJobDate] instead returns a
+ * [DeliveryJobDateResult] that separates a definitive refusal and an accepted-but-undocumented
+ * reply from plain unavailability; only `Unavailable` means "fall back".
  */
 class AdminSyncClient(serverUrl: String) {
 
@@ -94,12 +100,17 @@ class AdminSyncClient(serverUrl: String) {
         }
 
     /** Returns the canonical schedule on success, null on any failure (caller should fall back). */
-    suspend fun applyDeliverySchedule(editRequest: DeliveryScheduleEditRequest): com.kkc.sheettracker.data.models.DeliverySchedule? =
+    suspend fun applyDeliverySchedule(editRequest: DeliveryScheduleEditRequest): DeliverySchedule? =
         applyDeliveryScheduleEdits(editRequest)?.schedule
 
     /**
      * Returns the canonical schedule plus any per-slot failures HT reported on success, null on any
      * failure (caller should fall back to the request file).
+     *
+     * Deliberate trade-off: a 2xx whose body is not usable (not JSON, or no `slots` / `datedSlots` /
+     * `schedule` object) also returns null, so the caller re-queues the edit even though HT may
+     * already have applied it. Re-applying a whole-slot edit is idempotent, whereas trusting an
+     * empty body would blank the board.
      */
     suspend fun applyDeliveryScheduleEdits(editRequest: DeliveryScheduleEditRequest): DeliveryScheduleApplyResult? =
         withContext(Dispatchers.IO) {
@@ -140,8 +151,7 @@ class AdminSyncClient(serverUrl: String) {
                         root.optJSONObject("datedSlots") == null &&
                         root.optJSONObject("schedule") == null
                     ) return@use null
-                    val doc = parseDeliveryScheduleDocument(text)
-                    DeliveryScheduleApplyResult(doc.schedule, doc.failures)
+                    parseDeliveryScheduleDocument(text)
                 }
             }.getOrNull()
         }
@@ -171,7 +181,9 @@ class AdminSyncClient(serverUrl: String) {
                     .build()
                 val bodyText = JSONObject().apply {
                     put("date", if (date == null) JSONObject.NULL else date.toString())
-                    if (date != null && window != null) put("window", window)
+                    // HT only knows "am"/"pm"; anything else is omitted rather than sent as a 422.
+                    val half = window?.trim()?.lowercase()?.takeIf { it == "am" || it == "pm" }
+                    if (date != null && half != null) put("window", half)
                     put("tabletId", tabletId)
                 }.toString()
                 val first = putJobDate(url, bodyText)
@@ -193,39 +205,34 @@ class AdminSyncClient(serverUrl: String) {
                     // schedule when it is a v2 document; anything else must not blank the board.
                     val doc = runCatching { parseDeliveryScheduleDocument(text) }.getOrNull()
                     if (doc != null && doc.schedule.isDated) {
-                        DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(doc.schedule, doc.failures))
+                        DeliveryJobDateResult.Applied(doc)
                     } else {
                         DeliveryJobDateResult.AcceptedWithoutDocument
                     }
                 }
-                response.code in setOf(400, 404, 409, 422) ->
-                    DeliveryJobDateResult.Refused(response.code, refusalReason(response.code, text))
+                response.code in JOB_DATE_REFUSAL_STATUSES ->
+                    DeliveryJobDateResult.Refused(response.code, refusalReason(text))
                 else -> DeliveryJobDateResult.Unavailable
             }
         }
     }
 
     /**
-     * User-facing reason for a definitive refusal. FastAPI `detail` is a string for our own
-     * HTTPExceptions but a list of `{loc,msg,type}` for 422 validation errors; non-JSON or missing
-     * detail falls back to per-status text.
+     * The server's own reason for a definitive refusal, or `""` when it gave none (the per-status
+     * wording lives in [formatDeliveryFailure]). FastAPI `detail` is a string for our own
+     * HTTPExceptions but a list of `{loc,msg,type}` for 422 validation errors; null or blank `msg`
+     * entries are skipped (org.json would otherwise stringify a JSON null as "null").
      */
-    private fun refusalReason(status: Int, body: String): String {
-        val detail = runCatching { JSONObject(body).opt("detail") }.getOrNull()
-        val parsed = when (detail) {
+    private fun refusalReason(body: String): String =
+        when (val detail = runCatching { JSONObject(body).opt("detail") }.getOrNull()) {
             is String -> detail.trim()
             is JSONArray -> (0 until detail.length())
-                .mapNotNull { detail.optJSONObject(it)?.optString("msg")?.trim()?.takeIf(String::isNotEmpty) }
+                .mapNotNull { i ->
+                    ((detail.optJSONObject(i)?.opt("msg")) as? String)?.trim()?.takeIf(String::isNotEmpty)
+                }
                 .joinToString("; ")
             else -> ""
         }
-        if (parsed.isNotEmpty()) return parsed
-        return when (status) {
-            409 -> "That day already has 6 deliveries"
-            404 -> "No office job for this folder"
-            else -> "The office job is closed or the request was invalid"
-        }
-    }
 
     /**
      * Fast path for a tablet-authored hide/unhide, covering both Hardwoods and Specialty (see

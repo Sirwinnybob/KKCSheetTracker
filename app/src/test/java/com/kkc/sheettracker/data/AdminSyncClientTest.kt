@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data
 
+import com.kkc.sheettracker.data.models.DeliveryScheduleFailure
 import com.kkc.sheettracker.data.models.HiddenMaterialsMode
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
@@ -136,10 +137,21 @@ class AdminSyncClientTest {
     @Test
     fun `setDeliveryJobDate puts date and window with encoded folder`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(200).setBody(
-            """{"schedule":{},"datedSlots":{"2026-10-21_pm":{"jobs":[{"jobNumber":"670","description":"E","folderName":"670 - ESCHRICH 1364 VICTORIAN"}]}},"weekOf":"2026-10-19","failures":[]}"""
+            """{"schedule":{},"datedSlots":{"2026-10-21_pm":{"jobs":[{"jobNumber":"670","description":"E","folderName":"670 - ESCHRICH 1364 VICTORIAN"}]}},"weekOf":"2026-10-19",
+                "failures":[{"slot":"2026-10-22_am","jobNumber":"702","folderName":"702 - S","status":409,"reason":"full"}]}"""
         ))
         val result = client.setDeliveryJobDate("670 - ESCHRICH 1364 VICTORIAN", java.time.LocalDate.of(2026, 10, 21), "pm", "T1")
-        assertTrue(result is DeliveryJobDateResult.Applied)
+        val applied = (result as DeliveryJobDateResult.Applied).result
+        assertTrue(applied.schedule.isDated)
+        assertEquals(java.time.LocalDate.of(2026, 10, 19), applied.schedule.weekOf)
+        assertEquals(
+            "670 - ESCHRICH 1364 VICTORIAN",
+            applied.schedule.slotByKey("2026-10-21_pm").jobs.single().folderName
+        )
+        assertEquals(
+            listOf(DeliveryScheduleFailure("2026-10-22_am", "702", "702 - S", 409, "full")),
+            applied.failures
+        )
         val recorded = server.takeRequest()
         assertEquals("PUT", recorded.method)
         assertEquals("/api/delivery-schedule/jobs/670%20-%20ESCHRICH%201364%20VICTORIAN", recorded.path)
@@ -157,6 +169,19 @@ class AdminSyncClientTest {
         assertEquals("2026-10-21", body.getString("date"))
         assertFalse(body.has("window"))
         assertEquals("T1", body.getString("tabletId"))
+    }
+
+    @Test
+    fun `setDeliveryJobDate lower-cases the window and omits anything that is not am or pm`() = runBlocking {
+        val ok = """{"schedule":{},"datedSlots":{},"weekOf":"2026-10-12","failures":[]}"""
+        repeat(3) { server.enqueue(MockResponse().setResponseCode(200).setBody(ok)) }
+        val d = java.time.LocalDate.of(2026, 10, 21)
+        client.setDeliveryJobDate("670 - E", d, "PM", "T1")
+        client.setDeliveryJobDate("670 - E", d, " Am ", "T1")
+        client.setDeliveryJobDate("670 - E", d, "noon", "T1")
+        assertEquals("pm", org.json.JSONObject(server.takeRequest().body.readUtf8()).getString("window"))
+        assertEquals("am", org.json.JSONObject(server.takeRequest().body.readUtf8()).getString("window"))
+        assertFalse(org.json.JSONObject(server.takeRequest().body.readUtf8()).has("window"))
     }
 
     @Test
@@ -224,16 +249,30 @@ class AdminSyncClientTest {
     }
 
     @Test
-    fun `setDeliveryJobDate uses status fallback for empty or non-JSON error bodies`() = runBlocking {
+    fun `setDeliveryJobDate gives an empty reason for empty or non-JSON error bodies`() = runBlocking {
+        // The per-status wording lives in formatDeliveryFailure, not here.
         server.enqueue(MockResponse().setResponseCode(409))
         server.enqueue(MockResponse().setResponseCode(404).setBody("<html>Not Found</html>"))
         server.enqueue(MockResponse().setResponseCode(400).setBody("""{"detail":""}"""))
         server.enqueue(MockResponse().setResponseCode(422).setBody("""{"detail":[{"loc":["body"]}]}"""))
+        server.enqueue(MockResponse().setResponseCode(422).setBody("""{"detail":{"loc":["body"]}}"""))
         val d = java.time.LocalDate.of(2026, 10, 16)
-        assertEquals(DeliveryJobDateResult.Refused(409, "That day already has 6 deliveries"), client.setDeliveryJobDate("a", d, null, "T1"))
-        assertEquals(DeliveryJobDateResult.Refused(404, "No office job for this folder"), client.setDeliveryJobDate("a", d, null, "T1"))
-        assertEquals(DeliveryJobDateResult.Refused(400, "The office job is closed or the request was invalid"), client.setDeliveryJobDate("a", d, null, "T1"))
-        assertEquals(DeliveryJobDateResult.Refused(422, "The office job is closed or the request was invalid"), client.setDeliveryJobDate("a", d, null, "T1"))
+        assertEquals(DeliveryJobDateResult.Refused(409, ""), client.setDeliveryJobDate("a", d, null, "T1"))
+        assertEquals(DeliveryJobDateResult.Refused(404, ""), client.setDeliveryJobDate("a", d, null, "T1"))
+        assertEquals(DeliveryJobDateResult.Refused(400, ""), client.setDeliveryJobDate("a", d, null, "T1"))
+        assertEquals(DeliveryJobDateResult.Refused(422, ""), client.setDeliveryJobDate("a", d, null, "T1"))
+        assertEquals(DeliveryJobDateResult.Refused(422, ""), client.setDeliveryJobDate("a", d, null, "T1"))
+    }
+
+    @Test
+    fun `setDeliveryJobDate skips null and blank msg entries in a 422 detail list`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(422).setBody(
+            """{"detail":[{"msg":null},{"msg":"   "},{"loc":["x"]},{"msg":"bad window"},"text",{"msg":"invalid date"}]}"""
+        ))
+        server.enqueue(MockResponse().setResponseCode(422).setBody("""{"detail":[{"msg":null}]}"""))
+        val d = java.time.LocalDate.of(2026, 10, 16)
+        assertEquals(DeliveryJobDateResult.Refused(422, "bad window; invalid date"), client.setDeliveryJobDate("a", d, null, "T1"))
+        assertEquals(DeliveryJobDateResult.Refused(422, ""), client.setDeliveryJobDate("a", d, null, "T1"))
     }
 
     @Test

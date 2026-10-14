@@ -89,28 +89,29 @@ class DeliveryWeekTest {
         assertEquals(6, day.count)
         assertEquals(am, day.am.jobs)
         assertEquals(pm, day.pm.jobs)
-        assertEquals(MAX_DELIVERY_JOBS_PER_DAY, deliveryDayCount(schedule, "2026-10-14_am"))
+        assertEquals(MAX_DELIVERY_JOBS_PER_DAY, deliveryDayJobs(schedule, "2026-10-14_am").size)
     }
 
     @Test
-    fun deliveryDayCountSumsBothHalvesForDatedAndWeekdayKeys() {
+    fun deliveryDayJobsSumsBothHalvesForDatedAndWeekdayKeys() {
         val dated = DeliverySchedule(
             datedSlots = mapOf("2026-10-14_am" to DeliverySlot(jobs("1", 3)), "2026-10-14_pm" to DeliverySlot(jobs("2", 1)), "2026-10-15_am" to DeliverySlot(jobs("3", 5))),
             weekOf = mon,
             isDated = true
         )
-        assertEquals(4, deliveryDayCount(dated, "2026-10-14_am"))
-        assertEquals(4, deliveryDayCount(dated, "2026-10-14_pm"))
-        assertEquals(5, deliveryDayCount(dated, "2026-10-15_pm"))
-        assertEquals(0, deliveryDayCount(dated, "2026-10-16_am"))
+        fun count(s: DeliverySchedule, key: String) = deliveryDayJobs(s, key).size
+        assertEquals(4, count(dated, "2026-10-14_am"))
+        assertEquals(4, count(dated, "2026-10-14_pm"))
+        assertEquals(5, count(dated, "2026-10-15_pm"))
+        assertEquals(0, count(dated, "2026-10-16_am"))
 
         val weekday = DeliverySchedule(slots = mapOf("monday_am" to DeliverySlot(jobs("4", 2)), "monday_pm" to DeliverySlot(jobs("5", 3)), "tuesday_am" to DeliverySlot(jobs("6", 1))))
-        assertEquals(5, deliveryDayCount(weekday, "monday_am"))
-        assertEquals(5, deliveryDayCount(weekday, "monday_pm"))
-        assertEquals(1, deliveryDayCount(weekday, "tuesday_pm"))
+        assertEquals(5, count(weekday, "monday_am"))
+        assertEquals(5, count(weekday, "monday_pm"))
+        assertEquals(1, count(weekday, "tuesday_pm"))
 
         // Unknown keys fall back to the slot's own size.
-        assertEquals(0, deliveryDayCount(weekday, "someday_noon"))
+        assertEquals(0, count(weekday, "someday_noon"))
     }
 
     @Test
@@ -170,9 +171,10 @@ class DeliveryWeekTest {
         assertTrue(thisWeek.canGoForward)
         val prev = buildDeliveryWeek(schedule, mon.minusWeeks(1), today = wed, includeEmptyWeekend = false)
         assertFalse(prev.isDefaultWeek)
-        // Cutoff is Sep 30. Week of Sep 28 (ends Oct 4) is still reachable from Oct 5's week...
+        // Cutoff is Sep 30 (Oct 14 - 14 days). The week of Oct 5 (Oct 5-11) can go back, because
+        // the week before it ends Oct 4, which is still on or after the cutoff...
         assertTrue(prev.canGoBack)
-        // ...but week of Sep 21 (ends Sep 27) is not, so Sep 28's week can't go back.
+        // ...but the week of Sep 28 (Sep 28 - Oct 4) cannot: the week before it ends Sep 27.
         val twoBack = buildDeliveryWeek(schedule, mon.minusWeeks(2), today = wed, includeEmptyWeekend = false)
         assertFalse(twoBack.canGoBack)
         val next = buildDeliveryWeek(schedule, mon.plusWeeks(1), today = wed, includeEmptyWeekend = false)
@@ -293,5 +295,148 @@ class DeliveryWeekTest {
     fun weekendTodayDayIsNullForV1Schedule() {
         val v1 = DeliverySchedule(slots = mapOf("monday_am" to DeliverySlot(listOf(job))))
         assertNull(weekendTodayDay(v1, sat))
+    }
+
+    // ---- A13: weekendDays ----
+
+    private fun weekendDays(s: DeliverySchedule, today: LocalDate) =
+        weekendDays(s, today, defaultDeliveryWeekStart(s, today))
+
+    @Test
+    fun weekendDaysOnSaturdayIncludesSundayWhenBothHaveJobs() {
+        val s = v2(nextMon, "2026-10-17_am" to job, "2026-10-18_pm" to job)
+        val days = weekendDays(s, sat)
+        assertEquals(listOf(sat, sun), days.map { it.date })
+        assertEquals(listOf(DeliveryDayState.TODAY, DeliveryDayState.FUTURE), days.map { it.state })
+    }
+
+    @Test
+    fun weekendDaysOnSaturdayWithOnlySundayJobIsJustSunday() {
+        val days = weekendDays(v2(nextMon, "2026-10-18_am" to job), sat)
+        assertEquals(listOf(sun), days.map { it.date })
+        // The old single-day accessor still answers for today only.
+        assertNull(weekendTodayDay(v2(nextMon, "2026-10-18_am" to job), sat))
+    }
+
+    @Test
+    fun weekendDaysOnSundayNeverIncludesSaturday() {
+        val s = v2(nextMon, "2026-10-17_am" to job, "2026-10-18_am" to job)
+        assertEquals(listOf(sun), weekendDays(s, sun).map { it.date })
+    }
+
+    @Test
+    fun weekendDaysStillReturnsTodayWhenWeekOfIsStaleByMoreThanAWeek() {
+        // weekOf two weeks behind: the displayed week (Oct 5-11) ends before today, so today is hidden.
+        val oct5 = LocalDate.of(2026, 10, 5)
+        val s = v2(oct5, "2026-10-17_am" to job, "2026-10-18_am" to job)
+        assertEquals(listOf(sat, sun), weekendDays(s, sat, oct5).map { it.date })
+        assertEquals(sat, weekendTodayDay(s, sat, oct5)!!.date)
+        assertEquals(listOf(sun), weekendDays(s, sun, oct5).map { it.date })
+    }
+
+    @Test
+    fun weekendDaysIsEmptyWhenTodayIsInsideTheDisplayedWeekOnAWeekdayOrForV1() {
+        val s = v2(mon, "2026-10-17_am" to job)
+        assertTrue(weekendDays(s, sat, mon).isEmpty())
+        assertTrue(weekendDays(v2(mon, "2026-10-14_am" to job), wed, mon).isEmpty())
+        assertTrue(weekendDays(DeliverySchedule(slots = mapOf("monday_am" to DeliverySlot(listOf(job)))), sat, mon).isEmpty())
+    }
+
+    // ---- A1 / A2 / A6: overlay on a v2 schedule ----
+
+    @Test
+    fun resetWithoutWeekOfClearsOnlyTheMirroredWeekAndKeepsFutureAndWeekendJobs() {
+        val s = DeliverySchedule(
+            datedSlots = mapOf(
+                "2026-10-14_am" to DeliverySlot(listOf(job)),        // Wed of the mirrored week
+                "2026-10-17_am" to DeliverySlot(listOf(job.copy(folderName = "sat"))), // weekend
+                "2026-10-21_am" to DeliverySlot(listOf(job.copy(folderName = "next"))) // future week
+            ),
+            weekOf = null,
+            isDated = true
+        )
+        val reset = DeliveryScheduleEditRequest("T1", "x", resetAll = true)
+        val overlaid = overlayPendingDeliveryRequest(s, reset, today = wed)
+        assertTrue(overlaid.slotByKey("2026-10-14_am").jobs.isEmpty())
+        assertEquals(listOf(job.copy(folderName = "sat")), overlaid.slotByKey("2026-10-17_am").jobs)
+        assertEquals(listOf(job.copy(folderName = "next")), overlaid.slotByKey("2026-10-21_am").jobs)
+        // On a Saturday HT's rule moves the window to next Monday, so next week's jobs are cleared.
+        val onSaturday = overlayPendingDeliveryRequest(s, reset, today = sat)
+        assertEquals(listOf(job), onSaturday.slotByKey("2026-10-14_am").jobs)
+        assertTrue(onSaturday.slotByKey("2026-10-21_am").jobs.isEmpty())
+    }
+
+    @Test
+    fun queuedWeekdayKeyEditIsShownOnTheDatedSlotOfAV2Schedule() {
+        val s = v2(mon)
+        val request = DeliveryScheduleEditRequest("T1", "x", slotEdits = listOf(DeliveryScheduleSlotEdit("tuesday_am", listOf(job))))
+        val overlaid = overlayPendingDeliveryRequest(s, request, today = wed)
+        assertEquals(listOf(job), overlaid.slotByKey("2026-10-13_am").jobs)
+        assertTrue(overlaid.slotByKey("tuesday_am").jobs.isEmpty())
+        assertEquals(setOf("2026-10-13_am"), pendingDeliverySlotKeys(request, s, wed))
+        // The 1-arg form keeps the raw keys (v1 behavior).
+        assertEquals(setOf("tuesday_am"), pendingDeliverySlotKeys(request))
+    }
+
+    @Test
+    fun queuedWeekdayKeyEditWithoutWeekOfUsesTheMirrorRuleFromToday() {
+        val s = DeliverySchedule(isDated = true)
+        val request = DeliveryScheduleEditRequest("T1", "x", slotEdits = listOf(DeliveryScheduleSlotEdit("monday_pm", listOf(job))))
+        // Saturday: HT's weekOf is next Monday (Oct 19).
+        assertEquals(listOf(job), overlayPendingDeliveryRequest(s, request, today = sat).slotByKey("2026-10-19_pm").jobs)
+        assertEquals(setOf("2026-10-19_pm"), pendingDeliverySlotKeys(request, s, sat))
+    }
+
+    @Test
+    fun pendingSlotKeysKeepWeekdayKeysOnAV1Schedule() {
+        val v1 = DeliverySchedule(slots = mapOf("monday_am" to DeliverySlot()))
+        val request = DeliveryScheduleEditRequest("T1", "x", slotEdits = listOf(DeliveryScheduleSlotEdit("monday_am", listOf(job))))
+        assertEquals(setOf("monday_am"), pendingDeliverySlotKeys(request, v1, wed))
+        assertEquals(listOf(job), overlayPendingDeliveryRequest(v1, request, today = wed).slotByKey("monday_am").jobs)
+    }
+
+    @Test
+    fun invalidSlotKeysInAPendingRequestAreIgnoredByTheOverlay() {
+        val s = v2(mon, "2026-10-14_am" to job)
+        val request = DeliveryScheduleEditRequest(
+            "T1", "x",
+            slotEdits = listOf("saturday_am", "2026-02-30_am", "2026-10-14_noon", "garbage", "").map {
+                DeliveryScheduleSlotEdit(it, listOf(job.copy(folderName = "other")))
+            }
+        )
+        assertEquals(s, overlayPendingDeliveryRequest(s, request, today = wed))
+    }
+
+    // ---- A3 / A4: week building ----
+
+    @Test
+    fun buildDeliveryWeekNormalizesAWednesdayWeekStartToItsMonday() {
+        val week = buildDeliveryWeek(v2(mon), wed, today = wed, includeEmptyWeekend = false)
+        assertEquals(mon, week.weekStart)
+        assertEquals(mon, week.days.first().date)
+        assertEquals("2026-10-12_am", week.days.first().amKey)
+        assertTrue(week.isDefaultWeek)
+    }
+
+    @Test
+    fun forwardNavigationStopsFiftyTwoWeeksAfterTheDefaultWeek() {
+        val schedule = v2(mon)
+        val lastReachable = buildDeliveryWeek(schedule, mon.plusWeeks(51), today = wed, includeEmptyWeekend = false)
+        assertTrue(lastReachable.canGoForward)
+        val limit = buildDeliveryWeek(schedule, mon.plusWeeks(52), today = wed, includeEmptyWeekend = false)
+        assertFalse(limit.canGoForward)
+        assertTrue(limit.canGoBack)
+    }
+
+    // ---- A6: shopToday across a DST change ----
+
+    @Test
+    fun shopTodayFollowsTheLosAngelesCalendarAcrossTheNovemberDstChange() {
+        fun at(utc: String) = shopToday(Clock.fixed(Instant.parse(utc), java.time.ZoneOffset.UTC))
+        // PDT (UTC-7) until 2026-11-01 02:00 local, PST (UTC-8) after.
+        assertEquals(LocalDate.of(2026, 10, 31), at("2026-11-01T06:59:59Z"))
+        assertEquals(LocalDate.of(2026, 11, 1), at("2026-11-01T08:30:00Z"))
+        assertEquals(LocalDate.of(2026, 11, 1), at("2026-11-02T07:59:59Z"))
+        assertEquals(LocalDate.of(2026, 11, 2), at("2026-11-02T08:00:00Z"))
     }
 }

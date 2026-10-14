@@ -29,15 +29,21 @@ class DeliveryScheduleEditorTest {
     }
 
     private class FakeQueue(
-        val drop: (slot: String, jobs: List<DeliveryJob>) -> List<DeliveryJob> = { _, _ -> emptyList() }
+        val drop: (slot: String, jobs: List<DeliveryJob>) -> List<DeliveryJob> = { _, _ -> emptyList() },
+        /** When set, replaces the default "queued, dropping [drop]" answer. */
+        val answer: ((slot: String, jobs: List<DeliveryJob>) -> DeliveryQueueResult)? = null,
+        val resetQueued: Boolean = true
     ) : DeliveryScheduleQueue {
         val edits = mutableListOf<Pair<String, List<DeliveryJob>>>()
         var resets = 0
         override suspend fun queueSlotEdit(slot: String, jobs: List<DeliveryJob>, tabletId: String): DeliveryQueueResult {
             edits += slot to jobs
-            return DeliveryQueueResult(true, drop(slot, jobs))
+            return answer?.invoke(slot, jobs) ?: DeliveryQueueResult(true, drop(slot, jobs))
         }
-        override suspend fun queueReset(tabletId: String, mirroredWeekOf: LocalDate?) { resets++ }
+        override suspend fun queueReset(tabletId: String, mirroredWeekOf: LocalDate?): Boolean {
+            resets++
+            return resetQueued
+        }
     }
 
     @Test
@@ -122,11 +128,91 @@ class DeliveryScheduleEditorTest {
     }
 
     @Test
-    fun refusedPutWithRawJsonReasonFallsBackToStatusText() = runBlocking {
-        val remote = FakeRemote(put = DeliveryJobDateResult.Refused(422, "[{\"loc\":[\"body\"],\"msg\":\"x\"}]"))
-        val outcome = DeliveryScheduleEditor(remote, FakeQueue(), "T1").placeJob(v2, a, "2026-10-21_pm", null)
+    fun refusedPutWithEmptyReasonUsesTheStatusFallbackTable() = runBlocking {
+        // AdminSyncClient passes through the server's own text or "": the wording lives only here.
+        fun refusal(status: Int): List<String> = runBlocking {
+            val remote = FakeRemote(put = DeliveryJobDateResult.Refused(status, ""))
+            DeliveryScheduleEditor(remote, FakeQueue(), "T1").placeJob(v2, a, "2026-10-21_pm", null).notices
+        }
+        assertEquals(listOf("Job 670 not placed: that day already has 6 deliveries"), refusal(409))
+        assertEquals(listOf("Job 670 not placed: no office job for this folder"), refusal(404))
+        assertEquals(listOf("Job 670 not placed: the office job is closed or invalid"), refusal(400))
+        assertEquals(listOf("Job 670 not placed: refused by Hours Tracker (422)"), refusal(422))
+    }
+
+    @Test
+    fun refusedRemoveWithEmptyReasonUsesTheStatusFallbackToo() = runBlocking {
+        val current = v2.withSlot("2026-10-21_pm", listOf(a))
+        val remote = FakeRemote(put = DeliveryJobDateResult.Refused(404, ""))
+        val outcome = DeliveryScheduleEditor(remote, FakeQueue(), "T1").removeJob(current, a, "2026-10-21_pm")
+        assertEquals(DeliveryEditOutcome.Refused(listOf("Job 670 not placed: no office job for this folder")), outcome)
+    }
+
+    @Test
+    fun placingAJobAlreadyInTheSlotIsQueuedNotAppliedAndTouchesNothing() = runBlocking {
+        val current = v2.withSlot("2026-10-21_pm", listOf(a))
+        val remote = FakeRemote(put = DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(v2, emptyList())))
+        val queue = FakeQueue()
+        val outcome = DeliveryScheduleEditor(remote, queue, "T1").placeJob(current, a.copy(folderName = "670 - eschrich"), "2026-10-21_pm", null)
+        assertEquals(DeliveryEditOutcome.Queued(emptyList()), outcome)
+        assertTrue(remote.puts.isEmpty() && remote.posts.isEmpty() && queue.edits.isEmpty())
+    }
+
+    // ---- A10: storage failures are not cap notices ----
+
+    @Test
+    fun blockedQueueRefusesWithASaveFailedNoticeNotACapNotice() = runBlocking {
+        val blocked = FakeQueue(answer = { _, jobs -> DeliveryQueueResult(false, jobs, DeliveryQueueFailure.Blocked) })
+        val outcome = DeliveryScheduleEditor(null, blocked, "T1").placeJob(v2, a, "2026-10-21_pm", null)
+        assertEquals(
+            DeliveryEditOutcome.Refused(listOf("Couldn't save this delivery change on this tablet. Try again.")),
+            outcome
+        )
+        // A null reason on an unqueued result is treated as a storage failure too.
+        val unknown = FakeQueue(answer = { _, jobs -> DeliveryQueueResult(false, jobs) })
+        assertEquals(outcome, DeliveryScheduleEditor(null, unknown, "T1").replaceSlot("2026-10-21_pm", listOf(a)))
+    }
+
+    @Test
+    fun invalidSlotAndTooOldAndAllInvalidEachGetTheirOwnNotice() = runBlocking {
+        fun notices(reason: DeliveryQueueFailure, jobs: List<DeliveryJob> = listOf(a)): DeliveryEditOutcome =
+            runBlocking {
+                DeliveryScheduleEditor(null, FakeQueue(answer = { _, j -> DeliveryQueueResult(false, j, reason) }), "T1")
+                    .replaceSlot("2026-10-21_pm", jobs)
+            }
+        assertEquals(
+            DeliveryEditOutcome.Refused(listOf("Couldn't save this delivery change: that isn't a valid delivery slot.")),
+            notices(DeliveryQueueFailure.InvalidSlot)
+        )
+        assertEquals(
+            DeliveryEditOutcome.Refused(listOf("Couldn't save this delivery change: that day is more than 14 days in the past.")),
+            notices(DeliveryQueueFailure.TooOld)
+        )
+        val noName = DeliveryJob("671", "", folderName = "671 - X")
+        assertEquals(
+            DeliveryEditOutcome.Refused(listOf("Job 671 not queued: missing job number, name or folder")),
+            notices(DeliveryQueueFailure.AllJobsInvalid, listOf(noName))
+        )
+    }
+
+    @Test
+    fun aFailedSecondEditStillRefusesAfterTheFirstWasQueued() = runBlocking {
+        val v1 = DeliverySchedule(slots = mapOf("monday_am" to DeliverySlot(listOf(a)), "tuesday_pm" to DeliverySlot()))
+        val queue = FakeQueue(answer = { slot, jobs ->
+            if (slot == "monday_am") DeliveryQueueResult(false, jobs, DeliveryQueueFailure.Blocked) else DeliveryQueueResult(true, emptyList())
+        })
+        val outcome = DeliveryScheduleEditor(null, queue, "T1").placeJob(v1, a, "tuesday_pm", "monday_am")
         assertTrue(outcome is DeliveryEditOutcome.Refused)
-        assertEquals(listOf("Job 670 not placed: refused by Hours Tracker (422)"), outcome.notices)
+        assertEquals(listOf("Couldn't save this delivery change on this tablet. Try again."), outcome.notices)
+        assertEquals(2, queue.edits.size)
+    }
+
+    @Test
+    fun resetRefusedWhenTheQueueCannotSaveIt() = runBlocking {
+        val queue = FakeQueue(resetQueued = false)
+        val outcome = DeliveryScheduleEditor(null, queue, "T1").resetWeek(v2)
+        assertEquals(DeliveryEditOutcome.Refused(listOf("Couldn't save the reset on this tablet. Try again.")), outcome)
+        assertEquals(1, queue.resets)
     }
 
     @Test
@@ -163,7 +249,7 @@ class DeliveryScheduleEditorTest {
     fun adminSyncFailuresBecomeNotices() = runBlocking {
         val failure = DeliveryScheduleFailure("2026-10-21_pm", "670", "670 - ESCHRICH", 409, "")
         val remote = FakeRemote(post = DeliveryScheduleApplyResult(v2, listOf(failure)))
-        val outcome = DeliveryScheduleEditor(remote, FakeQueue(), "T1").replaceSlot(v2, "2026-10-21_pm", listOf(a))
+        val outcome = DeliveryScheduleEditor(remote, FakeQueue(), "T1").replaceSlot("2026-10-21_pm", listOf(a))
         assertEquals(listOf("Job 670 not placed: that day already has 6 deliveries"), outcome.notices)
     }
 
@@ -227,7 +313,7 @@ class DeliveryScheduleEditorTest {
         val five = (1..5).map { DeliveryJob("9$it", "J$it", folderName = "9$it - J$it") }
         val remote = FakeRemote(post = null)
         val queue = FakeQueue()
-        DeliveryScheduleEditor(remote, queue, "T1").replaceSlot(v2, "2026-10-21_am", five)
+        DeliveryScheduleEditor(remote, queue, "T1").replaceSlot("2026-10-21_am", five)
         assertEquals(five, remote.posts.single().slotEdits.single().jobs)
         assertEquals(listOf("2026-10-21_am" to five), queue.edits)
     }
@@ -302,7 +388,7 @@ class DeliveryScheduleEditorTest {
         val editor = DeliveryScheduleEditor(remote, queue, "T1", hasPendingRequest = { true })
 
         assertTrue(editor.removeJob(current, a, "2026-10-21_pm") is DeliveryEditOutcome.Queued)
-        assertTrue(editor.replaceSlot(current, "2026-10-21_am", listOf(a)) is DeliveryEditOutcome.Queued)
+        assertTrue(editor.replaceSlot("2026-10-21_am", listOf(a)) is DeliveryEditOutcome.Queued)
         assertTrue(editor.resetWeek(current) is DeliveryEditOutcome.Queued)
 
         assertTrue(remote.puts.isEmpty())
@@ -358,18 +444,17 @@ class DeliveryScheduleEditorTest {
     @Test
     fun queueDropNoticesNameTheDayOrHalfDayLimit() = runBlocking {
         val dropAll = FakeQueue(drop = { _, jobs -> jobs.takeLast(1) })
-        DeliveryScheduleEditor(null, dropAll, "T1").replaceSlot(v2, "2026-10-21_am", listOf(b, a)).let {
+        DeliveryScheduleEditor(null, dropAll, "T1").replaceSlot("2026-10-21_am", listOf(b, a)).let {
             assertEquals(listOf("Job 670 not queued: that day already has 6 deliveries"), it.notices)
         }
-        val v1 = DeliverySchedule()
         DeliveryScheduleEditor(null, FakeQueue(drop = { _, jobs -> jobs.takeLast(1) }), "T1")
-            .replaceSlot(v1, "monday_am", listOf(b, a)).let {
+            .replaceSlot("monday_am", listOf(b, a)).let {
                 assertEquals(listOf("Job 670 not queued: that half-day already has 3 deliveries"), it.notices)
             }
         // An invalid job is reported as invalid, not as over the limit.
         val noName = DeliveryJob("671", "", folderName = "671 - X")
         DeliveryScheduleEditor(null, FakeQueue(drop = { _, jobs -> jobs.filter { it.description.isBlank() } }), "T1")
-            .replaceSlot(v2, "2026-10-21_am", listOf(noName)).let {
+            .replaceSlot("2026-10-21_am", listOf(noName)).let {
                 assertEquals(listOf("Job 671 not queued: missing job number, name or folder"), it.notices)
             }
     }

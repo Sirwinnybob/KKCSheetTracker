@@ -28,13 +28,9 @@ const val MAX_DELIVERY_JOBS_PER_DAY = 6
 const val MAX_DELIVERY_JOBS_PER_LEGACY_SLOT = 3
 
 /**
- * Jobs in the whole day of [slotKey] (its AM plus PM slots). A dated key counts that date's two
- * slots, a weekday key counts that weekday's two slots, any other key just its own slot.
+ * Every job in the whole day of [slotKey] (its AM plus PM slots). A dated key covers that date's two
+ * slots, a weekday key that weekday's two slots, any other key just its own slot.
  */
-fun deliveryDayCount(schedule: DeliverySchedule, slotKey: String): Int =
-    deliveryDayJobs(schedule, slotKey).size
-
-/** Every job in the AM and PM slots of [slotKey]'s day (see [deliveryDayCount] for the key rules). */
 fun deliveryDayJobs(schedule: DeliverySchedule, slotKey: String): List<DeliveryJob> {
     val dated = parseDatedSlotKey(slotKey)
     val keys = when {
@@ -94,7 +90,7 @@ data class DeliveryWeekView(
 }
 
 /**
- * One day's view, shared by [buildDeliveryWeek] and [weekendTodayDay]. A dated schedule keys the
+ * One day's view, shared by [buildDeliveryWeek] and [weekendDays]. A dated schedule keys the
  * day by [date]; a v1 schedule keys it by [weekdayName] (`monday`...), which must then be non-null.
  */
 private fun buildDeliveryDay(
@@ -129,21 +125,41 @@ private fun buildDeliveryDay(
     )
 }
 
+/** Longest stretch [weekendDays] scans, so a corrupt far-future `weekOf` cannot make it loop for long. */
+private const val WEEKEND_SCAN_DAYS = 14
+
 /**
  * On Saturday/Sunday HT's `weekOf` is the coming Monday, so a delivery dated today sits in the week
- * BEFORE `weekOf` and the week view never shows it. Returns today's day when the schedule is dated,
- * today is a weekend day and it has at least one job; otherwise null.
+ * BEFORE `weekOf` and the week view never shows it. Returns the weekend days (Sat/Sun) that have at
+ * least one job, from today up to (not including) [weekStart]; on Saturday that includes Sunday.
+ * Empty unless the schedule is dated and today is a Saturday or Sunday.
  *
- * [weekStart] is the Monday of the week the banner displays. If today is not before it (HT has not
- * rewritten `weekOf` yet, so the displayed Mon-Sun week already holds today), the week view shows
- * today itself and a second copy here would duplicate the day.
+ * [weekStart] is the Monday of the week the banner displays. When today falls inside that Mon-Sun
+ * week (HT has not rewritten `weekOf` yet) the week view already shows today and a second copy here
+ * would duplicate the day. When `weekOf` is stale by more than a week (today is after the displayed
+ * week) the week view cannot show today either, so today (and Sunday, from a Saturday) is returned.
  */
-fun weekendTodayDay(schedule: DeliverySchedule, today: LocalDate, weekStart: LocalDate): DeliveryDayView? {
-    if (!schedule.isDated) return null
-    if (today >= weekStart) return null
-    if (today.dayOfWeek != DayOfWeek.SATURDAY && today.dayOfWeek != DayOfWeek.SUNDAY) return null
-    return buildDeliveryDay(schedule, today, null, today).takeIf { it.count > 0 }
+fun weekendDays(schedule: DeliverySchedule, today: LocalDate, weekStart: LocalDate): List<DeliveryDayView> {
+    if (!schedule.isDated) return emptyList()
+    if (today.dayOfWeek != DayOfWeek.SATURDAY && today.dayOfWeek != DayOfWeek.SUNDAY) return emptyList()
+    if (today in weekStart..weekStart.plusDays(6)) return emptyList()
+    val endExclusive = if (today < weekStart) weekStart
+    else today.plusDays(if (today.dayOfWeek == DayOfWeek.SATURDAY) 2 else 1)
+    return generateSequence(today) { it.plusDays(1) }
+        .takeWhile { it < endExclusive }
+        .take(WEEKEND_SCAN_DAYS)
+        .filter { it.dayOfWeek == DayOfWeek.SATURDAY || it.dayOfWeek == DayOfWeek.SUNDAY }
+        .map { buildDeliveryDay(schedule, it, null, today) }
+        .filter { it.count > 0 }
+        .toList()
 }
+
+/** Today's own entry from [weekendDays], or null when today has no job (or is not a hidden weekend day). */
+fun weekendTodayDay(schedule: DeliverySchedule, today: LocalDate, weekStart: LocalDate): DeliveryDayView? =
+    weekendDays(schedule, today, weekStart).firstOrNull { it.date == today }
+
+/** The UI never browses further ahead than this many weeks past the default week. */
+const val DELIVERY_FORWARD_WEEKS = 52L
 
 fun buildDeliveryWeek(
     schedule: DeliverySchedule,
@@ -151,8 +167,10 @@ fun buildDeliveryWeek(
     today: LocalDate,
     includeEmptyWeekend: Boolean
 ): DeliveryWeekView {
+    val monday = weekStart.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    val defaultStart = defaultDeliveryWeekStart(schedule, today)
     val days = (0L until 7L).mapNotNull { offset ->
-        val date = weekStart.plusDays(offset)
+        val date = monday.plusDays(offset)
         val weekend = offset >= 5
         if (!schedule.isDated && weekend) return@mapNotNull null
         val day = buildDeliveryDay(schedule, date, DELIVERY_DAYS.getOrNull(offset.toInt()), today)
@@ -160,57 +178,83 @@ fun buildDeliveryWeek(
         day
     }
     return DeliveryWeekView(
-        weekStart = weekStart,
+        weekStart = monday,
         days = days,
-        isDefaultWeek = weekStart == defaultDeliveryWeekStart(schedule, today),
-        canGoBack = schedule.isDated && weekStart.minusDays(1) >= today.minusDays(DELIVERY_HISTORY_DAYS),
-        canGoForward = schedule.isDated
+        isDefaultWeek = monday == defaultStart,
+        canGoBack = schedule.isDated && monday.minusDays(1) >= today.minusDays(DELIVERY_HISTORY_DAYS),
+        canGoForward = schedule.isDated && monday.plusWeeks(1) <= defaultStart.plusWeeks(DELIVERY_FORWARD_WEEKS)
     )
 }
 
 /**
+ * The slot a queued edit actually lands on. On a v2 (dated) schedule HT dates a weekday-key edit
+ * onto the mirrored week, so `tuesday_am` becomes `<weekOf + 1>_am` (HT's rule when `weekOf` is
+ * missing); a v1 schedule keeps weekday keys. Null for any key HT would not accept.
+ */
+private fun resolvePendingSlotKey(slot: String, schedule: DeliverySchedule, today: LocalDate): String? {
+    if (parseDatedSlotKey(slot) != null) return slot
+    if (!isWeekdaySlotKey(slot)) return null
+    if (!schedule.isDated) return slot
+    val dayIndex = DELIVERY_DAYS.indexOf(slot.substringBefore('_'))
+    val period = slot.substringAfter('_')
+    return datedSlotKey((schedule.weekOf ?: mirrorWeekOf(today)).plusDays(dayIndex.toLong()), period)
+}
+
+/**
  * Shows this tablet's own queued (not yet consumed) request on top of the published schedule.
- * HT applies `resetAll` first (clears the mirrored Mon-Fri week only), then each whole-slot edit.
+ * HT applies `resetAll` first (clears the mirrored Mon-Fri week only: `weekOf`, or HT's rule from
+ * [today] when the file has none), then each whole-slot edit. On a v2 schedule a weekday-key edit is
+ * shown on its dated slot (see [resolvePendingSlotKey]).
  */
 fun overlayPendingDeliveryRequest(
     schedule: DeliverySchedule,
-    request: DeliveryScheduleEditRequest?
+    request: DeliveryScheduleEditRequest?,
+    today: LocalDate = shopToday()
 ): DeliverySchedule {
     if (request == null) return schedule
     var result = schedule
     if (request.resetAll) {
-        val weekOf = schedule.weekOf
+        val resetStart = schedule.weekOf ?: mirrorWeekOf(today)
+        val resetEnd = resetStart.plusDays(4)
         result = result.copy(
             slots = result.slots.mapValues { DeliverySlot() },
-            datedSlots = if (weekOf == null) emptyMap() else result.datedSlots.filterKeys { key ->
+            datedSlots = result.datedSlots.filterKeys { key ->
                 val date = parseDatedSlotKey(key)?.date ?: return@filterKeys true
-                date < weekOf || date > weekOf.plusDays(4)
+                date < resetStart || date > resetEnd
             }
         )
     }
     request.slotEdits.forEach { edit ->
-        if (parseDatedSlotKey(edit.slot) != null || isWeekdaySlotKey(edit.slot)) {
-            // HT dates a job in one place: a dated edit moves its jobs out of every other slot (and the
-            // weekday mirror). Without this a queued move shows twice, and a later offline edit of the
-            // source slot would resend the moved job and re-date it back.
-            if (result.isDated && parseDatedSlotKey(edit.slot) != null) {
-                val moved = edit.jobs.map { it.folderName.lowercase() }.filter { it.isNotBlank() }.toSet()
-                if (moved.isNotEmpty()) {
-                    fun strip(slot: DeliverySlot) =
-                        if (slot.jobs.any { it.folderName.lowercase() in moved }) {
-                            DeliverySlot(slot.jobs.filterNot { it.folderName.lowercase() in moved })
-                        } else slot
-                    result = result.copy(
-                        slots = result.slots.mapValues { strip(it.value) },
-                        datedSlots = result.datedSlots.mapValues { (key, slot) -> if (key == edit.slot) slot else strip(slot) }
-                    )
-                }
+        val slot = resolvePendingSlotKey(edit.slot, schedule, today) ?: return@forEach
+        // HT dates a job in one place: a dated edit moves its jobs out of every other slot (and the
+        // weekday mirror). Without this a queued move shows twice, and a later offline edit of the
+        // source slot would resend the moved job and re-date it back.
+        if (result.isDated && parseDatedSlotKey(slot) != null) {
+            val moved = edit.jobs.map { it.folderName.lowercase() }.filter { it.isNotBlank() }.toSet()
+            if (moved.isNotEmpty()) {
+                fun strip(slot: DeliverySlot) =
+                    if (slot.jobs.any { it.folderName.lowercase() in moved }) {
+                        DeliverySlot(slot.jobs.filterNot { it.folderName.lowercase() in moved })
+                    } else slot
+                result = result.copy(
+                    slots = result.slots.mapValues { strip(it.value) },
+                    datedSlots = result.datedSlots.mapValues { (key, existing) -> if (key == slot) existing else strip(existing) }
+                )
             }
-            result = result.withSlot(edit.slot, edit.jobs)
         }
+        result = result.withSlot(slot, edit.jobs)
     }
     return result
 }
 
+/** The raw slot keys of [request] (v1 behavior; weekday keys stay weekday keys). */
 fun pendingDeliverySlotKeys(request: DeliveryScheduleEditRequest?): Set<String> =
     request?.slotEdits?.map { it.slot }?.toSet().orEmpty()
+
+/** Slot keys of [request] as the UI shows them: on a v2 [schedule] weekday keys map onto dated keys. */
+fun pendingDeliverySlotKeys(
+    request: DeliveryScheduleEditRequest?,
+    schedule: DeliverySchedule,
+    today: LocalDate = shopToday()
+): Set<String> =
+    request?.slotEdits?.map { resolvePendingSlotKey(it.slot, schedule, today) ?: it.slot }?.toSet().orEmpty()

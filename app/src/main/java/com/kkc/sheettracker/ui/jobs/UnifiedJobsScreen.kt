@@ -992,11 +992,11 @@ fun UnifiedJobsScreen(
             availableJobs = deliveryPickerJobs,
             onPlaceJob = { job, toSlot, fromSlot -> runDeliveryEdit { editor, current -> editor.placeJob(current, job, toSlot, fromSlot) } },
             onRemoveJob = { job, fromSlot -> runDeliveryEdit { editor, current -> editor.removeJob(current, job, fromSlot) } },
-            onReplaceSlot = { slot, jobs -> runDeliveryEdit { editor, current -> editor.replaceSlot(current, slot, jobs) } },
+            onReplaceSlot = { slot, jobs -> runDeliveryEdit { editor, _ -> editor.replaceSlot(slot, jobs) } },
             onResetWeek = { runDeliveryEdit { editor, current -> editor.resetWeek(current) } },
             notices = deliveryNotices,
             onDismissNotices = { deliveryNotices = emptyList() },
-            pendingSlotKeys = pendingDeliverySlotKeys(deliveryPendingRequest),
+            pendingSlotKeys = pendingDeliverySlotKeys(deliveryPendingRequest, deliveryScheduleBinding.dialogSchedule),
             revision = deliveryEditRevision
         )
     }

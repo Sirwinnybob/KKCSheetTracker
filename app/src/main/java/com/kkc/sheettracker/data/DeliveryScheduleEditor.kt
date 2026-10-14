@@ -30,6 +30,11 @@ sealed interface DeliveryEditOutcome {
     data class Refused(override val notices: List<String>) : DeliveryEditOutcome
 }
 
+/**
+ * "Job N not placed: ..." / "was not removed: ...". HT's own [DeliveryScheduleFailure.reason] wins;
+ * with none, the status-based wording below is the ONLY fallback table (the client passes through
+ * whatever the server said, or an empty string).
+ */
 fun formatDeliveryFailure(f: DeliveryScheduleFailure, removal: Boolean = false): String {
     val why = f.reason.ifBlank {
         when (f.status) {
@@ -63,7 +68,9 @@ class DeliveryScheduleEditor(
 ) {
     suspend fun placeJob(current: DeliverySchedule, job: DeliveryJob, toSlot: String, fromSlot: String?): DeliveryEditOutcome {
         val dest = current.slotByKey(toSlot).jobs
-        if (dest.any { it.sameJob(job) }) return DeliveryEditOutcome.Applied(current, emptyList())
+        // Already there: nothing to send. Not `Applied(current)`: that would publish this tablet's
+        // pending-request overlay into the shared store as if HT had confirmed it.
+        if (dest.any { it.sameJob(job) }) return DeliveryEditOutcome.Queued(emptyList())
         // The cap is per DAY, not per half-day. The moving job doesn't count against its own
         // destination day, so an AM<->PM move inside a full day stays allowed.
         val others = deliveryDayJobs(current, toSlot).count { !it.sameJob(job) }
@@ -140,8 +147,8 @@ class DeliveryScheduleEditor(
         )
     }
 
-    /** Field edits inside one slot (job card edit). Always a whole-slot edit. */
-    suspend fun replaceSlot(current: DeliverySchedule, slotKey: String, jobs: List<DeliveryJob>): DeliveryEditOutcome =
+    /** Field edits inside one slot (job card edit). Always a whole-slot edit; it never adds a job to the day. */
+    suspend fun replaceSlot(slotKey: String, jobs: List<DeliveryJob>): DeliveryEditOutcome =
         sendSlotEdits(listOf(DeliveryScheduleSlotEdit(slotKey, jobs)), hasPendingRequest())
 
     /** Clears every job dated in the mirrored Mon-Fri week (`weekOf`..`weekOf+4`). */
@@ -150,7 +157,9 @@ class DeliveryScheduleEditor(
             val request = DeliveryScheduleEditRequest(tabletId, Instant.now(clock).toString(), resetAll = true)
             remote?.applyEdits(request)?.let { return applied(it) }
         }
-        queue.queueReset(tabletId, current.weekOf)
+        if (!queue.queueReset(tabletId, current.weekOf)) {
+            return DeliveryEditOutcome.Refused(listOf("Couldn't save the reset on this tablet. Try again."))
+        }
         return DeliveryEditOutcome.Queued(listOf("Reset queued; it applies when Hours Tracker picks it up."))
     }
 
@@ -160,33 +169,53 @@ class DeliveryScheduleEditor(
             remote?.applyEdits(request)?.let { return applied(it) }
         }
         val notices = mutableListOf<String>()
+        var failed = false
         edits.forEach { edit ->
             val dated = parseDatedSlotKey(edit.slot.trim().lowercase()) != null
-            queue.queueSlotEdit(edit.slot, edit.jobs, tabletId).droppedJobs.forEach { dropped ->
-                // Mirrors DeliveryScheduleRequestStore's validity rule; anything else was over the cap.
-                val invalid = dropped.jobNumber.isBlank() || dropped.description.isBlank() ||
-                    (dated && dropped.folderName.isBlank())
-                val why = when {
-                    invalid -> "missing job number, name or folder"
-                    dated -> "that day already has $MAX_DELIVERY_JOBS_PER_DAY deliveries"
-                    else -> "that half-day already has $MAX_DELIVERY_JOBS_PER_LEGACY_SLOT deliveries"
+            val result = queue.queueSlotEdit(edit.slot, edit.jobs, tabletId)
+            if (!result.queued) {
+                failed = true
+                // One line for the whole edit, except when every job was invalid: then each job says why.
+                when (result.reason) {
+                    DeliveryQueueFailure.AllJobsInvalid -> notices += result.droppedJobs.map { droppedNotice(it, dated) }
+                    DeliveryQueueFailure.InvalidSlot ->
+                        notices += "Couldn't save this delivery change: that isn't a valid delivery slot."
+                    DeliveryQueueFailure.TooOld ->
+                        notices += "Couldn't save this delivery change: that day is more than $DELIVERY_HISTORY_DAYS days in the past."
+                    DeliveryQueueFailure.Blocked, null -> notices += SAVE_FAILED_NOTICE
                 }
-                notices += "Job ${dropped.jobNumber.ifBlank { "(no number)" }} not queued: $why"
+            } else {
+                notices += result.droppedJobs.map { droppedNotice(it, dated) }
             }
         }
-        return DeliveryEditOutcome.Queued(notices)
+        val distinct = notices.distinct()
+        return if (failed) DeliveryEditOutcome.Refused(distinct) else DeliveryEditOutcome.Queued(distinct)
+    }
+
+    // Mirrors DeliveryScheduleRequestStore's validity rule; anything else was over the cap.
+    private fun droppedNotice(dropped: DeliveryJob, dated: Boolean): String {
+        val invalid = dropped.jobNumber.isBlank() || dropped.description.isBlank() ||
+            (dated && dropped.folderName.isBlank())
+        val why = when {
+            invalid -> "missing job number, name or folder"
+            dated -> "that day already has $MAX_DELIVERY_JOBS_PER_DAY deliveries"
+            else -> "that half-day already has $MAX_DELIVERY_JOBS_PER_LEGACY_SLOT deliveries"
+        }
+        return "Job ${dropped.jobNumber.ifBlank { "(no number)" }} not queued: $why"
     }
 
     private fun applied(result: DeliveryScheduleApplyResult) =
         DeliveryEditOutcome.Applied(result.schedule, result.failures.map(::formatDeliveryFailure))
 
-    // FastAPI returns 422 `detail` as a JSON list/object, so the reason can be raw JSON text.
-    // Blank it so formatDeliveryFailure falls back to its status-based text.
-    private fun refused(job: DeliveryJob, r: DeliveryJobDateResult.Refused): DeliveryEditOutcome.Refused {
-        val reason = r.reason.takeUnless { it.trimStart().startsWith("[") || it.trimStart().startsWith("{") }.orEmpty()
-        return DeliveryEditOutcome.Refused(
-            listOf(formatDeliveryFailure(DeliveryScheduleFailure("", job.jobNumber, job.folderName, r.status, reason)))
+    // AdminSyncClient already reduces FastAPI's 422 list/object `detail` to plain text (or "").
+    // A blank reason makes formatDeliveryFailure use its status-based wording.
+    private fun refused(job: DeliveryJob, r: DeliveryJobDateResult.Refused) =
+        DeliveryEditOutcome.Refused(
+            listOf(formatDeliveryFailure(DeliveryScheduleFailure("", job.jobNumber, job.folderName, r.status, r.reason)))
         )
+
+    private companion object {
+        const val SAVE_FAILED_NOTICE = "Couldn't save this delivery change on this tablet. Try again."
     }
 }
 
