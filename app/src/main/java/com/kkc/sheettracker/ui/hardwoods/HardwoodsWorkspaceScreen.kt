@@ -155,6 +155,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.AdminSyncConfig
+import com.kkc.sheettracker.data.HardwoodDocuments
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.data.HardwoodsRepository
@@ -605,14 +606,14 @@ fun HardwoodsWorkspaceScreen(
     LaunchedEffect(documents, jobFolderName, isDarkTheme) {
         val filtered = withContext(Dispatchers.IO) {
             documents.filter { doc ->
-                // Door lists are retired; legacy jobs may still carry one in their index.
-                doc.docType != HardwoodDocType.DOOR_LIST &&
-                    doc.pdfFilename.isNotBlank() &&
+                // Door lists are retired; metadata-backed docs need no PDF.
+                HardwoodDocuments.isAvailable(doc) { pdfFilename ->
                     jobRepository.getJobRootPdfFile(
                         jobFolderName = jobFolderName,
-                        pdfFilename = doc.pdfFilename,
+                        pdfFilename = pdfFilename,
                         preferDarkMode = isDarkTheme
                     ) != null
+                }
             }
         }
         availableDocuments = filtered
@@ -628,7 +629,10 @@ fun HardwoodsWorkspaceScreen(
     }
 
     val listState = rememberLazyListState()
-    val selectedDoc = remember(availableDocuments, selectedDocType) { availableDocuments.firstOrNull { it.docType == selectedDocType } }
+    var selectedBatchId by rememberSaveable(jobFolderName) { mutableStateOf<String?>(null) }
+    val selectedDoc = remember(availableDocuments, selectedDocType, selectedBatchId, initialRowId) {
+        HardwoodDocuments.selectDoc(availableDocuments, selectedDocType, selectedBatchId, initialRowId)
+    }
     val selectedDocName = selectedDoc?.docType?.name.orEmpty()
     val rawRows = selectedDoc?.rows.orEmpty()
     val totals = selectedDoc?.totals.orEmpty()
@@ -770,15 +774,16 @@ fun HardwoodsWorkspaceScreen(
         }
     }
     val pendingChangedByDoc = remember(availableDocuments, rowRevisionStateMap, rowProgressMap) {
-        availableDocuments.associate { doc ->
-            val pending = doc.rows.filter { row ->
-                val state = rowRevisionStateMap[doc.docType.name to row.rowId] ?: return@filter false
-                if (state.latestRevision <= 0) return@filter false
-                val qty = row.qty.coerceAtLeast(0)
-                val done = rowProgressMap[doc.docType.name to row.rowId]?.doneCount ?: 0
-                qty > 0 && done < qty
-            }.map { it.rowId }.toSet()
-            doc.docType to pending
+        availableDocuments.groupBy { it.docType }.mapValues { (docType, docs) ->
+            docs.flatMap { doc ->
+                doc.rows.filter { row ->
+                    val state = rowRevisionStateMap[docType.name to row.rowId] ?: return@filter false
+                    if (state.latestRevision <= 0) return@filter false
+                    val qty = row.qty.coerceAtLeast(0)
+                    val done = rowProgressMap[docType.name to row.rowId]?.doneCount ?: 0
+                    qty > 0 && done < qty
+                }.map { it.rowId }
+            }.toSet()
         }
     }
     val hasAnyPendingChanged = remember(pendingChangedByDoc) {
@@ -1485,6 +1490,17 @@ fun HardwoodsWorkspaceScreen(
                     thickness = 1.dp,
                     modifier = Modifier.fillMaxWidth()
                 )
+                val docsOfSelectedType = availableDocuments.filter { it.docType == selectedDocType }
+                if (!showRipCutList && docsOfSelectedType.size > 1) {
+                    HardwoodsBatchChips(
+                        docs = docsOfSelectedType,
+                        selected = selectedDoc,
+                        onSelect = { selectedBatchId = it.batchId }
+                    )
+                }
+                if (!showRipCutList && selectedDoc != null && selectedDoc.doors.isNotEmpty()) {
+                    HardwoodsDoorAssembliesPanel(doors = selectedDoc.doors)
+                }
                 if (isDoorCutListView && !showRipCutList && selectedDoc != null) {
                     Spacer(Modifier.height(2.dp))
                     Row(
