@@ -5,6 +5,7 @@ import com.kkc.sheettracker.ui.components.rememberLazySectionExpansions
 import com.kkc.sheettracker.ui.jobs.stationBarColor
 
 import com.kkc.sheettracker.ui.components.KKCPillAction
+import com.kkc.sheettracker.ui.components.rememberJobPacketActions
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.kkc.sheettracker.ui.components.icons.ActionPrintIcon
 import com.kkc.sheettracker.ui.components.icons.ViewKanbanIcon
@@ -139,6 +140,7 @@ import com.kkc.sheettracker.data.loadAdminBoardStock
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.ReferenceDocType
+import com.kkc.sheettracker.data.models.JobPdfRef
 import androidx.compose.material.icons.filled.Visibility
 import com.kkc.sheettracker.data.MoldingLibraryRepository
 import com.kkc.sheettracker.data.models.AdminBoardStockItem
@@ -174,6 +176,7 @@ internal fun SpecialtyJobDetailScreen(
     specialtyStateStore: SpecialtyStateStore,
     specialtyViewerDefaultsStore: SpecialtyViewerDefaultsStore,
     jobRepository: JobRepository,
+    onOpenJobPacketDocument: (JobPdfRef) -> Unit,
     availability: com.kkc.sheettracker.navigation.SpecialtyAvailability,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeD: () -> Unit,
@@ -336,6 +339,11 @@ internal fun SpecialtyJobDetailScreen(
             if (availability.hasThreeDAssets) add(KKCPillAction("3D", onOpenThreeD, ReferenceView3DIcon))
         }
     }
+    val jobPacketActions = rememberJobPacketActions(
+        jobRepository = jobRepository,
+        jobFolderName = jobFolderName,
+        onOpenJobPacketDocument = onOpenJobPacketDocument
+    )
 
     val onToggleChecked: (SpecialtyResolvedItem, SpecialtyChecklistToggle, Boolean) -> Unit = toggle@{ resolved, toggle, next ->
         if (readOnly) return@toggle
@@ -450,8 +458,9 @@ internal fun SpecialtyJobDetailScreen(
                 // Same inset/height as the station pill row below it, so both bars line up full-width.
                 KKCPillActionRow(
                     actions = specialtyActions,
-                    trailingActions = referenceActions,
+                    trailingActions = referenceActions + jobPacketActions,
                     fillWidth = true,
+                    wrap = true,
                     modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
                 )
                 // Same inline save-failure text the list shows (in addition to the snackbar).
@@ -517,8 +526,9 @@ internal fun SpecialtyJobDetailScreen(
             item(key = "actions") {
                 KKCPillActionRow(
                     actions = specialtyActions,
-                    trailingActions = referenceActions,
+                    trailingActions = referenceActions + jobPacketActions,
                     fillWidth = true,
+                    wrap = true,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
             }

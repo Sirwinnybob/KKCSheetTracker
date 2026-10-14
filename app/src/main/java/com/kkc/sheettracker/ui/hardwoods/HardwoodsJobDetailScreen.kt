@@ -2,6 +2,7 @@ package com.kkc.sheettracker.ui.hardwoods
 
 import com.kkc.sheettracker.ui.components.KKCPillAction
 import com.kkc.sheettracker.ui.components.KKCPillActionRow
+import com.kkc.sheettracker.ui.components.rememberJobPacketActions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
@@ -73,6 +74,7 @@ import com.kkc.sheettracker.data.models.HardwoodStatusCounts
 import com.kkc.sheettracker.data.models.HiddenMaterialsDocument
 import com.kkc.sheettracker.data.models.HiddenMaterialsMode
 import com.kkc.sheettracker.data.models.ReferenceDocType
+import com.kkc.sheettracker.data.models.JobPdfRef
 import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.MaterialSegmentData
 import com.kkc.sheettracker.ui.components.ProgressCard
@@ -145,6 +147,7 @@ fun HardwoodsJobDetailScreen(
     onOpenWorkspace: (HardwoodDocType) -> Unit,
     onOpenRipCutList: () -> Unit,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
+    onOpenJobPacketDocument: (JobPdfRef) -> Unit,
     onOpenThreeD: () -> Unit,
     onBack: () -> Unit,
     isClockedInHere: Boolean = false,
@@ -256,6 +259,10 @@ fun HardwoodsJobDetailScreen(
         progressJob.index?.documents.orEmpty().associateBy { it.docType }
     }
     var suppressLeavePrompt by remember { mutableStateOf(false) }
+    val jobPacketActions = rememberJobPacketActions(jobRepository, jobFolderName) { document ->
+        suppressLeavePrompt = true
+        onOpenJobPacketDocument(document)
+    }
     var showPrintDialog by remember { mutableStateOf(false) }
     var showArchiveActionSheet by remember { mutableStateOf(false) }
     val adminEnabled by AdminModeController.enabled.collectAsState()
@@ -356,7 +363,12 @@ fun HardwoodsJobDetailScreen(
                     }, ReferenceView3DIcon))
                 }
             }
-            KKCPillActionRow(actions = referenceActions)
+            KKCPillActionRow(
+                actions = referenceActions,
+                trailingActions = jobPacketActions,
+                fillWidth = true,
+                wrap = true
+            )
 
             val jobStatusCounts = summary.counts.toStatusCounts()
             ProgressCard(

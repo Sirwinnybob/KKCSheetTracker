@@ -36,6 +36,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -69,12 +71,15 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.zIndex
 import com.kkc.sheettracker.ui.theme.KKCStatusColors
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
@@ -827,9 +832,11 @@ data class KKCPillAction(
  * button showing the pill — nothing slides because none of them is "selected". Same theme rules as
  * the sliders: primary-colored track and secondary-colored pills on two-color themes.
  *
- * With [trailingActions] (or [fillWidth]) the row spans its full width: [actions] on the left,
- * [trailingActions] pinned to the right. Otherwise it is only as wide as its pills. Either way, if
- * the pills don't fit the row scrolls sideways, and its edges fade while more pills are off-screen.
+ * With [trailingActions] (or [fillWidth]) the row spans its full width: by default [actions] stay
+ * on the left and [trailingActions] are pinned to the right. Otherwise it is only as wide as its
+ * pills. By default, overflow scrolls sideways and fades at the edges. Set [wrap] to wrap each
+ * group independently at its assigned edge, keeping every action visible without horizontal
+ * scrolling.
  */
 @Composable
 fun KKCPillActionRow(
@@ -842,42 +849,142 @@ fun KKCPillActionRow(
      * loads in later (or may never appear), so the row's width and layout don't jump.
      */
     fillWidth: Boolean = false,
-    style: KKCPillStyle = rememberKKCPillStyle()
+    style: KKCPillStyle = rememberKKCPillStyle(),
+    /** Arrange action groups in a natural-height flow instead of a fixed-height scrolling strip. */
+    wrap: Boolean = false
 ) {
     if (actions.isEmpty() && trailingActions.isEmpty()) return
     // Outer padding equals the gap between buttons so the track border reads as an even frame.
     val gap = 4.dp
     val spanWidth = fillWidth || trailingActions.isNotEmpty()
     val containerModifier = if (spanWidth) modifier.fillMaxWidth() else modifier
-    val scroll = rememberScrollState()
-    KKCPillContainer(style = style, modifier = containerModifier.height(HeaderPillHeight + gap * 2)) {
-        // The container (a Surface) passes its width down as the Row's minimum width, and
-        // horizontalScroll keeps that minimum, so SpaceBetween pins the two groups to the ends of
-        // a full-width row; wider content scrolls instead.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier
-                .scrollEdgeFade(scroll, fade = 24.dp)
-                .horizontalScroll(scroll)
-                .padding(gap)
-        ) {
+    if (wrap) {
+        KKCPillContainer(style = style, modifier = containerModifier) {
+            GroupedActionFlowRows(
+                leadingActions = actions,
+                trailingActions = trailingActions,
+                style = style,
+                gap = gap
+            )
+        }
+    } else {
+        val scroll = rememberScrollState()
+        KKCPillContainer(style = style, modifier = containerModifier.height(HeaderPillHeight + gap * 2)) {
+            // The container (a Surface) passes its width down as the Row's minimum width, and
+            // horizontalScroll keeps that minimum, so SpaceBetween pins the two groups to the ends of
+            // a full-width row; wider content scrolls instead.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(gap)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .scrollEdgeFade(scroll, fade = 24.dp)
+                    .horizontalScroll(scroll)
+                    .padding(gap)
             ) {
-                actions.forEach { KKCPillActionButton(it, style) }
-            }
-            if (trailingActions.isNotEmpty()) {
-                Spacer(Modifier.width(16.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(gap)
                 ) {
-                    trailingActions.forEach { KKCPillActionButton(it, style) }
+                    actions.forEach { KKCPillActionButton(it, style) }
+                }
+                if (trailingActions.isNotEmpty()) {
+                    Spacer(Modifier.width(16.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(gap)
+                    ) {
+                        trailingActions.forEach { KKCPillActionButton(it, style) }
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun GroupedActionFlowRows(
+    leadingActions: List<KKCPillAction>,
+    trailingActions: List<KKCPillAction>,
+    style: KKCPillStyle,
+    gap: Dp
+) {
+    val groupGap = 16.dp
+    Layout(
+        content = {
+            if (leadingActions.isNotEmpty()) {
+                ActionFlowRow(leadingActions, style, gap, Alignment.Start)
+            }
+            if (trailingActions.isNotEmpty()) {
+                ActionFlowRow(trailingActions, style, gap, Alignment.End)
+            }
+        },
+        modifier = Modifier.padding(gap)
+    ) { measurables, constraints ->
+        var measurableIndex = 0
+        val leadingMeasurable = if (leadingActions.isNotEmpty()) measurables[measurableIndex++] else null
+        val trailingMeasurable = if (trailingActions.isNotEmpty()) measurables[measurableIndex] else null
+        val leadingNaturalWidth = leadingMeasurable?.maxIntrinsicWidth(Constraints.Infinity) ?: 0
+        val leadingMinWidth = leadingMeasurable?.minIntrinsicWidth(Constraints.Infinity) ?: 0
+        val trailingNaturalWidth = trailingMeasurable?.maxIntrinsicWidth(Constraints.Infinity) ?: 0
+        val trailingMinWidth = trailingMeasurable?.minIntrinsicWidth(Constraints.Infinity) ?: 0
+        val naturalWidth = leadingNaturalWidth.toLong() + trailingNaturalWidth +
+            if (leadingMeasurable != null && trailingMeasurable != null) groupGap.roundToPx() else 0
+        val availableWidth = if (constraints.hasBoundedWidth) {
+            constraints.maxWidth
+        } else {
+            naturalWidth.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        }
+        val allocation = allocateActionGroupWidths(
+            leadingNaturalWidth = leadingNaturalWidth,
+            leadingMinWidth = leadingMinWidth,
+            trailingNaturalWidth = trailingNaturalWidth,
+            trailingMinWidth = trailingMinWidth,
+            availableWidth = availableWidth,
+            groupGap = groupGap.roundToPx()
+        )
+        fun measureAtWidth(measurable: androidx.compose.ui.layout.Measurable?, width: Int) =
+            measurable?.measure(Constraints.fixedWidth(width).copy(maxHeight = constraints.maxHeight))
+
+        val leading = measureAtWidth(leadingMeasurable, allocation.leadingWidth)
+        val trailing = measureAtWidth(trailingMeasurable, allocation.trailingWidth)
+        val contentWidth = if (allocation.stackVertically) {
+            availableWidth
+        } else {
+            allocation.leadingWidth + allocation.trailingWidth +
+                if (leadingMeasurable != null && trailingMeasurable != null) groupGap.roundToPx() else 0
+        }
+        val width = constraints.constrainWidth(contentWidth)
+        val naturalHeight = if (allocation.stackVertically && leading != null && trailing != null) {
+            leading.height + groupGap.roundToPx() + trailing.height
+        } else {
+            maxOf(leading?.height ?: 0, trailing?.height ?: 0)
+        }
+        val height = constraints.constrainHeight(naturalHeight)
+        layout(width, height) {
+            if (allocation.stackVertically && leading != null && trailing != null) {
+                leading.placeRelative(0, 0)
+                trailing.placeRelative(0, leading.height + groupGap.roundToPx())
+            } else {
+                leading?.placeRelative(0, 0)
+                trailing?.placeRelative(width - trailing.width, 0)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ActionFlowRow(
+    actions: List<KKCPillAction>,
+    style: KKCPillStyle,
+    gap: Dp,
+    horizontalAlignment: Alignment.Horizontal
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(gap, horizontalAlignment),
+        verticalArrangement = Arrangement.spacedBy(gap)
+    ) {
+        actions.forEach { KKCPillActionButton(it, style, preserveNaturalWidth = true) }
     }
 }
 
@@ -909,10 +1016,15 @@ private fun Modifier.scrollEdgeFade(scroll: ScrollState, fade: Dp): Modifier =
         }
 
 @Composable
-private fun KKCPillActionButton(action: KKCPillAction, style: KKCPillStyle) {
+private fun KKCPillActionButton(
+    action: KKCPillAction,
+    style: KKCPillStyle,
+    preserveNaturalWidth: Boolean = false
+) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
+            .then(if (preserveNaturalWidth) Modifier.width(IntrinsicSize.Max) else Modifier)
             .height(HeaderPillHeight)
             .kkcPillIndicator(style)
             .clip(RoundedCornerShape(6.dp))

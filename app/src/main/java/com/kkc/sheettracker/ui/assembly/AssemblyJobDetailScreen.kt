@@ -2,6 +2,7 @@ package com.kkc.sheettracker.ui.assembly
 
 import com.kkc.sheettracker.ui.components.KKCPillAction
 import com.kkc.sheettracker.ui.components.KKCPillActionRow
+import com.kkc.sheettracker.ui.components.rememberJobPacketActions
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.AssemblyStateStore
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.models.JobPdfRef
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
@@ -53,6 +55,7 @@ fun AssemblyJobDetailScreen(
     assemblyStateStore: AssemblyStateStore,
     specialtyStateStore: SpecialtyStateStore,
     jobRepository: JobRepository,
+    onOpenJobPacketDocument: (JobPdfRef) -> Unit,
     onOpenSplitView: () -> Unit,
     onJumpToCabinet: (String) -> Unit,
     onBack: () -> Unit
@@ -71,6 +74,7 @@ fun AssemblyJobDetailScreen(
     val inFlightUpdates = checklist.inFlight
     var toggleErrorMessage by remember(jobFolderName) { mutableStateOf<String?>(null) }
     var showPrintDialog by remember { mutableStateOf(false) }
+    val jobPacketActions = rememberJobPacketActions(jobRepository, jobFolderName, onOpenJobPacketDocument)
 
     // Same optimistic checkbox handling as SpecialtyJobDetailScreen (see ChecklistOverrides).
     val resolvedItems = rememberLoadedChecklist(
@@ -130,9 +134,10 @@ fun AssemblyJobDetailScreen(
 
             item(key = "actions") {
                 KKCPillActionRow(
-                    actions = listOf(
-                        KKCPillAction("Split View", onOpenSplitView)
-                    )
+                    actions = listOf(KKCPillAction("Split View", onOpenSplitView)),
+                    trailingActions = jobPacketActions,
+                    fillWidth = true,
+                    wrap = true
                 )
             }
 

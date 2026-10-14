@@ -23,6 +23,7 @@ import com.kkc.sheettracker.data.AssemblyPaneView
 import com.kkc.sheettracker.data.AssemblyViewLayout
 import com.kkc.sheettracker.data.SpecialtyViewerDefaultsStore
 import com.kkc.sheettracker.data.models.HardwoodDocType
+import com.kkc.sheettracker.data.models.JobPdfRef
 import com.kkc.sheettracker.data.models.HiddenMaterialsMode
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.RefreshReason
@@ -116,6 +117,9 @@ internal fun ArchiveJobDetailHost(
                     onJumpToCabinet = { cabinet ->
                         navController.navigate(assemblyViewerRoute(session.folderName, 1, 1, cabinet = cabinet))
                     },
+                    onOpenJobPacketDocument = { document ->
+                        navController.navigate(archiveJobPacketViewerRoute(document))
+                    },
                     onBack = onExitArchive,
                 )
                 WorkMode.SPECIALTY -> ArchiveSpecialtyDetail(
@@ -170,16 +174,20 @@ internal fun ArchiveJobDetailHost(
         }
 
         composable(
-            "referenceViewer/{docType}/{startPage}",
+            "referenceViewer/{docType}/{startPage}?pdfFilenameOverride={pdfFilenameOverride}&documentTitleOverride={documentTitleOverride}",
             arguments = listOf(
                 navArgument("docType") { type = NavType.StringType },
                 navArgument("startPage") { type = NavType.IntType },
+                navArgument("pdfFilenameOverride") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("documentTitleOverride") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) { backStackEntry ->
             val rawDocType = URLDecoder.decode(backStackEntry.arguments?.getString("docType").orEmpty(), "UTF-8")
             val docType = runCatching { ReferenceDocType.valueOf(rawDocType) }
                 .getOrDefault(ReferenceDocType.ASSEMBLY)
             val startPage = backStackEntry.arguments?.getInt("startPage") ?: 1
+            val pdfFilenameOverride = backStackEntry.arguments?.getString("pdfFilenameOverride")
+            val documentTitleOverride = backStackEntry.arguments?.getString("documentTitleOverride")
             val refreshGeneration = session.scanCoordinator.state.collectAsState().value.snapshot.generation
             ReferencePdfViewerScreen(
                 jobRepository = session.jobRepository,
@@ -192,6 +200,8 @@ internal fun ArchiveJobDetailHost(
                 onBack = { navController.popBackStack() },
                 overridePdfMarkupStore = session.pdfMarkupStore,
                 pdfMarkupReadOnly = true,
+                pdfFilenameOverride = pdfFilenameOverride,
+                documentTitleOverride = documentTitleOverride,
             )
         }
 
@@ -330,6 +340,9 @@ private fun ArchiveCncDetail(
         onOpenReferenceDocument = { docType, startPage ->
             navController.navigate("referenceViewer/${URLEncoder.encode(docType.name, "UTF-8")}/$startPage")
         },
+        onOpenJobPacketDocument = { document ->
+            navController.navigate(archiveJobPacketViewerRoute(document))
+        },
         onOpenThreeD = {
             val target = resolveDefaultThreeDTarget(session.baseDir, session.jobRepository, session.folderName)
             navController.navigate(
@@ -383,6 +396,9 @@ private fun ArchiveHardwoodsDetail(
         onOpenReferenceDocument = { docType, startPage ->
             navController.navigate("referenceViewer/${URLEncoder.encode(docType.name, "UTF-8")}/$startPage")
         },
+        onOpenJobPacketDocument = { document ->
+            navController.navigate(archiveJobPacketViewerRoute(document))
+        },
         onOpenThreeD = {
             val target = resolveDefaultThreeDTarget(session.baseDir, session.jobRepository, session.folderName)
             navController.navigate(
@@ -423,6 +439,9 @@ private fun ArchiveSpecialtyDetail(
         availability = availability,
         onOpenReferenceDocument = { docType, startPage ->
             navController.navigate("referenceViewer/${URLEncoder.encode(docType.name, "UTF-8")}/$startPage")
+        },
+        onOpenJobPacketDocument = { document ->
+            navController.navigate(archiveJobPacketViewerRoute(document))
         },
         onOpenThreeD = {
             val room = resolveSpecialtyThreeDRoom(session.baseDir, session.folderName)
@@ -465,3 +484,6 @@ private fun ArchiveSpecialtyDetail(
         onBack = onExitArchive,
     )
 }
+
+private fun archiveJobPacketViewerRoute(document: JobPdfRef): String =
+    "referenceViewer/${URLEncoder.encode(ReferenceDocType.SHEET.name, "UTF-8")}/1" + jobPacketViewerQuery(document)

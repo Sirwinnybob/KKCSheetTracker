@@ -121,6 +121,7 @@ import com.kkc.sheettracker.data.unified.UnifiedMetadataEngine
 import com.kkc.sheettracker.data.models.AssemblySearchEntry
 import com.kkc.sheettracker.data.models.RefreshReason
 import com.kkc.sheettracker.data.models.ReferenceDocType
+import com.kkc.sheettracker.data.models.JobPdfRef
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
 import com.kkc.sheettracker.data.TimecardDiscovery
 import com.kkc.sheettracker.data.TimecardServerConfig
@@ -1700,6 +1701,11 @@ private fun JobsTabHost(
                         launchSingleTop = true
                     }
                 },
+                onOpenJobPacketDocument = { document ->
+                    navController.navigate(jobPacketViewerRoute(folderName, document)) {
+                        launchSingleTop = true
+                    }
+                },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -1740,6 +1746,11 @@ private fun JobsTabHost(
                 },
                 onOpenReferenceDocument = { docType, startPage ->
                     navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenJobPacketDocument = { document ->
+                    navController.navigate(jobPacketViewerRoute(folderName, document)) {
                         launchSingleTop = true
                     }
                 },
@@ -1858,6 +1869,11 @@ private fun JobsTabHost(
                 },
                 onJumpToCabinet = { cab ->
                     navController.navigate(assemblyViewerRoute(folderName, 1, 1, cabinet = cab)) {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenJobPacketDocument = { document ->
+                    navController.navigate(jobPacketViewerRoute(folderName, document)) {
                         launchSingleTop = true
                     }
                 },
@@ -1991,17 +2007,21 @@ private fun JobsTabHost(
         }
 
         composable(
-            "referenceViewer/{folderName}/{docType}/{startPage}",
+            "referenceViewer/{folderName}/{docType}/{startPage}?pdfFilenameOverride={pdfFilenameOverride}&documentTitleOverride={documentTitleOverride}",
             arguments = listOf(
                 navArgument("folderName") { type = NavType.StringType },
                 navArgument("docType") { type = NavType.StringType },
-                navArgument("startPage") { type = NavType.IntType }
+                navArgument("startPage") { type = NavType.IntType },
+                navArgument("pdfFilenameOverride") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("documentTitleOverride") { type = NavType.StringType; nullable = true; defaultValue = null }
             )
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
             val rawDocType = URLDecoder.decode(backStack.arguments?.getString("docType") ?: "", "UTF-8")
             val docType = runCatching { ReferenceDocType.valueOf(rawDocType) }.getOrDefault(ReferenceDocType.ASSEMBLY)
             val startPage = backStack.arguments?.getInt("startPage") ?: 1
+            val pdfFilenameOverride = backStack.arguments?.getString("pdfFilenameOverride")
+            val documentTitleOverride = backStack.arguments?.getString("documentTitleOverride")
             val refreshGeneration = scanCoordinator.state.collectAsState().value.snapshot.generation
             ReferencePdfViewerScreen(
                 jobRepository = jobRepository,
@@ -2011,6 +2031,8 @@ private fun JobsTabHost(
                 refreshGeneration = refreshGeneration,
                 continuousScrollDefault = continuousScrollDefault,
                 pdfMarkupReadOnly = isViewOnlyMode,
+                pdfFilenameOverride = pdfFilenameOverride,
+                documentTitleOverride = documentTitleOverride,
                 isDarkTheme = isDarkTheme,
                 onBack = { navController.popBackStack() },
                 onUiVisibilityChanged = onUiVisibilityChanged
@@ -2062,6 +2084,11 @@ private fun JobsTabHost(
                 },
                 onOpenReferenceDocument = { docType, startPage ->
                     navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenJobPacketDocument = { document ->
+                    navController.navigate(jobPacketViewerRoute(folderName, document)) {
                         launchSingleTop = true
                     }
                 },
@@ -3251,6 +3278,11 @@ private fun LegacySingleStackNavigation(
                                 launchSingleTop = true
                             }
                         },
+                        onOpenJobPacketDocument = { document ->
+                            navController.navigate(jobPacketViewerRoute(folderName, document)) {
+                                launchSingleTop = true
+                            }
+                        },
                         onOpenThreeD = {
                             val target = resolveDefaultThreeDTarget(File(basePath), jobRepository, folderName)
                             navController.navigate(
@@ -3308,6 +3340,11 @@ private fun LegacySingleStackNavigation(
                         availability = availability,
                         onOpenReferenceDocument = { docType, startPage ->
                             navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onOpenJobPacketDocument = { document ->
+                            navController.navigate(jobPacketViewerRoute(folderName, document)) {
                                 launchSingleTop = true
                             }
                         },
@@ -3400,6 +3437,11 @@ private fun LegacySingleStackNavigation(
                         },
                         onJumpToCabinet = { cab ->
                             navController.navigate(assemblyViewerRoute(folderName, 1, 1, cabinet = cab)) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onOpenJobPacketDocument = { document ->
+                            navController.navigate(jobPacketViewerRoute(folderName, document)) {
                                 launchSingleTop = true
                             }
                         },
@@ -3525,17 +3567,21 @@ private fun LegacySingleStackNavigation(
                 }
 
                 composable(
-                    "referenceViewer/{folderName}/{docType}/{startPage}",
+                    "referenceViewer/{folderName}/{docType}/{startPage}?pdfFilenameOverride={pdfFilenameOverride}&documentTitleOverride={documentTitleOverride}",
                     arguments = listOf(
                         navArgument("folderName") { type = NavType.StringType },
                         navArgument("docType") { type = NavType.StringType },
-                        navArgument("startPage") { type = NavType.IntType }
+                        navArgument("startPage") { type = NavType.IntType },
+                        navArgument("pdfFilenameOverride") { type = NavType.StringType; nullable = true; defaultValue = null },
+                        navArgument("documentTitleOverride") { type = NavType.StringType; nullable = true; defaultValue = null }
                     )
                 ) { backStack ->
                     val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
                     val rawDocType = URLDecoder.decode(backStack.arguments?.getString("docType") ?: "", "UTF-8")
                     val docType = runCatching { ReferenceDocType.valueOf(rawDocType) }.getOrDefault(ReferenceDocType.ASSEMBLY)
                     val startPage = backStack.arguments?.getInt("startPage") ?: 1
+                    val pdfFilenameOverride = backStack.arguments?.getString("pdfFilenameOverride")
+                    val documentTitleOverride = backStack.arguments?.getString("documentTitleOverride")
                     val refreshGeneration = scanCoordinator.state.collectAsState().value.snapshot.generation
                     ReferencePdfViewerScreen(
                         jobRepository = jobRepository,
@@ -3545,6 +3591,8 @@ private fun LegacySingleStackNavigation(
                         refreshGeneration = refreshGeneration,
                         continuousScrollDefault = continuousScrollDefault,
                         pdfMarkupReadOnly = isViewOnlyMode,
+                        pdfFilenameOverride = pdfFilenameOverride,
+                        documentTitleOverride = documentTitleOverride,
                         isDarkTheme = preferDarkMode,
                         onBack = { navController.popBackStack() },
                         onUiVisibilityChanged = { viewerUiVisible = it }
@@ -3591,6 +3639,11 @@ private fun LegacySingleStackNavigation(
                         },
                         onOpenReferenceDocument = { docType, startPage ->
                             navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
+                                launchSingleTop = true
+                            }
+                        },
+                        onOpenJobPacketDocument = { document ->
+                            navController.navigate(jobPacketViewerRoute(folderName, document)) {
                                 launchSingleTop = true
                             }
                         },
@@ -4175,6 +4228,22 @@ private fun rememberCompactWidthClass(): Boolean {
 internal fun referenceViewerRoute(jobFolderName: String, docType: ReferenceDocType, page: Int): String {
     return "referenceViewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(docType.name, "UTF-8")}/$page"
 }
+
+internal fun jobPacketViewerRoute(jobFolderName: String, document: JobPdfRef): String {
+    return referenceViewerRoute(jobFolderName, ReferenceDocType.SHEET, 1) + jobPacketViewerQuery(document)
+}
+
+internal fun jobPacketViewerQuery(document: JobPdfRef): String {
+    val query = buildList {
+        add("pdfFilenameOverride=${encodeQueryValue(document.pdfFilename)}")
+        document.label.takeIf { it.isNotBlank() }?.let {
+            add("documentTitleOverride=${encodeQueryValue(it)}")
+        }
+    }
+    return if (query.isEmpty()) "" else query.joinToString(prefix = "?", separator = "&")
+}
+
+private fun encodeQueryValue(value: String): String = URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
 internal fun assemblyViewerRoute(
     jobFolderName: String,

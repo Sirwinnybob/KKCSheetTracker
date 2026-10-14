@@ -2,6 +2,7 @@ package com.kkc.sheettracker.ui.detail
 
 import com.kkc.sheettracker.ui.components.KKCPillAction
 import com.kkc.sheettracker.ui.components.KKCPillActionRow
+import com.kkc.sheettracker.ui.components.rememberJobPacketActions
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -82,6 +83,7 @@ import com.kkc.sheettracker.data.models.Job
 import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.MaterialUiModel
 import com.kkc.sheettracker.data.models.ReferenceDocType
+import com.kkc.sheettracker.data.models.JobPdfRef
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.StatusCounts
@@ -280,6 +282,7 @@ fun JobDetailScreen(
     jobFolderName: String,
     onMaterialClick: (Material, Int, ViewerMixSelection?) -> Unit,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
+    onOpenJobPacketDocument: (JobPdfRef) -> Unit,
     onOpenThreeD: () -> Unit,
     onOpenManageCode: () -> Unit = {},
     onBack: () -> Unit,
@@ -432,6 +435,10 @@ fun JobDetailScreen(
     }
     val listState = rememberLazyListState()
     var suppressLeavePrompt by remember { mutableStateOf(false) }
+    val jobPacketActions = rememberJobPacketActions(jobRepository, jobFolderName) { document ->
+        suppressLeavePrompt = true
+        onOpenJobPacketDocument(document)
+    }
     var showPrintDialog by remember { mutableStateOf(false) }
     var showArchiveActionSheet by remember(jobFolderName) { mutableStateOf(false) }
 
@@ -619,7 +626,12 @@ fun JobDetailScreen(
                         }
                         add(KKCPillAction("Manage code", { onOpenManageCode() }, ActionManageCodeIcon))
                     }
-                    KKCPillActionRow(actions = referenceActions)
+                    KKCPillActionRow(
+                        actions = referenceActions,
+                        trailingActions = jobPacketActions,
+                        fillWidth = true,
+                        wrap = true
+                    )
                 }
 
                 item(key = "specialty-compact-section") {

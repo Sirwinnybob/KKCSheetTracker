@@ -64,6 +64,16 @@ internal fun applyFullscreenSingleTap(showUi: Boolean, wakePending: Boolean): Fu
         FullscreenTapResult(showUi = !showUi, wakePending = false)
     }
 
+internal fun referenceResumeKey(
+    jobFolderName: String,
+    docType: ReferenceDocType,
+    pdfFilenameOverride: String?
+): String = if (pdfFilenameOverride == null) {
+    "reference_resume_v1_${jobFolderName}_${docType.name}"
+} else {
+    "reference_resume_v1_file_${jobFolderName.length}:${jobFolderName}_${docType.name}_${pdfFilenameOverride.length}:$pdfFilenameOverride"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReferencePdfViewerScreen(
@@ -77,20 +87,28 @@ fun ReferencePdfViewerScreen(
     onBack: () -> Unit,
     onUiVisibilityChanged: (Boolean) -> Unit = {},
     overridePdfMarkupStore: PdfMarkupStore? = null,
-    pdfMarkupReadOnly: Boolean = false
+    pdfMarkupReadOnly: Boolean = false,
+    pdfFilenameOverride: String? = null,
+    documentTitleOverride: String? = null
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("kkc_ui_prefs", android.content.Context.MODE_PRIVATE) }
-    val referenceData = rememberReferenceViewerData(
-        jobRepository = jobRepository,
-        jobFolderName = jobFolderName,
-        docType = docType,
-        refreshGeneration = refreshGeneration,
-        isDarkTheme = isDarkTheme
-    )
+    val referenceData = if (pdfFilenameOverride != null) {
+        remember(pdfFilenameOverride) { referenceViewerDataForPdfFilename(pdfFilenameOverride) }
+    } else {
+        rememberReferenceViewerData(
+            jobRepository = jobRepository,
+            jobFolderName = jobFolderName,
+            docType = docType,
+            refreshGeneration = refreshGeneration,
+            isDarkTheme = isDarkTheme
+        )
+    }
 
-    val resumeKey = remember(jobFolderName, docType) { "reference_resume_v1_${jobFolderName}_${docType.name}" }
-    var currentPage by remember(jobFolderName, docType, startPage) {
+    val resumeKey = remember(jobFolderName, docType, pdfFilenameOverride) {
+        referenceResumeKey(jobFolderName, docType, pdfFilenameOverride)
+    }
+    var currentPage by remember(jobFolderName, docType, startPage, pdfFilenameOverride) {
         mutableIntStateOf(prefs.getInt(resumeKey, startPage).coerceAtLeast(1))
     }
     LaunchedEffect(currentPage, resumeKey) {
@@ -141,7 +159,7 @@ fun ReferencePdfViewerScreen(
                     .headerBackground(),
                 title = {
                     Text(
-                        when (docType) {
+                        documentTitleOverride ?: when (docType) {
                             ReferenceDocType.ASSEMBLY -> "Assembly Sheets"
                             ReferenceDocType.PLANS_ELEVATIONS -> "Plans & Elevations"
                             ReferenceDocType.DELIVERY_SHEETS -> "Cover"

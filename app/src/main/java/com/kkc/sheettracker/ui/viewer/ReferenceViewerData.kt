@@ -20,6 +20,16 @@ data class ReferenceViewerData(
     val warningMessage: String?
 )
 
+internal fun referenceViewerDataForPdfFilename(pdfFilename: String): ReferenceViewerData =
+    ReferenceViewerData(
+        defaultPdfFilename = pdfFilename,
+        virtualMapping = null,
+        navigatorCabinetToPages = emptyMap(),
+        navigatorPageDetails = emptyMap(),
+        navigatorPlanViewLabels = emptyMap(),
+        warningMessage = null
+    )
+
 internal fun remapVirtualPageDetails(
     pageDetails: Map<String, CabinetPageDetail>,
     oldToNewDisplayPage: Map<Int, Int>
