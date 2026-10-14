@@ -49,12 +49,17 @@ fun formatDeliveryFailure(f: DeliveryScheduleFailure, removal: Boolean = false):
  * 3. POST failed: this tablet's request file (HT polls every 15 s).
  *
  * [current] must be the freshest schedule with this tablet's pending request overlaid.
+ *
+ * While this tablet's request file is still waiting for HT ([hasPendingRequest]), every edit is
+ * queued into that file instead of going online: HT applies the file later as whole-slot edits, and
+ * an online placement made in the meantime would be undone by the older queued slot contents.
  */
 class DeliveryScheduleEditor(
     private val remote: DeliveryScheduleRemote?,
     private val queue: DeliveryScheduleQueue,
     private val tabletId: String,
-    private val clock: Clock = Clock.systemUTC()
+    private val clock: Clock = Clock.systemUTC(),
+    private val hasPendingRequest: suspend () -> Boolean = { false }
 ) {
     suspend fun placeJob(current: DeliverySchedule, job: DeliveryJob, toSlot: String, fromSlot: String?): DeliveryEditOutcome {
         val dest = current.slotByKey(toSlot).jobs
@@ -67,11 +72,18 @@ class DeliveryScheduleEditor(
                 listOf("Job ${job.jobNumber} not placed: that day already has $MAX_DELIVERY_JOBS_PER_DAY deliveries")
             )
         }
+        // A v1 (undated) HT also rejects a 4th job in one half-day, quarantining the whole request.
+        if (!current.isDated && dest.size >= MAX_DELIVERY_JOBS_PER_LEGACY_SLOT) {
+            return DeliveryEditOutcome.Refused(
+                listOf("Job ${job.jobNumber} not placed: that half-day already has $MAX_DELIVERY_JOBS_PER_LEGACY_SLOT deliveries")
+            )
+        }
         val dated = parseDatedSlotKey(toSlot)
         if (dated != null && job.folderName.isBlank()) {
             return DeliveryEditOutcome.Refused(listOf("Job ${job.jobNumber} not placed: it has no Ready Jobs folder"))
         }
-        if (dated != null && current.isDated && remote != null) {
+        val queueOnly = hasPendingRequest()
+        if (!queueOnly && dated != null && current.isDated && remote != null) {
             when (val r = remote.setJobDate(job.folderName, dated.date, dated.period, tabletId)) {
                 is DeliveryJobDateResult.Applied -> {
                     // HT can answer 200 without placing the job (e.g. its folder is no longer a
@@ -100,11 +112,12 @@ class DeliveryScheduleEditor(
                 add(DeliveryScheduleSlotEdit(fromSlot, current.slotByKey(fromSlot).jobs.filterNot { it.sameJob(job) }))
             }
         }
-        return sendSlotEdits(edits)
+        return sendSlotEdits(edits, queueOnly)
     }
 
     suspend fun removeJob(current: DeliverySchedule, job: DeliveryJob, fromSlot: String): DeliveryEditOutcome {
-        if (parseDatedSlotKey(fromSlot) != null && current.isDated && remote != null && job.folderName.isNotBlank()) {
+        val queueOnly = hasPendingRequest()
+        if (!queueOnly && parseDatedSlotKey(fromSlot) != null && current.isDated && remote != null && job.folderName.isNotBlank()) {
             when (val r = remote.setJobDate(job.folderName, null, null, tabletId)) {
                 is DeliveryJobDateResult.Applied -> {
                     if (r.result.schedule.slotByKey(fromSlot).jobs.any { it.sameJob(job) }) {
@@ -121,28 +134,44 @@ class DeliveryScheduleEditor(
                 DeliveryJobDateResult.Unavailable -> Unit
             }
         }
-        return sendSlotEdits(listOf(DeliveryScheduleSlotEdit(fromSlot, current.slotByKey(fromSlot).jobs.filterNot { it.sameJob(job) })))
+        return sendSlotEdits(
+            listOf(DeliveryScheduleSlotEdit(fromSlot, current.slotByKey(fromSlot).jobs.filterNot { it.sameJob(job) })),
+            queueOnly
+        )
     }
 
     /** Field edits inside one slot (job card edit). Always a whole-slot edit. */
     suspend fun replaceSlot(current: DeliverySchedule, slotKey: String, jobs: List<DeliveryJob>): DeliveryEditOutcome =
-        sendSlotEdits(listOf(DeliveryScheduleSlotEdit(slotKey, jobs)))
+        sendSlotEdits(listOf(DeliveryScheduleSlotEdit(slotKey, jobs)), hasPendingRequest())
 
     /** Clears every job dated in the mirrored Mon-Fri week (`weekOf`..`weekOf+4`). */
     suspend fun resetWeek(current: DeliverySchedule): DeliveryEditOutcome {
-        val request = DeliveryScheduleEditRequest(tabletId, Instant.now(clock).toString(), resetAll = true)
-        remote?.applyEdits(request)?.let { return applied(it) }
+        if (!hasPendingRequest()) {
+            val request = DeliveryScheduleEditRequest(tabletId, Instant.now(clock).toString(), resetAll = true)
+            remote?.applyEdits(request)?.let { return applied(it) }
+        }
         queue.queueReset(tabletId, current.weekOf)
         return DeliveryEditOutcome.Queued(listOf("Reset queued; it applies when Hours Tracker picks it up."))
     }
 
-    private suspend fun sendSlotEdits(edits: List<DeliveryScheduleSlotEdit>): DeliveryEditOutcome {
-        val request = DeliveryScheduleEditRequest(tabletId, Instant.now(clock).toString(), slotEdits = edits)
-        remote?.applyEdits(request)?.let { return applied(it) }
+    private suspend fun sendSlotEdits(edits: List<DeliveryScheduleSlotEdit>, queueOnly: Boolean): DeliveryEditOutcome {
+        if (!queueOnly) {
+            val request = DeliveryScheduleEditRequest(tabletId, Instant.now(clock).toString(), slotEdits = edits)
+            remote?.applyEdits(request)?.let { return applied(it) }
+        }
         val notices = mutableListOf<String>()
         edits.forEach { edit ->
+            val dated = parseDatedSlotKey(edit.slot.trim().lowercase()) != null
             queue.queueSlotEdit(edit.slot, edit.jobs, tabletId).droppedJobs.forEach { dropped ->
-                notices += "Job ${dropped.jobNumber.ifBlank { "(no number)" }} not queued: missing job number, name or folder, or too many for one slot"
+                // Mirrors DeliveryScheduleRequestStore's validity rule; anything else was over the cap.
+                val invalid = dropped.jobNumber.isBlank() || dropped.description.isBlank() ||
+                    (dated && dropped.folderName.isBlank())
+                val why = when {
+                    invalid -> "missing job number, name or folder"
+                    dated -> "that day already has $MAX_DELIVERY_JOBS_PER_DAY deliveries"
+                    else -> "that half-day already has $MAX_DELIVERY_JOBS_PER_LEGACY_SLOT deliveries"
+                }
+                notices += "Job ${dropped.jobNumber.ifBlank { "(no number)" }} not queued: $why"
             }
         }
         return DeliveryEditOutcome.Queued(notices)

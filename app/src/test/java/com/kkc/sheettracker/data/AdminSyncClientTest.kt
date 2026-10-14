@@ -123,6 +123,8 @@ class AdminSyncClientTest {
         assertTrue(result.schedule.isDated)
         val body = org.json.JSONObject(server.takeRequest().body.readUtf8())
         assertEquals("2026-10-21_pm", body.getJSONArray("slotEdits").getJSONObject(0).getString("slot"))
+        // HT orders/ages edits by requestedAt; the POST must carry it like the request file does.
+        assertEquals("2026-10-09T17:00:00Z", body.getString("requestedAt"))
     }
 
     @Test

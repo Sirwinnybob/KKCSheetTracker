@@ -80,6 +80,34 @@ class DeliveryScheduleRequestStoreTest {
     }
 
     @Test
+    fun weekdaySlotEditKeepsThreeJobsForUnupgradedHoursTracker() = runBlocking {
+        // A v1 Hours Tracker rejects more than 3 jobs in one half-day and quarantines the whole
+        // request file, so weekday keys are capped at the legacy per-slot limit.
+        val baseDir = Files.createTempDirectory("delivery-request-store-legacy-cap").toFile()
+        val store = DeliveryScheduleRequestStore(baseDir)
+        val four = (1..4).map { DeliveryJob(jobNumber = "$it", description = "Job $it") }
+
+        val result = store.queueSlotEdit("monday_am", four, "tablet-1")
+
+        assertTrue(result.queued)
+        assertEquals(MAX_DELIVERY_JOBS_PER_LEGACY_SLOT, 3)
+        assertEquals(listOf(four.last()), result.droppedJobs)
+        assertEquals(four.take(3), store.readPending("tablet-1")!!.slotEdits.single().jobs)
+    }
+
+    @Test
+    fun datedSlotEditIsNotLimitedByTheLegacyHalfDayCap() = runBlocking {
+        val baseDir = Files.createTempDirectory("delivery-request-store-dated-no-legacy-cap").toFile()
+        val store = DeliveryScheduleRequestStore(baseDir)
+        val five = (1..5).map { DeliveryJob(jobNumber = "$it", description = "Job $it", folderName = "$it - Job") }
+
+        val result = store.queueSlotEdit("2026-10-21_pm", five, "tablet-1")
+
+        assertTrue(result.droppedJobs.isEmpty())
+        assertEquals(five, store.readPending("tablet-1")!!.slotEdits.single().jobs)
+    }
+
+    @Test
     fun queueSlotEdit_mergesMultipleEditsBySlot() = runBlocking {
         val baseDir = Files.createTempDirectory("delivery-request-store-merge").toFile()
         val store = DeliveryScheduleRequestStore(baseDir)

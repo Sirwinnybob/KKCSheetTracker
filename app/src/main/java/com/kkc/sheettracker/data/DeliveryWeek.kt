@@ -22,6 +22,12 @@ val SHOP_ZONE: ZoneId = ZoneId.of("America/Los_Angeles")
 const val MAX_DELIVERY_JOBS_PER_DAY = 6
 
 /**
+ * A v1 (undated, weekday-keyed) Hours Tracker rejects more than this many jobs in ONE half-day
+ * slot and quarantines the whole request file, so undated schedules keep this cap too.
+ */
+const val MAX_DELIVERY_JOBS_PER_LEGACY_SLOT = 3
+
+/**
  * Jobs in the whole day of [slotKey] (its AM plus PM slots). A dated key counts that date's two
  * slots, a weekday key counts that weekday's two slots, any other key just its own slot.
  */

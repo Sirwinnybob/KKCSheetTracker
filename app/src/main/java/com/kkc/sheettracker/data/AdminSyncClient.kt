@@ -121,6 +121,7 @@ class AdminSyncClient(serverUrl: String) {
             }
             val body = JSONObject().apply {
                 put("tabletId", editRequest.tabletId)
+                put("requestedAt", editRequest.requestedAt)
                 put("resetAll", editRequest.resetAll)
                 put("slotEdits", slotEditsArray)
             }.toString().toRequestBody(jsonMediaType)

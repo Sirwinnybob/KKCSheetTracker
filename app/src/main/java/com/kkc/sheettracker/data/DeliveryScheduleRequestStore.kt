@@ -78,8 +78,9 @@ class DeliveryScheduleRequestStore(
         val valid = jobs.filter { job ->
             job.jobNumber.isNotBlank() && job.description.isNotBlank() && (!dated || job.folderName.isNotBlank())
         }
-        // Safety cap only: the real limit is per day (six), enforced by the editor and HT.
-        val kept = valid.take(MAX_DELIVERY_JOBS_PER_DAY)
+        // Dated keys: safety cap only; the real limit is per day (six), enforced by the editor and HT.
+        // Weekday keys: a v1 HT rejects >3 in one half-day and quarantines the whole file.
+        val kept = valid.take(if (dated) MAX_DELIVERY_JOBS_PER_DAY else MAX_DELIVERY_JOBS_PER_LEGACY_SLOT)
         val dropped = jobs.filterNot { it in kept }
         return lockFor(tabletId).withLock {
             val existing = when (val e = readExisting(tabletId)) {

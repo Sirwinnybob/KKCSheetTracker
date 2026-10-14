@@ -28,12 +28,14 @@ class DeliveryScheduleEditorTest {
             put.also { puts += Triple(folderName, date, window); putTablets += tabletId }
     }
 
-    private class FakeQueue : DeliveryScheduleQueue {
+    private class FakeQueue(
+        val drop: (slot: String, jobs: List<DeliveryJob>) -> List<DeliveryJob> = { _, _ -> emptyList() }
+    ) : DeliveryScheduleQueue {
         val edits = mutableListOf<Pair<String, List<DeliveryJob>>>()
         var resets = 0
         override suspend fun queueSlotEdit(slot: String, jobs: List<DeliveryJob>, tabletId: String): DeliveryQueueResult {
             edits += slot to jobs
-            return DeliveryQueueResult(true, emptyList())
+            return DeliveryQueueResult(true, drop(slot, jobs))
         }
         override suspend fun queueReset(tabletId: String, mirroredWeekOf: LocalDate?) { resets++ }
     }
@@ -265,6 +267,111 @@ class DeliveryScheduleEditorTest {
         val queue = FakeQueue()
         DeliveryScheduleEditor(null, queue, "T1").removeJob(current, a, "2026-10-21_pm")
         assertEquals(listOf("2026-10-21_pm" to listOf(b)), queue.edits)
+    }
+
+    // ---- I2: while this tablet's request file is pending, never write around it ----
+
+    @Test
+    fun pendingRequestQueuesPlaceWithoutPutOrPostAndKeepsOverlaidJobs() = runBlocking {
+        // Our queued file already dated `a` into 10/21 PM; HT will apply it as a whole-slot edit.
+        val pending = DeliveryScheduleEditRequest("T1", "x", slotEdits = listOf(DeliveryScheduleSlotEdit("2026-10-21_pm", listOf(a))))
+        val current = overlayPendingDeliveryRequest(v2, pending)
+        val remote = FakeRemote(
+            put = DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(v2, emptyList())),
+            post = DeliveryScheduleApplyResult(v2, emptyList())
+        )
+        val queue = FakeQueue()
+        val editor = DeliveryScheduleEditor(remote, queue, "T1", hasPendingRequest = { true })
+
+        val outcome = editor.placeJob(current, b, "2026-10-21_pm", null)
+
+        assertTrue(outcome is DeliveryEditOutcome.Queued)
+        assertTrue(remote.puts.isEmpty())
+        assertTrue(remote.posts.isEmpty())
+        assertEquals(listOf("2026-10-21_pm" to listOf(a, b)), queue.edits)
+    }
+
+    @Test
+    fun pendingRequestQueuesRemoveReplaceAndReset() = runBlocking {
+        val current = v2.withSlot("2026-10-21_pm", listOf(a, b))
+        val remote = FakeRemote(
+            put = DeliveryJobDateResult.Applied(DeliveryScheduleApplyResult(v2, emptyList())),
+            post = DeliveryScheduleApplyResult(v2, emptyList())
+        )
+        val queue = FakeQueue()
+        val editor = DeliveryScheduleEditor(remote, queue, "T1", hasPendingRequest = { true })
+
+        assertTrue(editor.removeJob(current, a, "2026-10-21_pm") is DeliveryEditOutcome.Queued)
+        assertTrue(editor.replaceSlot(current, "2026-10-21_am", listOf(a)) is DeliveryEditOutcome.Queued)
+        assertTrue(editor.resetWeek(current) is DeliveryEditOutcome.Queued)
+
+        assertTrue(remote.puts.isEmpty())
+        assertTrue(remote.posts.isEmpty())
+        assertEquals(listOf("2026-10-21_pm" to listOf(b), "2026-10-21_am" to listOf(a)), queue.edits)
+        assertEquals(1, queue.resets)
+    }
+
+    @Test
+    fun noPendingRequestKeepsOnlinePutPath() = runBlocking {
+        val applied = DeliveryScheduleApplyResult(v2.withSlot("2026-10-21_pm", listOf(a)), emptyList())
+        val remote = FakeRemote(put = DeliveryJobDateResult.Applied(applied))
+        val queue = FakeQueue()
+        var asked = 0
+        val editor = DeliveryScheduleEditor(remote, queue, "T1", hasPendingRequest = { asked++; false })
+
+        val outcome = editor.placeJob(v2, a, "2026-10-21_pm", null)
+
+        assertEquals(DeliveryEditOutcome.Applied(applied.schedule, emptyList()), outcome)
+        assertEquals(1, remote.puts.size)
+        assertTrue(queue.edits.isEmpty())
+        assertTrue(asked > 0)
+    }
+
+    // ---- I3: v1 (undated) Hours Tracker caps each half-day at 3 ----
+
+    @Test
+    fun v1FourthJobInAHalfDayRefusedLocally() = runBlocking {
+        val jobs = (1..3).map { DeliveryJob("8$it", "J$it", folderName = "8$it - J$it") }
+        val v1 = DeliverySchedule(slots = mapOf("monday_am" to DeliverySlot(jobs)))
+        val remote = FakeRemote(post = DeliveryScheduleApplyResult(v1, emptyList()))
+        val queue = FakeQueue()
+        val outcome = DeliveryScheduleEditor(remote, queue, "T1").placeJob(v1, a, "monday_am", null)
+        assertEquals(
+            DeliveryEditOutcome.Refused(listOf("Job 670 not placed: that half-day already has 3 deliveries")),
+            outcome
+        )
+        assertTrue(remote.puts.isEmpty() && remote.posts.isEmpty() && queue.edits.isEmpty())
+        // The other half of the same v1 day still has room.
+        val pm = DeliveryScheduleEditor(FakeRemote(post = null), FakeQueue(), "T1").placeJob(v1, a, "monday_pm", null)
+        assertTrue(pm is DeliveryEditOutcome.Queued)
+    }
+
+    @Test
+    fun datedScheduleAllowsAFourthJobInOneHalfDay() = runBlocking {
+        val three = fullDay(am = 3, pm = 0)
+        val outcome = DeliveryScheduleEditor(null, FakeQueue(), "T1").placeJob(three, a, "2026-10-21_am", null)
+        assertTrue(outcome is DeliveryEditOutcome.Queued)
+    }
+
+    // ---- M2: queue-drop notices name the real limit ----
+
+    @Test
+    fun queueDropNoticesNameTheDayOrHalfDayLimit() = runBlocking {
+        val dropAll = FakeQueue(drop = { _, jobs -> jobs.takeLast(1) })
+        DeliveryScheduleEditor(null, dropAll, "T1").replaceSlot(v2, "2026-10-21_am", listOf(b, a)).let {
+            assertEquals(listOf("Job 670 not queued: that day already has 6 deliveries"), it.notices)
+        }
+        val v1 = DeliverySchedule()
+        DeliveryScheduleEditor(null, FakeQueue(drop = { _, jobs -> jobs.takeLast(1) }), "T1")
+            .replaceSlot(v1, "monday_am", listOf(b, a)).let {
+                assertEquals(listOf("Job 670 not queued: that half-day already has 3 deliveries"), it.notices)
+            }
+        // An invalid job is reported as invalid, not as over the limit.
+        val noName = DeliveryJob("671", "", folderName = "671 - X")
+        DeliveryScheduleEditor(null, FakeQueue(drop = { _, jobs -> jobs.filter { it.description.isBlank() } }), "T1")
+            .replaceSlot(v2, "2026-10-21_am", listOf(noName)).let {
+                assertEquals(listOf("Job 671 not queued: missing job number, name or folder"), it.notices)
+            }
     }
 
     @Test
