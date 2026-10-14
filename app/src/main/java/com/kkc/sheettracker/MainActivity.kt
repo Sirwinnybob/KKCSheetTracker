@@ -241,6 +241,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        // Per-job stores skip writes to renamed/archived jobs; tell the user once per job per 10 s.
+        val jobGuardDebouncer = com.kkc.sheettracker.data.JobFolderGuardDebouncer()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                com.kkc.sheettracker.data.JobFolderGuardEvents.skipped.collect { job ->
+                    if (jobGuardDebouncer.shouldShow(job, android.os.SystemClock.elapsedRealtime())) {
+                        android.widget.Toast.makeText(
+                            applicationContext,
+                            com.kkc.sheettracker.data.JobFolderGuardEvents.toastText(job),
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+        }
         val migrationMarkerPath = File(basePath, ".appupdates/migration_complete.json")
         val migrationReady = migrationMarkerPath.isFile
         val persistedViewOnlyOptIn = prefs.getBoolean("allow_view_only_without_migration", false)

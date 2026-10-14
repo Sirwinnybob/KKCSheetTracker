@@ -30,21 +30,27 @@ import java.nio.file.StandardCopyOption
 internal fun atomicWriteFile(target: File, body: String) {
     target.parentFile?.mkdirs()
     val temp = File(target.parentFile, "${target.name}.tmp-${System.nanoTime()}")
-    temp.writeText(body)
-
+    var moved = false
     try {
-        Files.move(
-            temp.toPath(),
-            target.toPath(),
-            StandardCopyOption.REPLACE_EXISTING,
-            StandardCopyOption.ATOMIC_MOVE
-        )
-    } catch (_: AtomicMoveNotSupportedException) {
-        Files.move(
-            temp.toPath(),
-            target.toPath(),
-            StandardCopyOption.REPLACE_EXISTING
-        )
+        temp.writeText(body)
+        try {
+            Files.move(
+                temp.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(
+                temp.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING
+            )
+        }
+        moved = true
+    } finally {
+        // A failed write or move must not leave `<name>.tmp-<nanos>` litter in a synced folder.
+        if (!moved) runCatching { temp.delete() }
     }
 }
 

@@ -61,6 +61,7 @@ class HiddenMaterialsRequestStore(private val baseDir: File) {
             // atomicWriteFile creates missing parents: never recreate a renamed/archived job folder.
             if (!isLiveJobFolder(baseDir, jobId)) {
                 Log.w(TAG, "Skipping write: job folder $jobId is missing")
+                JobFolderGuardEvents.report(jobId)
                 return
             }
             hiddenMaterialsJobPath(baseDir, mode, jobId).parentFile!!

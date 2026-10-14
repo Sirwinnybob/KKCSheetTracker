@@ -192,6 +192,7 @@ class HardwoodsProgressStore(
     private fun jobIsLive(jobFolderName: String): Boolean {
         if (isLiveJobFolder(baseDir, jobFolderName)) return true
         android.util.Log.w("HardwoodsProgressStore", "Skipping write: job folder $jobFolderName is missing")
+        JobFolderGuardEvents.report(jobFolderName)
         return false
     }
 

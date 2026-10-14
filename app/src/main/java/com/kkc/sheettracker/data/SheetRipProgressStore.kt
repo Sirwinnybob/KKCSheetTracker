@@ -63,6 +63,7 @@ class SheetRipProgressStore(
         // atomicWriteFile creates missing parents: never let a stale tap recreate a renamed/archived job.
         if (!isLiveJobFolder(baseDir, jobFolderName)) {
             Log.w(TAG, "Skipping write: job folder $jobFolderName is missing")
+            JobFolderGuardEvents.report(jobFolderName)
             return
         }
         val projectionKey = projectionKey(jobFolderName, itemId)

@@ -347,6 +347,7 @@ class ProgressStore(
         // archived job folder. Nothing is appended and the in-memory index is left untouched.
         if (!isLiveJobFolder(baseDir, jobFolderName)) {
             android.util.Log.w("ProgressStore", "Skipping write: job folder $jobFolderName is missing")
+            JobFolderGuardEvents.report(jobFolderName)
             return
         }
         val writeLock = writeLockByJob.getOrPut(jobFolderName) { Any() }

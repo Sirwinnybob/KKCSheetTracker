@@ -617,6 +617,7 @@ class SpecialtyProgressStore(
     private fun jobIsLive(jobFolderName: String): Boolean {
         if (isLiveJobFolder(baseDir, jobFolderName)) return true
         Log.w(TAG, "Skipping write: job folder $jobFolderName is missing")
+        JobFolderGuardEvents.report(jobFolderName)
         return false
     }
 

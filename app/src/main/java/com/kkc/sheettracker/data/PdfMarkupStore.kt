@@ -203,6 +203,7 @@ class PdfMarkupStore(
         // atomicWriteFile creates missing parents: never let a stale save recreate a renamed/archived job.
         if (!isLiveJobFolder(baseDir, jobFolderName)) {
             android.util.Log.w(TAG, "Skipping write: job folder $jobFolderName is missing")
+            JobFolderGuardEvents.report(jobFolderName)
             return
         }
         atomicWriteFile(destFile, gson.toJson(markup))
