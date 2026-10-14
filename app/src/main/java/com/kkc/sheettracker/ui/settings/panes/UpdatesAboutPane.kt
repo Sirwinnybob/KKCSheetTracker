@@ -49,11 +49,20 @@ internal fun UpdatesAboutPane(
                     GroupDivider()
                 }
                 if (hasSelfUpdate) {
-                    UpdateRow("KKC Sheet Tracker update available", "Update", onClick = onInstallSelfUpdate)
+                    UpdateRow(
+                        label = "KKC Sheet Tracker",
+                        action = "Update",
+                        subtitle = "Installed ${BuildConfig.VERSION_NAME}, update ready",
+                        onClick = onInstallSelfUpdate
+                    )
                 }
                 pendingExternalUpdates.forEachIndexed { index, update ->
                     if (hasSelfUpdate || index > 0) GroupDivider()
-                    UpdateRow("${update.appName} ${update.versionName} available", "Update") {
+                    UpdateRow(
+                        label = update.appName,
+                        action = "Update",
+                        subtitle = versionLine(installed = update.installedVersionName, available = update.versionName)
+                    ) {
                         onInstallExternalUpdate(update)
                     }
                 }
@@ -65,9 +74,10 @@ internal fun UpdatesAboutPane(
                 availableApps.forEachIndexed { index, app ->
                     if (index > 0) GroupDivider()
                     UpdateRow(
-                        label = "${app.appName} ${app.versionName}",
-                        subtitle = "Not installed on this tablet",
-                        action = "Install"
+                        label = app.appName,
+                        subtitle = "Available ${app.versionName} · Not installed on this tablet",
+                        action = "Install",
+                        outlined = true
                     ) { onInstallExternalUpdate(app) }
                 }
             }
@@ -97,8 +107,19 @@ internal fun UpdatesAboutPane(
     }
 }
 
+/** "Installed 1.62 → available 1.63", or just the available version when the installed one is unknown. */
+internal fun versionLine(installed: String?, available: String): String =
+    if (installed == null) "Available $available" else "Installed $installed, available $available"
+
 @Composable
-private fun UpdateRow(label: String, action: String, subtitle: String? = null, onClick: () -> Unit) {
+private fun UpdateRow(
+    label: String,
+    action: String,
+    subtitle: String? = null,
+    /** Outlined for installable apps so they read differently from filled "Update" actions. */
+    outlined: Boolean = false,
+    onClick: () -> Unit
+) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -114,6 +135,10 @@ private fun UpdateRow(label: String, action: String, subtitle: String? = null, o
                 )
             }
         }
-        Button(onClick = onClick, shape = RoundedCornerShape(8.dp)) { Text(action) }
+        if (outlined) {
+            OutlinedButton(onClick = onClick, shape = RoundedCornerShape(8.dp)) { Text(action) }
+        } else {
+            Button(onClick = onClick, shape = RoundedCornerShape(8.dp)) { Text(action) }
+        }
     }
 }

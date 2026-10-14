@@ -33,7 +33,9 @@ data class ExternalAppUpdate(
     val apkFile: File,
     val versionCode: Long,
     val versionName: String,
-    val isInstalled: Boolean = true
+    val isInstalled: Boolean = true,
+    /** Version name currently on the tablet; null when not installed or it could not be read. */
+    val installedVersionName: String? = null,
 )
 
 data class ApkInfo(
@@ -322,11 +324,16 @@ class UpdateManager(
 
     /** Each external app is scanned only in its own package feed (or the legacy shared folder). */
     private fun computeExternalUpdates(): List<ExternalAppUpdate> {
-        return findExternalAppUpdates(externalApps, ::getInstalledVersionCode) { packageName ->
-            val directory = findReleaseUpdateDirectory(packageName)
-            if (directory == null) emptyList()
-            else UpdateDirectories.apks(directory).mapNotNull { getApkInfo(it) }
-        }
+        return findExternalAppUpdates(
+            externalApps,
+            ::getInstalledVersionCode,
+            apkInfosFor = { packageName ->
+                val directory = findReleaseUpdateDirectory(packageName)
+                if (directory == null) emptyList()
+                else UpdateDirectories.apks(directory).mapNotNull { getApkInfo(it) }
+            },
+            installedVersionNameFor = ::getInstalledVersionName,
+        )
     }
 
     private fun getApkInfo(apkFile: File): ApkInfo? {
@@ -352,6 +359,12 @@ class UpdateManager(
             Log.e(TAG, "Error reading APK info for ${apkFile.name}", e)
             null
         }
+    }
+
+    private fun getInstalledVersionName(packageName: String): String? = try {
+        activity.packageManager.getPackageInfo(packageName, 0).versionName
+    } catch (e: Exception) {
+        null
     }
 
     private fun getInstalledVersionCode(packageName: String): Long? {

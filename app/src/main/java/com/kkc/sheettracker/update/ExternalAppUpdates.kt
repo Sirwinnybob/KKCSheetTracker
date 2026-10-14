@@ -23,7 +23,8 @@ internal fun splitExternalOffers(offers: List<ExternalAppUpdate>): ExternalOffer
 internal fun findExternalAppUpdates(
     apps: List<ExternalApp>,
     installedVersionFor: (String) -> Long?,
-    apkInfosFor: (String) -> List<ApkInfo>
+    apkInfosFor: (String) -> List<ApkInfo>,
+    installedVersionNameFor: (String) -> String? = { null },
 ): List<ExternalAppUpdate> = apps.mapNotNull { app ->
     val installedVersion = installedVersionFor(app.packageName) ?: return@mapNotNull null
     val newest = apkInfosFor(app.packageName)
@@ -32,6 +33,7 @@ internal fun findExternalAppUpdates(
         ?: return@mapNotNull null
     ExternalAppUpdate(
         app.packageName, app.appName, newest.file, newest.versionCode, newest.versionName,
-        isInstalled = installedVersion != -1L
+        isInstalled = installedVersion != -1L,
+        installedVersionName = if (installedVersion != -1L) installedVersionNameFor(app.packageName) else null,
     )
 }
