@@ -40,7 +40,9 @@ class DeliveryScheduleWiringTest {
         // the whole edit, including the fresh read from the store, runs inside the lock of run().
         val runBody = runner.substringAfter("fun run(").substringBefore("private companion object")
         val locked = runBody.substringAfter("scope.launch {").substringAfter("mutex.withLock {")
-        assertTrue(locked.contains("overlayPendingDeliveryRequest(currentSchedule(), readPending())"))
+        assertTrue(locked.contains("val base = currentSchedule()"))
+        assertTrue(locked.contains("val pending = readPending()"))
+        assertTrue(locked.contains("effectiveDeliveryOverlayRequest(pending, heldRequest(), base)"))
         assertTrue(locked.contains("edit(editor(), current)"))
         assertTrue(locked.contains("onResult("))
     }
@@ -79,7 +81,7 @@ class DeliveryScheduleWiringTest {
         // Both the Add button and the drop highlight use the one tested rule (deliveryDropAllowed).
         assertTrue(dialog.contains("isDated = schedule.isDated"))
         assertTrue(dialog.contains("val canAdd = deliveryDropAllowed(schedule, day, slotKey, null, isDated) == DropDecision.Allowed"))
-        assertTrue(dialog.contains("deliveryDropAllowed(editableSchedule, day, toSlot, fromSlot, !editableSchedule.isDated, job)"))
+        assertTrue(dialog.contains("deliveryDropAllowed(editableSchedule, day, toSlot, fromSlot, editableSchedule.isDated, job)"))
     }
 
     @Test
@@ -125,6 +127,7 @@ class DeliveryScheduleWiringTest {
         assertTrue(screen.contains("effectiveDeliveryOverlayRequest(deliveryPendingRequest, deliveryHeldRequest"))
         // Results from the runner go through the same hold bookkeeping as the poll.
         assertTrue(screen.contains("updateDeliveryPending(result.pending)"))
+        assertTrue(screen.contains("heldRequest = { editHeldRequest }"))
     }
 
     @Test

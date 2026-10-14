@@ -96,14 +96,14 @@ class FileBackedUnifiedMetadataEngine(
     )
 
     private data class CachedSearchEntry(
-        val signature: Long,
+        val job: Job,
         val index: List<PartSearchEntry>
     )
 
     private val staticByJob = ConcurrentHashMap<String, CachedStaticEntry>()
     private val trackerByJob = ConcurrentHashMap<String, CachedTrackerEntry>()
-    // CNC part search index, memoized per job keyed by the static signature so it is rebuilt
-    // only when the underlying static data changes (not on every getCncSnapshot call).
+    // CNC part search index, memoized against the parsed Job instance so signature collisions
+    // cannot pair an index with a different parsed generation.
     private val cncSearchByJob = ConcurrentHashMap<String, CachedSearchEntry>()
     // Lightweight cache_index.json entries: job info + progress summary, no full static data.
     private val cacheIndexByJob = ConcurrentHashMap<String, CachedCacheIndexEntry>()
@@ -429,7 +429,9 @@ class FileBackedUnifiedMetadataEngine(
     override fun getCachedJobInfos(): List<UnifiedJobInfo> = cachedJobInfoList
 
     override fun getCachedCncSearchIndex(jobFolderName: String): List<PartSearchEntry>? {
-        return cncSearchByJob[jobFolderName]?.index
+        val currentJob = staticByJob[jobFolderName]?.data?.cncJob ?: return null
+        val cached = cncSearchByJob[jobFolderName] ?: return null
+        return cached.index.takeIf { cached.job === currentJob }
     }
 
     override fun refreshJobDeep(folderName: String): Boolean {
@@ -488,28 +490,21 @@ class FileBackedUnifiedMetadataEngine(
         }
         
         val loaded = loadStaticJobData(jobFolderName) ?: return null
-        // Read the cached entry once so the static data and its signature come from a single
-        // generation. Re-reading staticByJob separately (as the previous code did) let another
-        // thread's reload swap the signature between the two reads, pairing this generation's
-        // cncJob with a different generation's signature/search index. If the job was invalidated
-        // concurrently (entry == null) fall back to the just-loaded data and skip index caching.
+        // Read the cached entry once so the static data comes from a single generation.
+        // If it was invalidated concurrently, use the just-loaded data; search-index reuse and
+        // publication are still guarded by the exact parsed Job instance below.
         val entry = staticByJob[jobFolderName]
         val staticData = entry?.data ?: loaded
-        val signature = entry?.signature
         val cncJob = staticData.cncJob ?: return null
-        // Reuse the memoized search index when the static signature is unchanged; only rebuild
-        // (one PartSearchEntry per part across all materials/pages) on a real data change.
-        val searchIndex = if (signature != null) {
-            val cached = cncSearchByJob[jobFolderName]
-            if (cached != null && cached.signature == signature) {
-                cached.index
-            } else {
-                buildCncSearchIndex(cncJob).also {
-                    cncSearchByJob[jobFolderName] = CachedSearchEntry(signature, it)
-                }
-            }
+        // Reuse only when this exact parsed Job instance produced the cached index. A file
+        // timestamp or length signature can collide across published cache generations.
+        val cached = cncSearchByJob[jobFolderName]
+        val searchIndex = if (cached != null && cached.job === cncJob) {
+            cached.index
         } else {
-            buildCncSearchIndex(cncJob)
+            buildCncSearchIndex(cncJob).also {
+                cncSearchByJob[jobFolderName] = CachedSearchEntry(cncJob, it)
+            }
         }
         return UnifiedCncSnapshot(job = cncJob, searchIndex = searchIndex, issues = staticData.cncIssues)
     }

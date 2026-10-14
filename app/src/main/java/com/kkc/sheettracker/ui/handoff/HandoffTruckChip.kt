@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -143,48 +144,54 @@ fun rememberHandoffFlags(basePath: String, jobFolderName: String, tabletId: Stri
             readOnly = !editable
         )
     }
-    // ONE long-lived collector per (basePath, job): a bump never cancels an in-flight GET, bumps
-    // that arrive meanwhile (or during the cool-down) collapse into one more fetch. The signal and
-    // the clock are read here, not in composition, so the host screen never recomposes for them.
-    val truckList by produceState<Map<HandoffFlagRef, HandoffTruckListEntry>?>(null, service, jobFolderName) {
-        // StateFlow is already conflated: bumps during a fetch or the cool-down collapse into one.
-        HandoffFlagsChangeSignal.version.collect {
-            // Keep the last good list when HT is unreachable rather than flipping every Auto back to unknown.
-            service.fetchTruckList(jobFolderName)?.let { value = it }
-            delay(TRUCK_LIST_MIN_INTERVAL_MS)
+    // Key the whole screen/job state lifetime, since produceState keys alone restart the producer
+    // but retain its last value. A new owner must begin without the previous owner's truck list,
+    // local snapshot, messages, or selectors.
+    return key(service, jobFolderName) {
+        // ONE long-lived collector per owner: a bump never cancels an in-flight GET, bumps that
+        // arrive meanwhile (or during the cool-down) collapse into one more fetch. The signal and
+        // the clock are read here, not in composition, so the host screen never recomposes for them.
+        val truckList by produceState<Map<HandoffFlagRef, HandoffTruckListEntry>?>(null, service, jobFolderName) {
+            // StateFlow is already conflated: bumps during a fetch or the cool-down collapse into one.
+            HandoffFlagsChangeSignal.version.collect {
+                // Keep the last good list when HT is unreachable rather than flipping every Auto back to unknown.
+                service.fetchTruckList(jobFolderName)?.let { value = it }
+                delay(TRUCK_LIST_MIN_INTERVAL_MS)
+            }
         }
-    }
-    // Pending entries can expire (24 h backstop) or be superseded by HT; the ticker re-reads the
-    // local files periodically without any composition-level state.
-    val local by produceState(HandoffFlagsSnapshot(), service, jobFolderName) {
-        val ticker = flow { while (true) { emit(Unit); delay(LOCAL_REFRESH_INTERVAL_MS) } }
-        combine(HandoffFlagsChangeSignal.version, ticker) { _, _ -> }
-            .collectLatest { value = service.loadLocal(jobFolderName) }
-    }
-    val messages = remember(jobFolderName) { HandoffMessageQueue() }
-    val selectors = remember(service, jobFolderName, messages) {
-        HandoffSelectorCache { ref, truck ->
-            // App-lifetime scope: leaving the screen mid-tap cannot cancel the write; the result
-            // is posted to this screen's queue (dropped with the screen if it is already gone).
-            handoffRestScope.launch {
-                try {
-                    service.setTruck(jobFolderName, ref, truck).userMessage()?.let(messages::offer)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.w(TAG, "Truck flag tap failed for ${ref.key} in $jobFolderName", e)
-                    messages.offer("Couldn't save this change.")
+
+        // Pending entries can expire (24 h backstop) or be superseded by HT; the ticker re-reads
+        // the local files periodically without any composition-level state.
+        val local by produceState(HandoffFlagsSnapshot(), service, jobFolderName) {
+            val ticker = flow { while (true) { emit(Unit); delay(LOCAL_REFRESH_INTERVAL_MS) } }
+            combine(HandoffFlagsChangeSignal.version, ticker) { _, _ -> }
+                .collectLatest { value = service.loadLocal(jobFolderName) }
+        }
+        val messages = remember { HandoffMessageQueue() }
+        val selectors = remember(messages) {
+            HandoffSelectorCache { ref, truck ->
+                // App-lifetime scope: leaving the screen mid-tap cannot cancel the write; the result
+                // is posted to this screen's queue (dropped with the screen if it is already gone).
+                handoffRestScope.launch {
+                    try {
+                        service.setTruck(jobFolderName, ref, truck).userMessage()?.let(messages::offer)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Truck flag tap failed for ${ref.key} in $jobFolderName", e)
+                        messages.offer("Couldn't save this change.")
+                    }
                 }
             }
         }
-    }
-    return remember(local, truckList, editable, selectors, messages) {
-        HandoffFlagsUiState(
-            snapshot = local.copy(truckList = truckList),
-            editable = editable,
-            messages = messages,
-            selectors = selectors
-        )
+        remember(local, truckList, editable, selectors, messages) {
+            HandoffFlagsUiState(
+                snapshot = local.copy(truckList = truckList),
+                editable = editable,
+                messages = messages,
+                selectors = selectors
+            )
+        }
     }
 }
 

@@ -292,7 +292,7 @@ fun DeliveryScheduleDialog(
         val day = dayOfSlot(toSlot) ?: return false
         // The limit is per day (the moving job doesn't count against its own destination day); a v1
         // HT also caps each half-day at 3 and quarantines a request that exceeds it.
-        val decision = deliveryDropAllowed(editableSchedule, day, toSlot, fromSlot, !editableSchedule.isDated, job)
+        val decision = deliveryDropAllowed(editableSchedule, day, toSlot, fromSlot, editableSchedule.isDated, job)
         if (decision != DropDecision.Allowed) {
             dropNotice = deliveryDropNotice(decision)
             return false

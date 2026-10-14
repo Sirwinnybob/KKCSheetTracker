@@ -213,6 +213,39 @@ class DeliveryEditRunnerTest {
     }
 
     @Test
+    fun cancellingTheLastEditDeliversTheHeldRevert() = runBlocking {
+        val results = Collections.synchronizedList(mutableListOf<DeliveryEditResult>())
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val secondStarted = CompletableDeferred<Unit>()
+        val reverted = CompletableDeferred<Unit>()
+        val r = runner(dispatcher = ordered)
+        val first = r.submit(results) { _, _ ->
+            firstStarted.complete(Unit)
+            releaseFirst.await()
+            DeliveryEditOutcome.Refused(listOf("nope"))
+        }
+        withTimeout(5_000) { firstStarted.await() }
+        val second = r.run({ editor }, { schedule }, { null }, {}, {
+            results += it
+            if (it.revert) reverted.complete(Unit)
+        }) { _, _ ->
+            secondStarted.complete(Unit)
+            awaitCancellation()
+        }
+        releaseFirst.complete(Unit)
+        withTimeout(5_000) { first.join(); secondStarted.await() }
+        assertFalse(results.single().revert)
+        second.cancel()
+        withTimeout(5_000) { second.join(); reverted.await() }
+        assertEquals(listOf(false, true), results.map { it.revert })
+        assertEquals(0, r.inFlight.value)
+        val clean = r.submit(results) { _, _ -> DeliveryEditOutcome.Queued(emptyList()) }
+        withTimeout(5_000) { clean.join() }
+        assertFalse(results.last().revert)
+    }
+
+    @Test
     fun aLaterRefusalRevertsAndACleanRunLeavesNoStaleRevert() = runBlocking {
         val results = Collections.synchronizedList(mutableListOf<DeliveryEditResult>())
         val firstStarted = CompletableDeferred<Unit>()
@@ -261,7 +294,8 @@ class DeliveryEditRunnerTest {
     @Test
     fun aVanishedRequestIsHeldAgainstTheScheduleItVanishedUnder() {
         val held = nextHeldDeliveryRequest(previous = request, new = null, held = null, schedule = schedule)
-        assertEquals(HeldDeliveryRequest(request, schedule), held)
+        assertEquals(request, held!!.request)
+        assertEquals(schedule, held.baseSchedule)
         // Same schedule: keep overlaying; the request itself wins whenever it is back.
         assertSame(request, effectiveDeliveryOverlayRequest(null, held, schedule))
         assertSame(request, effectiveDeliveryOverlayRequest(request, null, schedule))
@@ -275,6 +309,41 @@ class DeliveryEditRunnerTest {
         assertNull(nextHeldDeliveryRequest(previous = null, new = request, held = held, schedule = schedule))
         assertSame(held, nextHeldDeliveryRequest(previous = null, new = null, held = held, schedule = schedule))
         assertNull(nextHeldDeliveryRequest(previous = null, new = null, held = null, schedule = schedule))
+    }
+
+    @Test
+    fun aHoldExpiresAfterThirtySecondsEvenWithoutItsScreen() {
+        val held = HeldDeliveryRequest(request, schedule, expiresAtMillis = 30_100L)
+        assertSame(request, effectiveDeliveryOverlayRequest(null, held, schedule, nowMillis = 30_099L))
+        assertNull(effectiveDeliveryOverlayRequest(null, held, schedule, nowMillis = 30_100L))
+        assertSame(request, effectiveDeliveryOverlayRequest(request, held, schedule, nowMillis = 30_100L))
+    }
+
+    @Test
+    fun offlineRemovalDuringAConsumedRequestHoldKeepsTheNeighbor() = runBlocking {
+        val base = java.nio.file.Files.createTempDirectory("delivery-held-removal").toFile()
+        val queue = com.kkc.sheettracker.data.DeliveryScheduleRequestStore(
+            base,
+            today = { LocalDate.of(2026, 10, 14) }
+        )
+        val slot = "2026-10-21_am"
+        val a = DeliveryJob("670", "E", folderName = "670 - E")
+        val b = DeliveryJob("702", "S", folderName = "702 - S")
+        val oldCanonical = schedule.withSlot(slot, listOf(a))
+        queue.queueSlotEdit(slot, listOf(a, b), "T1")
+        val consumed = queue.readPending("T1")!!
+        // HT has consumed the file, but its resulting [A,B] schedule has not arrived yet.
+        assertTrue(java.io.File(base, "delivery_schedule_request.T1.json").delete())
+        val held = nextHeldDeliveryRequest(consumed, null, null, oldCanonical)
+        val offlineEditor = DeliveryScheduleEditor(null, queue, "T1")
+        val result = CompletableDeferred<DeliveryEditResult>()
+        val job = runner().run(
+            { offlineEditor }, { oldCanonical }, { queue.readPending("T1") }, {}, { result.complete(it) },
+            heldRequest = { held }
+        ) { editor, current -> editor.removeJob(current, a, slot) }
+        withTimeout(5_000) { job.join() }
+        assertTrue(result.await().notices.isEmpty())
+        assertEquals(listOf(b), queue.readPending("T1")!!.slotEdits.single().jobs)
     }
 
     // ---- C12: the server URL is resolved per edit ----
@@ -308,5 +377,31 @@ class DeliveryEditRunnerTest {
         val outcome = queueingEditor.placeJob(schedule, DeliveryJob("670", "E", folderName = "670 - E"), "2026-10-21_am", null)
         assertTrue(outcome is DeliveryEditOutcome.Queued)
         assertEquals(listOf("2026-10-21_am"), queued.toList())
+    }
+
+    @Test
+    fun aFailedServerUrlReadStillSavesTheOfflineRequest() = runBlocking {
+        val queue = com.kkc.sheettracker.data.DeliveryScheduleRequestStore(
+            java.nio.file.Files.createTempDirectory("delivery-url-failure").toFile(),
+            today = { LocalDate.of(2026, 10, 14) }
+        )
+        val job = DeliveryJob("670", "E", folderName = "670 - E")
+        val failingRemote = lazyDeliveryRemote { throw IOException("preferences unavailable") }
+        val editor = DeliveryScheduleEditor(failingRemote, queue, "T1")
+        val outcome = editor.placeJob(schedule, job, "2026-10-21_am", null)
+        assertTrue(outcome is DeliveryEditOutcome.Queued)
+        assertEquals(listOf(job), queue.readPending("T1")!!.slotEdits.single().jobs)
+        assertNull(failingRemote.applyEdits(DeliveryScheduleEditRequest("T1", "x")))
+    }
+
+    @Test
+    fun cancellingTheClientProviderNeverQueuesAnEdit() = runBlocking {
+        val cancelled = lazyDeliveryRemote { throw kotlinx.coroutines.CancellationException("cancelled") }
+        try {
+            cancelled.setJobDate("670 - E", LocalDate.of(2026, 10, 21), "am", "T1")
+            org.junit.Assert.fail("cancellation must propagate")
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            // Cancellation is not remote unavailability.
+        }
     }
 }

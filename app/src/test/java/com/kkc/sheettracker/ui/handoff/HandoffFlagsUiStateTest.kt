@@ -54,6 +54,18 @@ class HandoffFlagsUiStateTest {
     }
 
     @Test
+    fun uiForUsesUpdatedSnapshotAfterRefresh() {
+        val selectors = HandoffSelectorCache { _, _ -> }
+        val queue = HandoffMessageQueue()
+        val before = HandoffFlagsUiState(snapshot, editable = true, messages = queue, selectors = selectors)
+        val afterSnapshot = snapshot.copy(stored = mapOf(ref to HandoffItemFlags(HandoffTruck.LATER)))
+        val after = HandoffFlagsUiState(afterSnapshot, editable = true, messages = queue, selectors = selectors)
+
+        assertEquals(HandoffTruck.SHOP, before.uiFor(ref).display.selected)
+        assertEquals(HandoffTruck.LATER, after.uiFor(ref).display.selected)
+    }
+
+    @Test
     fun readOnlyStateHasNoSelectCallback() {
         val state = HandoffFlagsUiState(snapshot, editable = false, messages = HandoffMessageQueue(), selectors = HandoffSelectorCache { _, _ -> })
         assertNull(state.uiFor(ref).onSelectTruck)

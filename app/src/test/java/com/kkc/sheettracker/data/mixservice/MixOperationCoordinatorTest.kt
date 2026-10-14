@@ -2,6 +2,10 @@ package com.kkc.sheettracker.data.mixservice
 
 import com.google.gson.Gson
 import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -1050,24 +1054,67 @@ class MixOperationCoordinatorTest {
 
     @Test
     fun `coordinator stays not ready until restore finishes and blocks early submission`() = runBlocking {
-        val store = ControlledSessionStore()
-        val service = CompletingService()
-        val coordinator = MixOperationCoordinator(service, store, pollIntervalMillis = 1)
+        val executor = Executors.newSingleThreadExecutor()
+        val dispatcher = executor.asCoroutineDispatcher()
+        val coordinatorScope = CoroutineScope(SupervisorJob() + dispatcher)
+        val releaseRestore = CountDownLatch(1)
+        val executorGates = mutableListOf(releaseRestore)
+        val restoreStarted = CountDownLatch(1)
+        executor.execute {
+            restoreStarted.countDown()
+            releaseRestore.await()
+        }
 
-        assertEquals(MixOperationRestoreState.Restoring, coordinator.restoreState.value)
-        coordinator.start(session())
-        delay(20)
-        assertEquals(0, service.submitCount)
+        try {
+            assertTrue(restoreStarted.await(1, TimeUnit.SECONDS))
+            val store = ControlledSessionStore()
+            val service = CompletingService()
+            val coordinator = MixOperationCoordinator(
+                service,
+                store,
+                pollIntervalMillis = 1,
+                scope = coordinatorScope,
+            )
 
-        coordinator.restore()
-        delay(20)
-        assertEquals(MixOperationRestoreState.Restoring, coordinator.restoreState.value)
-        store.nextLoad.complete(MixOperationSessionLoadResult.Success(emptyMap()))
-        withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
+            assertEquals(MixOperationRestoreState.Restoring, coordinator.restoreState.value)
+            coordinator.start(session())
+            assertEquals(0, service.submitCount)
 
-        coordinator.start(session())
-        withTimeout(1_000) { coordinator.sessions.first { it["648"]?.currentAction == null } }
-        assertEquals(1, service.submitCount)
+            coordinator.restore()
+            releaseRestore.countDown()
+            assertTrue(store.loadStarted.await(1, TimeUnit.SECONDS))
+            assertEquals(MixOperationRestoreState.Restoring, coordinator.restoreState.value)
+            coordinator.start(session())
+            val duringRestoreStartDrained = CountDownLatch(1)
+            executor.execute { duringRestoreStartDrained.countDown() }
+            assertTrue(duringRestoreStartDrained.await(1, TimeUnit.SECONDS))
+            assertEquals(0, service.submitCount)
+
+            store.nextLoad.complete(MixOperationSessionLoadResult.Success(emptyMap()))
+            withTimeout(1_000) { coordinator.restoreState.first { it == MixOperationRestoreState.Ready } }
+
+            val releaseSubmission = CountDownLatch(1)
+            executorGates += releaseSubmission
+            val submissionStarted = CountDownLatch(1)
+            executor.execute {
+                submissionStarted.countDown()
+                releaseSubmission.await()
+            }
+            assertTrue(submissionStarted.await(1, TimeUnit.SECONDS))
+            coordinator.start(session())
+            val prematureSession = withTimeout(1_000) {
+                coordinator.sessions.first { it["648"]?.currentAction == null }
+            }
+            assertEquals(null, prematureSession["648"])
+            assertEquals(0, service.submitCount)
+            releaseSubmission.countDown()
+            withTimeout(1_000) { coordinator.sessions.first { it["648"]?.isCompletedSuccessfully == true } }
+            assertEquals(1, service.submitCount)
+        } finally {
+            executorGates.forEach(CountDownLatch::countDown)
+            coordinatorScope.cancel()
+            dispatcher.close()
+        }
     }
 
     @Test
@@ -1283,8 +1330,12 @@ class MixOperationCoordinatorTest {
 
     private class ControlledSessionStore : MixOperationSessionStore {
         val nextLoad = kotlinx.coroutines.CompletableDeferred<MixOperationSessionLoadResult>()
+        val loadStarted = java.util.concurrent.CountDownLatch(1)
 
-        override suspend fun load(): MixOperationSessionLoadResult = nextLoad.await()
+        override suspend fun load(): MixOperationSessionLoadResult {
+            loadStarted.countDown()
+            return nextLoad.await()
+        }
 
         override suspend fun save(sessions: Map<String, ManageCodeSession>) = Unit
     }

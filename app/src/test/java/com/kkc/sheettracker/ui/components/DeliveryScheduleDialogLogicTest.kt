@@ -82,9 +82,22 @@ class DeliveryScheduleDialogLogicTest {
     }
 
     @Test
-    fun legacyHalfDayGuardDoesNotApplyToDatedSchedules() {
-        val s = v2("2026-10-14_am" to jobs("a", 4))
-        assertEquals(DropDecision.Allowed, deliveryDropAllowed(s, dayOf(s, wed, wed), "2026-10-14_am", null, true))
+    fun datedHalfDayAllowsFourthFifthAndSixthJobs() {
+        val dayKey = "2026-10-14_am"
+        for (currentCount in 3..5) {
+            val s = v2(dayKey to jobs("a", currentCount))
+            assertEquals(
+                "Dated half-day should accept job ${currentCount + 1}",
+                DropDecision.Allowed,
+                deliveryDropAllowed(s, dayOf(s, wed, wed), dayKey, null, true)
+            )
+        }
+    }
+
+    @Test
+    fun legacyFourthJobInHalfDayIsRejected() {
+        val s = v1("monday_am" to jobs("a", 3))
+        assertEquals(DropDecision.HalfDayFull, deliveryDropAllowed(s, dayOf(s, mon, mon), "monday_am", null, false))
     }
 
     @Test

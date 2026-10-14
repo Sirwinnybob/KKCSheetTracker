@@ -63,6 +63,14 @@ class HandoffFlagsWiringTest {
     }
 
     @Test
+    fun ownerChangeScopesInitialTruckListMessagesAndSelectors() {
+        val src = source("ui/handoff/HandoffTruckChip.kt")
+        assertTrue(src.contains("return key(service, jobFolderName) {"))
+        assertTrue(src.contains("val messages = remember { HandoffMessageQueue() }"))
+        assertTrue(src.contains("val selectors = remember(messages) {"))
+    }
+
+    @Test
     fun jobFolderGuardsReportEverySkip() {
         listOf(
             "data/SheetRipProgressStore.kt", "data/TabletSpecialtyItemsStore.kt", "data/SpecialtyProgressStore.kt",

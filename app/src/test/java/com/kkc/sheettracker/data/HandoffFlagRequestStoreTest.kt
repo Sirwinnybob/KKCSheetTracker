@@ -29,6 +29,7 @@ class HandoffFlagRequestStoreTest {
     }
 
     private fun sidecar(base: File) = File(base, "$job/.metadata/admin/handoff_flags_request.T1.json")
+    private fun pendingClock(base: File) = File(sidecar(base).parentFile, sidecar(base).name + ".pending-clock")
 
     @Test
     fun writesExactContractShapeWithOnlyTheTouchedFlag() = runBlocking<Unit> {
@@ -254,6 +255,75 @@ class HandoffFlagRequestStoreTest {
     }
 
     @Test
+    fun futureRequestKeepsFirstSeenAnchorAndExpiresAfterBackstop() = runBlocking {
+        val (base, store) = setup()
+        store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, t0.plusSeconds(365L * 24 * 3600).toString())
+        assertFalse("observation file is created by pending reads", pendingClock(base).exists())
+
+        assertEquals(t0, store.pendingTruckFlags(job, t0).getValue(ref).requestedAt)
+        assertTrue(pendingClock(base).isFile)
+        assertFalse("observation file keeps a non-JSON suffix", pendingClock(base).name.endsWith(".json"))
+        assertEquals(t0, store.pendingTruckFlags(job, t0.plusSeconds(60)).getValue(ref).requestedAt)
+        assertTrue(store.pendingTruckFlags(job, t0.plusSeconds(25 * 3600)).isEmpty())
+    }
+
+    @Test
+    fun officeOverrideRemainsAppliedAfterRepeatedReads() = runBlocking {
+        val (_, store) = setup()
+        store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, t0.plusSeconds(3600).toString())
+        store.pendingTruckFlags(job, t0)
+
+        assertTrue(store.pendingTruckFlags(job, t0.plusSeconds(60), mapOf(ref to t0.plusSeconds(30))).isEmpty())
+        assertTrue(store.pendingTruckFlags(job, t0.plusSeconds(120), mapOf(ref to t0.plusSeconds(30))).isEmpty())
+    }
+
+    @Test
+    fun anchorSurvivesStoreRecreationAndSidecarAppend() = runBlocking {
+        val (base, firstStore) = setup()
+        firstStore.appendTruckRequest(job, ref, HandoffTruck.LOOSE, t0.plusSeconds(3600).toString())
+        assertEquals(t0, firstStore.pendingTruckFlags(job, t0).getValue(ref).requestedAt)
+
+        val recreatedStore = HandoffFlagRequestStore(base, "T1")
+        recreatedStore.appendTruckRequest(job, other, HandoffTruck.SHOP, t0.plusSeconds(7200).toString())
+        val pending = recreatedStore.pendingTruckFlags(job, t0.plusSeconds(60))
+
+        assertEquals(t0, pending.getValue(ref).requestedAt)
+        assertEquals(t0.plusSeconds(60), pending.getValue(other).requestedAt)
+    }
+
+    @Test
+    fun readOnlyFutureRequestDoesNotCreateClockAnchor() = runBlocking {
+        val (base, _) = setup()
+        sidecar(base).apply { parentFile.mkdirs() }.writeText(
+            """{"schemaVersion":1,"tabletId":"T1","requests":[{"requestId":"future","requestedAt":"2026-10-08T15:00:00Z","source":"checklist","id":"c-123","truck":"loose"}]}"""
+        )
+        val store = HandoffFlagRequestStore(base, "T1", readOnly = true)
+
+        assertTrue(store.pendingTruckFlags(job, t0).isEmpty())
+        assertFalse(pendingClock(base).exists())
+    }
+
+    @Test
+    fun failedClockAnchorWriteKeepsSidecarAndNormalPendingFlags() = runBlocking {
+        val (base, store) = setup()
+        val requestFile = sidecar(base).apply { parentFile.mkdirs() }
+        requestFile.writeText(
+            """{"schemaVersion":1,"tabletId":"T1","requests":[
+              {"requestId":"future","requestedAt":"2026-10-08T15:00:00Z","source":"checklist","id":"c-123","truck":"loose"},
+              {"requestId":"normal","requestedAt":"2026-10-08T14:00:00Z","source":"board_stock","id":"b","truck":"shop"}
+            ]}"""
+        )
+        val originalBytes = requestFile.readBytes()
+        assertTrue(pendingClock(base).mkdirs())
+
+        val pending = store.pendingTruckFlags(job, t0)
+
+        assertEquals(setOf(other), pending.keys)
+        assertEquals(originalBytes.toList(), requestFile.readBytes().toList())
+        assertTrue(pendingClock(base).isDirectory)
+    }
+
+    @Test
     fun identicalRequestedAtLaterEntryWins() = runBlocking {
         val (_, store) = setup()
         store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, t0.toString())
@@ -266,12 +336,13 @@ class HandoffFlagRequestStoreTest {
         val (base, store) = setup()
         sidecar(base).apply { parentFile.mkdirs() }.writeText(
             """{"schemaVersion":1,"tabletId":"T1","requests":[
-              {"requestId":"a","requestedAt":"2026-10-08T14:00:00Z","source":"board_stock","id":"b","count":"qty"},
-              {"requestId":"b","requestedAt":"2026-10-08T14:00:01Z","source":"checklist","id":"c-123","truck":"teleport"},
+              {"requestId":"a","requestedAt":"2027-10-08T14:00:00Z","source":"board_stock","id":"b","count":"qty"},
+              {"requestId":"b","requestedAt":"2027-10-08T14:00:01Z","source":"checklist","id":"c-123","truck":"teleport"},
               {"requestId":"c","requestedAt":"not-a-time","source":"checklist","id":"c-9","truck":"shop"}
             ]}"""
         )
         assertTrue(store.pendingTruckFlags(job, t0.plusSeconds(5)).isEmpty())
+        assertFalse("count-only and unknown trucks do not get clock anchors", pendingClock(base).exists())
     }
 
     @Test

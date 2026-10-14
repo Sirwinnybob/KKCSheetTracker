@@ -105,25 +105,71 @@ class HandoffFlagRequestStore(
      *   (HT applied it, or the office has overridden it since), or
      * - it is older than the [backstop] (a stuck file must not show "pending" forever).
      *
-     * A `requestedAt` more than [CLOCK_SKEW] in the future (tablet clock ahead of HT) counts as
-     * [now]. Ties on `requestedAt` go to the later entry in the file.
+     * A `requestedAt` more than [CLOCK_SKEW] in the future (tablet clock ahead of HT) is anchored
+     * to the first time it is observed, so polling cannot extend its lifetime or undo an override.
+     * Ties on raw `requestedAt` go to the later entry in the file.
      */
-    fun pendingTruckFlags(
+    suspend fun pendingTruckFlags(
         jobFolderName: String,
         now: Instant,
         truckSetAt: Map<HandoffFlagRef, Instant> = emptyMap(),
         backstop: Duration = PENDING_BACKSTOP
-    ): Map<HandoffFlagRef, PendingTruckFlag> {
+    ): Map<HandoffFlagRef, PendingTruckFlag> = withContext(Dispatchers.IO) {
         val file = requestFile(jobFolderName)
+        lockFor(file).withLock { pendingTruckFlagsLocked(file, jobFolderName, now, truckSetAt, backstop) }
+    }
+
+    private fun pendingTruckFlagsLocked(
+        file: File,
+        jobFolderName: String,
+        now: Instant,
+        truckSetAt: Map<HandoffFlagRef, Instant>,
+        backstop: Duration
+    ): Map<HandoffFlagRef, PendingTruckFlag> {
         if (!file.isFile) return emptyMap()
         val requests = runCatching { JSONObject(file.readText()).getJSONArray("requests") }.getOrNull() ?: return emptyMap()
+        val clockFile = File(file.parentFile, file.name + PENDING_CLOCK_SUFFIX)
+        val clockRead = readClockAnchors(clockFile)
+        val anchors = clockRead.anchors.toMutableMap()
+        val liveIdentities = HashSet<String>()
+        val newAnchors = HashSet<String>()
+
+        for (i in 0 until requests.length()) {
+            val obj = requests.optJSONObject(i) ?: continue
+            if (!obj.has("truck")) continue
+            val raw = runCatching { Instant.parse(obj.getString("requestedAt")) }.getOrNull() ?: continue
+            val requestId = obj.optString("requestId").takeIf { it.isNotBlank() } ?: continue
+            if (!obj.isNull("truck") && HandoffTruck.fromWire(obj.optString("truck")) == null) continue
+            val identity = requestIdentity(requestId, raw)
+            liveIdentities += identity
+            if (identity !in anchors && raw.isAfter(now.plus(CLOCK_SKEW))) {
+                anchors[identity] = now
+                newAnchors += identity
+            }
+        }
+
+        val pruned = anchors.keys.retainAll(liveIdentities)
+        val changed = newAnchors.isNotEmpty() || pruned
+        // Reads may happen from archive screens or after a job was renamed while this sidecar is
+        // still on disk. Do not let atomicWriteFile recreate a missing job/admin folder.
+        val canPersist = !readOnly && isLiveJobFolder(baseDir, jobFolderName) && clockRead.writable
+        val anchorWriteSucceeded = if (changed && canPersist) {
+            runCatching { writeClockAnchors(clockFile, anchors) }
+                .onFailure { Log.w(TAG, "Could not persist clock anchors for ${file.name}; skipping newly skewed requests", it) }
+                .isSuccess
+        } else newAnchors.isEmpty()
+        val unavailableAnchors = if (anchorWriteSucceeded) emptySet() else newAnchors
+
         val result = LinkedHashMap<HandoffFlagRef, PendingTruckFlag>()
         val orderKey = HashMap<HandoffFlagRef, Instant>()
         for (i in 0 until requests.length()) {
             val obj = requests.optJSONObject(i) ?: continue
             if (!obj.has("truck")) continue
             val raw = runCatching { Instant.parse(obj.getString("requestedAt")) }.getOrNull() ?: continue
-            val at = if (raw.isAfter(now.plus(CLOCK_SKEW))) now else raw
+            val requestId = obj.optString("requestId").takeIf { it.isNotBlank() } ?: continue
+            val identity = requestIdentity(requestId, raw)
+            if (identity in unavailableAnchors) continue
+            val at = anchors[identity] ?: raw
             if (Duration.between(at, now) > backstop) continue
             val ref = HandoffFlagRef(obj.optString("source"), obj.optString("id"))
             val truck = if (obj.isNull("truck")) null else HandoffTruck.fromWire(obj.optString("truck")) ?: continue
@@ -140,6 +186,38 @@ class HandoffFlagRequestStore(
         }
         return result
     }
+
+    private data class ClockAnchorRead(val anchors: Map<String, Instant>, val writable: Boolean)
+
+    private fun readClockAnchors(file: File): ClockAnchorRead {
+        if (!file.exists()) return ClockAnchorRead(emptyMap(), writable = true)
+        return try {
+            val root = JSONObject(file.readText())
+            val saved = root.optJSONObject("anchors") ?: return ClockAnchorRead(emptyMap(), writable = false)
+            val anchors = buildMap {
+                val keys = saved.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    runCatching { Instant.parse(saved.getString(key)) }.getOrNull()?.let { put(key, it) }
+                }
+            }
+            ClockAnchorRead(anchors, writable = true)
+        } catch (e: IOException) {
+            Log.w(TAG, "Cannot read clock anchors from ${file.name}; leaving them untouched", e)
+            ClockAnchorRead(emptyMap(), writable = false)
+        } catch (e: Exception) {
+            Log.w(TAG, "Unreadable clock anchors in ${file.name}; leaving them untouched", e)
+            ClockAnchorRead(emptyMap(), writable = false)
+        }
+    }
+
+    private fun writeClockAnchors(file: File, anchors: Map<String, Instant>) {
+        val entries = JSONObject()
+        anchors.forEach { (identity, at) -> entries.put(identity, at.toString()) }
+        atomicWriteFile(file, JSONObject().put("anchors", entries).toString())
+    }
+
+    private fun requestIdentity(requestId: String, raw: Instant): String = "$requestId\u0000${raw}"
 
     /**
      * The request document to append to, or null when the file must not be touched (it exists but
@@ -180,8 +258,9 @@ class HandoffFlagRequestStore(
         private const val TAG = "HandoffFlagRequests"
         /** Hard upper bound on how long a queued request is shown as pending. */
         val PENDING_BACKSTOP: Duration = Duration.ofHours(24)
-        /** A `requestedAt` further ahead than this is a tablet clock problem and is treated as now. */
+        /** A `requestedAt` further ahead than this is a tablet clock problem and gets an anchor. */
         val CLOCK_SKEW: Duration = Duration.ofMinutes(5)
+        private const val PENDING_CLOCK_SUFFIX = ".pending-clock"
         private val locks = ConcurrentHashMap<String, Mutex>()
     }
 }

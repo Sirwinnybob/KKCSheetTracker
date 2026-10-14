@@ -10,10 +10,14 @@ import com.kkc.sheettracker.data.models.SheetStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.concurrent.atomic.AtomicReference
 
 class UnifiedMetadataEngineTest {
     private val gson = Gson()
@@ -163,6 +167,36 @@ class UnifiedMetadataEngineTest {
     }
 
     @Test
+    fun cachedCncSearchIndexIsInvalidatedWhenReloadedJobHasSameSignature() {
+        val baseDir = createTempBaseDir()
+        val jobDir = File(baseDir, jobFolder).apply { mkdirs() }
+        val metadataDir = File(jobDir, ".metadata").apply { mkdirs() }
+        File(metadataDir, "deployment_gate.json").writeText("""{"deployed": true}""")
+        val cacheFile = File(metadataDir, "cache_static.json")
+        val fixedTimestamp = 1_700_000_000_000L
+        cacheFile.writeText(cachedCncJobJson("Side Panel"))
+        assertTrue(cacheFile.setLastModified(fixedTimestamp))
+
+        val engine = FileBackedUnifiedMetadataEngine(baseDir.absolutePath, isDebugBuild = true)
+        assertNotNull(engine.loadJobFromCacheFile(jobFolder))
+        val first = engine.getCncSnapshot(jobFolder)
+        assertEquals(listOf("Side Panel"), first?.searchIndex?.map { it.partName })
+        assertSame(first?.searchIndex, engine.getCachedCncSearchIndex(jobFolder))
+
+        cacheFile.writeText(cachedCncJobJson("Shelf", "Drawer"))
+        assertTrue(cacheFile.setLastModified(fixedTimestamp))
+        assertNotNull(engine.loadJobFromCacheFile(jobFolder))
+
+        assertNull("A search index for the previous parsed Job must not be exposed", engine.getCachedCncSearchIndex(jobFolder))
+        val second = engine.getCncSnapshot(jobFolder)
+        assertEquals(listOf("Shelf", "Drawer"), second?.searchIndex?.map { it.partName })
+        assertEquals(2, second?.job?.materials?.sumOf { material ->
+            material.metadata?.pages?.sumOf { page -> page.parts.size } ?: 0
+        })
+        assertSame(second?.searchIndex, engine.getCachedCncSearchIndex(jobFolder))
+    }
+
+    @Test
     fun getCncSnapshotStaysConsistentUnderConcurrentRefresh() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)
@@ -198,19 +232,37 @@ class UnifiedMetadataEngineTest {
         // invariant would break under this interleaving.
         val iterations = 200
         val mismatches = java.util.concurrent.atomic.AtomicInteger(0)
+        val completedReads = java.util.concurrent.atomic.AtomicInteger(0)
+        val observedSnapshots = java.util.concurrent.atomic.AtomicInteger(0)
+        val writerFailure = AtomicReference<Throwable?>(null)
+        val readerFailure = AtomicReference<Throwable?>(null)
         val writer = Thread {
-            repeat(iterations) { i ->
-                metadataFile.writeText(if (i % 2 == 0) twoPartJson else onePartJson)
-                engine.refreshJobDeep(jobFolder)
+            try {
+                repeat(iterations) { i ->
+                    val replacement = File(metadataFile.parentFile, "${metadataFile.name}.tmp")
+                    replacement.writeText(if (i % 2 == 0) twoPartJson else onePartJson)
+                    replaceFileWithRetry(replacement, metadataFile)
+                    engine.refreshJobDeep(jobFolder)
+                }
+            } catch (failure: Throwable) {
+                writerFailure.set(failure)
             }
         }
         val reader = Thread {
-            repeat(iterations * 5) {
-                val snapshot = engine.getCncSnapshot(jobFolder) ?: return@repeat
-                val partCount = snapshot.job.materials.sumOf { m -> m.metadata?.pages?.sumOf { it.parts.size } ?: 0 }
-                if (partCount != snapshot.searchIndex.size) {
-                    mismatches.incrementAndGet()
+            try {
+                repeat(iterations * 5) {
+                    val snapshot = engine.getCncSnapshot(jobFolder)
+                    if (snapshot != null) {
+                        observedSnapshots.incrementAndGet()
+                        val partCount = snapshot.job.materials.sumOf { m -> m.metadata?.pages?.sumOf { it.parts.size } ?: 0 }
+                        if (partCount != snapshot.searchIndex.size) {
+                            mismatches.incrementAndGet()
+                        }
+                    }
+                    completedReads.incrementAndGet()
                 }
+            } catch (failure: Throwable) {
+                readerFailure.set(failure)
             }
         }
         writer.start()
@@ -218,7 +270,56 @@ class UnifiedMetadataEngineTest {
         writer.join()
         reader.join()
 
+        assertNull("Metadata writer failed", writerFailure.get())
+        assertNull("Snapshot reader failed", readerFailure.get())
+        assertEquals(iterations * 5, completedReads.get())
+        assertTrue("Reader must observe at least one snapshot", observedSnapshots.get() > 0)
         assertEquals(0, mismatches.get())
+    }
+
+    private fun cachedCncJobJson(vararg partNames: String): String {
+        val parts = partNames.mapIndexed { index, name ->
+            """{"number":${index + 1},"width":12.0,"length":24.0,"name":"$name","cabNumber":42,"room":"Kitchen"}"""
+        }.joinToString(",")
+        return """
+            {
+              "jobInfo": { "folderName": "$jobFolder", "jobNumber": "1234", "jobName": "Test Job" },
+              "cncJob": {
+                "folderName": "$jobFolder", "jobNumber": "1234", "jobName": "Test Job",
+                "materials": [{
+                  "pdfFilename": "1234 - White Melamine.pdf", "materialName": "White Melamine", "pageCount": 1,
+                  "metadata": {
+                    "jobNumber": "1234", "jobName": "Test Job", "material": "White Melamine",
+                    "pdfFilename": "1234 - White Melamine.pdf",
+                    "pages": [{ "pageNumber": 1, "parts": [$parts] }]
+                  }
+                }]
+              }
+            }
+        """.trimIndent()
+    }
+
+    private fun replaceFileWithRetry(source: File, target: File) {
+        var replaced = false
+        var lastAccessFailure: java.nio.file.AccessDeniedException? = null
+        repeat(100) {
+            try {
+                Files.move(source.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+                replaced = true
+            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                try {
+                    Files.move(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                    replaced = true
+                } catch (failure: java.nio.file.AccessDeniedException) {
+                    lastAccessFailure = failure
+                }
+            } catch (failure: java.nio.file.AccessDeniedException) {
+                lastAccessFailure = failure
+            }
+            if (replaced) return
+            Thread.sleep(1)
+        }
+        throw lastAccessFailure ?: IllegalStateException("Could not replace metadata file")
     }
 
     @Test

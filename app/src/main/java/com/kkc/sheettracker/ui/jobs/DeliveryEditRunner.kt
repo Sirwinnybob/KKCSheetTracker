@@ -29,6 +29,8 @@ internal const val DELIVERY_EDIT_FAILED_NOTICE = "Couldn't save this delivery ch
 /** How long the dialog keeps showing a consumed request's result while the live schedule catches up. */
 internal const val DELIVERY_OVERLAY_HOLD_MILLIS = 30_000L
 
+internal fun deliveryOverlayClockMillis(): Long = System.nanoTime() / 1_000_000L
+
 /** What the dialog needs after one edit: new notices, whether to revert its optimistic change, and our pending request. */
 internal data class DeliveryEditResult(
     val notices: List<String>,
@@ -68,6 +70,7 @@ internal class DeliveryEditRunner(
         readPending: () -> DeliveryScheduleEditRequest?,
         onApplied: (DeliverySchedule) -> Unit,
         onResult: (DeliveryEditResult) -> Unit,
+        heldRequest: () -> HeldDeliveryRequest? = { null },
         edit: suspend (DeliveryScheduleEditor, DeliverySchedule) -> DeliveryEditOutcome
     ): Job {
         synchronized(stateLock) { inFlightCount.value += 1 }
@@ -86,7 +89,11 @@ internal class DeliveryEditRunner(
             mutex.withLock {
                 val outcome: DeliveryEditOutcome? = try {
                     withContext(io) {
-                        val current = overlayPendingDeliveryRequest(currentSchedule(), readPending())
+                        val base = currentSchedule()
+                        val pending = readPending()
+                        val current = overlayPendingDeliveryRequest(
+                            base, effectiveDeliveryOverlayRequest(pending, heldRequest(), base)
+                        )
                         edit(editor(), current)
                     }
                 } catch (e: CancellationException) {
@@ -109,9 +116,30 @@ internal class DeliveryEditRunner(
                 onResult(DeliveryEditResult(notices = notices, revert = release(wantsRevert), pending = pending))
             }
         }
-        // Cancelled before it ever ran (or while waiting for the lock): still stop counting it.
-        // A revert already held back stays held for the next finishing edit.
-        job.invokeOnCompletion { release(wantsRevert = false) }
+        // A cancelled final edit must deliver a revert already held by an earlier refusal.
+        // Dispatch in the owning scope, since completion may run on a cancelling caller's thread.
+        job.invokeOnCompletion {
+            if (release(wantsRevert = false)) scope.launch {
+                mutex.withLock {
+                    val pending = try {
+                        withContext(io) { readPending() }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        log("Could not re-read the pending delivery request", e)
+                        null
+                    }
+                    val deliver = synchronized(stateLock) {
+                        // Another edit may have arrived while this completion was dispatched/read.
+                        if (inFlightCount.value > 0) {
+                            revertDeferred = true
+                            false
+                        } else true
+                    }
+                    if (deliver) onResult(DeliveryEditResult(emptyList(), revert = true, pending))
+                }
+            }
+        }
         return job
     }
 
@@ -127,7 +155,8 @@ internal class DeliveryEditRunner(
  */
 internal data class HeldDeliveryRequest(
     val request: DeliveryScheduleEditRequest,
-    val baseSchedule: DeliverySchedule
+    val baseSchedule: DeliverySchedule,
+    val expiresAtMillis: Long = deliveryOverlayClockMillis() + DELIVERY_OVERLAY_HOLD_MILLIS
 )
 
 /** The hold to keep after the pending request changed from [previous] to [new] while [schedule] is shown. */
@@ -139,16 +168,17 @@ internal fun nextHeldDeliveryRequest(
 ): HeldDeliveryRequest? = when {
     new != null -> null
     previous != null -> HeldDeliveryRequest(previous, schedule)
-    else -> held
+    else -> held?.takeIf { it.baseSchedule == schedule && deliveryOverlayClockMillis() < it.expiresAtMillis }
 }
 
 /** The request to overlay: the live one, else a still-valid hold (same schedule as when the file vanished). */
 internal fun effectiveDeliveryOverlayRequest(
     pending: DeliveryScheduleEditRequest?,
     held: HeldDeliveryRequest?,
-    schedule: DeliverySchedule
+    schedule: DeliverySchedule,
+    nowMillis: Long = deliveryOverlayClockMillis()
 ): DeliveryScheduleEditRequest? =
-    pending ?: held?.takeIf { it.baseSchedule == schedule }?.request
+    pending ?: held?.takeIf { it.baseSchedule == schedule && nowMillis < it.expiresAtMillis }?.request
 
 /**
  * A [DeliveryScheduleRemote] that resolves the Hours Tracker client on EVERY call, so an edit made
@@ -158,8 +188,17 @@ internal fun effectiveDeliveryOverlayRequest(
  */
 internal fun lazyDeliveryRemote(client: suspend () -> AdminSyncClient?): DeliveryScheduleRemote =
     object : DeliveryScheduleRemote {
+        private suspend fun resolveClient(): AdminSyncClient? = try {
+            client()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Config storage can be unavailable too; the request file remains the recovery path.
+            null
+        }
+
         override suspend fun applyEdits(request: DeliveryScheduleEditRequest): DeliveryScheduleApplyResult? =
-            client()?.applyDeliveryScheduleEdits(request)
+            resolveClient()?.applyDeliveryScheduleEdits(request)
 
         override suspend fun setJobDate(
             folderName: String,
@@ -167,5 +206,5 @@ internal fun lazyDeliveryRemote(client: suspend () -> AdminSyncClient?): Deliver
             window: String?,
             tabletId: String
         ): DeliveryJobDateResult =
-            client()?.setDeliveryJobDate(folderName, date, window, tabletId) ?: DeliveryJobDateResult.Unavailable
+            resolveClient()?.setDeliveryJobDate(folderName, date, window, tabletId) ?: DeliveryJobDateResult.Unavailable
     }

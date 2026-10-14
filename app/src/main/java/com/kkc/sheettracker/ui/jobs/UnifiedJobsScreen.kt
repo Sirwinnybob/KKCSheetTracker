@@ -452,9 +452,12 @@ fun UnifiedJobsScreen(
             delay(15_000)
         }
     }
-    LaunchedEffect(deliveryHeldRequest) {
-        if (deliveryHeldRequest != null) {
-            delay(DELIVERY_OVERLAY_HOLD_MILLIS)
+    LaunchedEffect(deliveryHeldRequest, deliveryScheduleBinding.dialogSchedule) {
+        val held = deliveryHeldRequest
+        if (held != null) {
+            if (held.baseSchedule == deliveryScheduleBinding.dialogSchedule) {
+                delay((held.expiresAtMillis - deliveryOverlayClockMillis()).coerceAtLeast(0L))
+            }
             deliveryHeldRequest = null
         }
     }
@@ -472,6 +475,12 @@ fun UnifiedJobsScreen(
     // runner's lock, so a queued edit sees the canonical result of the one before it. State writes
     // after this screen is gone land in forgotten remembered state and are harmless.
     fun runDeliveryEdit(edit: suspend (DeliveryScheduleEditor, DeliverySchedule) -> DeliveryEditOutcome) {
+        // Capture the displayed request for this gesture. It remains available if the dialog is
+        // dismissed before the serialized edit runs, but the runner checks canonical state/expiry.
+        // A request can disappear before the next poll has promoted it to a hold.
+        val editHeldRequest = deliveryHeldRequest ?: deliveryPendingRequest?.let {
+            HeldDeliveryRequest(it, latestDeliveryBinding.dialogSchedule)
+        }
         deliveryEditRunner.run(
             editor = { latestDeliveryEditor },
             currentSchedule = { deliveryScheduleForJobsScreen(latestCurrentDeliverySchedule()) },
@@ -484,6 +493,7 @@ fun UnifiedJobsScreen(
                 // edit can't wipe the optimistic state of one still waiting behind it.
                 if (result.revert) deliveryEditRevision += 1
             },
+            heldRequest = { editHeldRequest },
             edit = edit
         )
     }
