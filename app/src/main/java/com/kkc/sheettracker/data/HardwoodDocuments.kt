@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.data
 
+import com.kkc.sheettracker.data.models.CacheIndexHardwoodsDocType
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocSummary
@@ -34,6 +35,18 @@ object HardwoodDocuments {
         val known = documents.filter { (it.docType as HardwoodDocType?) != null }
         return if (documents === index.documents && known.size == documents.size) index else index.copy(documents = known)
     }
+
+    /**
+     * Job-card label for one cache-index doc type entry. Raw Gson can leave batchName null
+     * (explicit JSON null) in a non-null Kotlin field, so the read must be null-safe.
+     */
+    @Suppress("USELESS_CAST")
+    fun cacheIndexDocTypeLabel(docType: CacheIndexHardwoodsDocType): String =
+        if ((docType.batchName as String?).isNullOrBlank()) docType.docType else "${docType.docType} — ${docType.batchName}"
+
+    /** Number of distinct doc types (not batches) in a cache-index progress entry. */
+    fun cacheIndexDocTypeCount(docTypes: List<CacheIndexHardwoodsDocType>): Int =
+        docTypes.map { it.docType }.distinct().size
 
     fun docsOfType(index: HardwoodCutlistIndex?, type: HardwoodDocType): List<HardwoodDocumentIndex> =
         index?.documents.orEmpty().filter { it.docType == type }

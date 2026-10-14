@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 import com.kkc.sheettracker.data.AppStateStore
 import com.kkc.sheettracker.data.AssemblyScanCoordinator
 import com.kkc.sheettracker.data.AssemblyStateStore
+import com.kkc.sheettracker.data.HardwoodDocuments
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
@@ -208,7 +209,7 @@ fun rememberHardwoodsJobsSpec(
                         val docSegments = mutableListOf<MaterialSegmentData>()
                         docSegments.addAll(hwProgress.docTypes.map { docType ->
                             MaterialSegmentData(
-                                materialName = if (docType.batchName.isBlank()) docType.docType else "${docType.docType} — ${docType.batchName}",
+                                materialName = HardwoodDocuments.cacheIndexDocTypeLabel(docType),
                                 counts = StatusCounts(
                                     total = docType.total,
                                     complete = docType.done,
@@ -218,7 +219,7 @@ fun rememberHardwoodsJobsSpec(
                             )
                         })
                         val fraction = if (counts.totalPieces <= 0) 0f else counts.donePieces.toFloat() / counts.totalPieces.toFloat()
-                        val docCount = hwProgress.docTypes.size
+                        val docCount = HardwoodDocuments.cacheIndexDocTypeCount(hwProgress.docTypes)
 
                         val badges = mutableSetOf<JobBadge>()
                         if (info.isPending) badges.add(JobBadge.PENDING_DELIVERY)

@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.data
 
 import com.google.gson.Gson
+import com.kkc.sheettracker.data.models.CacheIndexHardwoodsDocType
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocSummary
@@ -131,5 +132,33 @@ class HardwoodDocumentsTest {
         assertSame(a, HardwoodDocuments.selectDoc(docs, type, null, null))
         assertSame(a, HardwoodDocuments.selectDoc(docs, type, "missing", "also-missing"))
         assertNull(HardwoodDocuments.selectDoc(docs, HardwoodDocType.NAILER_CUT_LIST, "b1", null))
+    }
+
+    @Test
+    fun cacheIndexDocTypeLabelUsesPlainTypeWhenBatchNameIsBlankNullOrMissing() {
+        val gson = Gson()
+        val missing = gson.fromJson("""{"docType":"FACE_FRAME_CUT_LIST"}""", CacheIndexHardwoodsDocType::class.java)
+        val explicitNull = gson.fromJson("""{"docType":"FACE_FRAME_CUT_LIST","batchName":null}""", CacheIndexHardwoodsDocType::class.java)
+        val blank = CacheIndexHardwoodsDocType(docType = "FACE_FRAME_CUT_LIST", batchName = "  ")
+        assertEquals("FACE_FRAME_CUT_LIST", HardwoodDocuments.cacheIndexDocTypeLabel(missing))
+        assertEquals("FACE_FRAME_CUT_LIST", HardwoodDocuments.cacheIndexDocTypeLabel(explicitNull))
+        assertEquals("FACE_FRAME_CUT_LIST", HardwoodDocuments.cacheIndexDocTypeLabel(blank))
+    }
+
+    @Test
+    fun cacheIndexDocTypeLabelAppendsBatchNameWhenNamed() {
+        val named = CacheIndexHardwoodsDocType(docType = "FACE_FRAME_CUT_LIST", batchId = "b1", batchName = "Main")
+        assertEquals("FACE_FRAME_CUT_LIST — Main", HardwoodDocuments.cacheIndexDocTypeLabel(named))
+    }
+
+    @Test
+    fun cacheIndexDocTypeCountCountsDistinctTypesNotBatches() {
+        val docTypes = listOf(
+            CacheIndexHardwoodsDocType(docType = "FACE_FRAME_CUT_LIST", batchId = "b1", batchName = "A"),
+            CacheIndexHardwoodsDocType(docType = "FACE_FRAME_CUT_LIST", batchId = "b2", batchName = "B"),
+            CacheIndexHardwoodsDocType(docType = "NAILER_CUT_LIST")
+        )
+        assertEquals(2, HardwoodDocuments.cacheIndexDocTypeCount(docTypes))
+        assertEquals(0, HardwoodDocuments.cacheIndexDocTypeCount(emptyList()))
     }
 }
