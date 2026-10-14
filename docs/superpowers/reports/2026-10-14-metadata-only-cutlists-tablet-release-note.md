@@ -69,7 +69,20 @@ Input: the actual `cutlist_index.json` the Hours Tracker worker published for a 
 
 ## Known limits
 
-`completedRemovedRowsForDocument` and collapsed-section state are keyed by `docType`, so they are shared across batches of one type (cosmetic).
+None from the batch work itself. (The earlier cosmetic limit, removed rows and collapsed sections shared across batches of one type, is fixed below.)
+
+## Deferred minors fixed
+
+- Job list: the batch label read is null-safe (an explicit JSON `"batchName": null` no longer throws) and the doc count is distinct doc types, not batches (`HardwoodDocuments.cacheIndexDocTypeLabel`, `cacheIndexDocTypeCount`).
+- A JSON `null` element inside `documents`, `rows`, `totals`, `doors` (or their string/page lists) no longer loses the whole index; the valid parts survive. `dropUnknownDocTypes`, `docsOfType`, `mergedByType` tolerate null documents too (`CvCutlistIndexDecodeTest`, `HardwoodDocumentsTest`).
+- CHANGED view: when the selected batch has no pending rows but another batch of the same type does, the workspace switches to that batch (`pendingRowIdsByType`, `firstDocWithPending`).
+- A later row intent (`initialRowId`) now beats an earlier batch chip tap (`selectedBatchId` is keyed on both).
+- Cosmetic: no "0 totals blocks" line for metadata docs; completed-removed rows are filtered to the selected batch (`cv:<batchId>:` prefix); collapsed part-section state is per batch (`selectedDocStateKey`; progress, skips, revisions, hidden materials and tracker actions stay keyed by doc type).
+- Test polish: merged doors/totals, `mergeSummaries` single-item and skipped sums, the unknown-doc-type case now loaded from the on-disk file through the real engine, and the door-panel decode with an unknown doc type.
+
+Suite after these fixes: `testDebugUnitTest` 1939 tests, 0 skipped, 0 failures, 0 errors (counted from the XML reports; the earlier 1923 plus 16 new). `:app:compileDebugKotlin --rerun` and `assembleDebug` succeed.
+
+Still needs a human check on a tablet (Compose behavior, not unit-tested): door list scroll and 240dp cap, batch chips, CHANGED switching to the batch that has the changes, and collapsed sections remembered separately per batch.
 
 ## Device safety statement
 
