@@ -145,7 +145,13 @@ class DeliveryScheduleEditorTest {
         val current = v2.withSlot("2026-10-21_pm", listOf(a))
         val remote = FakeRemote(put = DeliveryJobDateResult.Refused(404, ""))
         val outcome = DeliveryScheduleEditor(remote, FakeQueue(), "T1").removeJob(current, a, "2026-10-21_pm")
-        assertEquals(DeliveryEditOutcome.Refused(listOf("Job 670 not placed: no office job for this folder")), outcome)
+        assertEquals(DeliveryEditOutcome.Refused(listOf("Job 670 was not removed: no office job for this folder")), outcome)
+        // A server-supplied reason keeps the removal prefix too.
+        val withReason = FakeRemote(put = DeliveryJobDateResult.Refused(409, "Folder is locked"))
+        assertEquals(
+            DeliveryEditOutcome.Refused(listOf("Job 670 was not removed: Folder is locked")),
+            DeliveryScheduleEditor(withReason, FakeQueue(), "T1").removeJob(current, a, "2026-10-21_pm")
+        )
     }
 
     @Test

@@ -136,7 +136,7 @@ class DeliveryScheduleEditor(
                     }
                     return applied(r.result)
                 }
-                is DeliveryJobDateResult.Refused -> return refused(job, r)
+                is DeliveryJobDateResult.Refused -> return refused(job, r, removal = true)
                 DeliveryJobDateResult.AcceptedWithoutDocument -> return DeliveryEditOutcome.Queued(emptyList())
                 DeliveryJobDateResult.Unavailable -> Unit
             }
@@ -209,9 +209,14 @@ class DeliveryScheduleEditor(
 
     // AdminSyncClient already reduces FastAPI's 422 list/object `detail` to plain text (or "").
     // A blank reason makes formatDeliveryFailure use its status-based wording.
-    private fun refused(job: DeliveryJob, r: DeliveryJobDateResult.Refused) =
+    private fun refused(job: DeliveryJob, r: DeliveryJobDateResult.Refused, removal: Boolean = false) =
         DeliveryEditOutcome.Refused(
-            listOf(formatDeliveryFailure(DeliveryScheduleFailure("", job.jobNumber, job.folderName, r.status, r.reason)))
+            listOf(
+                formatDeliveryFailure(
+                    DeliveryScheduleFailure("", job.jobNumber, job.folderName, r.status, r.reason),
+                    removal
+                )
+            )
         )
 
     private companion object {
