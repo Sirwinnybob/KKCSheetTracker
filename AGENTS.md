@@ -72,6 +72,8 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 
 ## Development & Deployment Rules
 - **NEVER** run `adb uninstall` or uninstall the app from connected devices without explicit user permission.
+- Native instrumentation must keep `android.injected.androidTest.leaveApksInstalledAfterRun=true`
+  (set in `gradle.properties`). Gradle's default connected-test cleanup uninstalls the target app.
 
 ## Imported Claude Cowork project instructions
 

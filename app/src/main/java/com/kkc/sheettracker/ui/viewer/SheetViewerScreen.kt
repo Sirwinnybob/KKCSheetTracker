@@ -654,12 +654,13 @@ fun SheetViewerScreen(
         )
     }
 
-    suspend fun renderPageFromPdf(
+    suspend fun loadSheetPage(
         targetMaterial: Material,
         targetPdfFile: java.io.File,
         pageNumber: Int,
         source: String,
-        quality: SheetRenderQuality
+        quality: SheetRenderQuality,
+        includeFullPdfPage: Boolean = false
     ): RenderedSheetPage? {
         if (!kotlinx.coroutines.currentCoroutineContext().isActive) return null
         var renderedBitmap: Bitmap? = null
@@ -667,65 +668,61 @@ fun SheetViewerScreen(
             var outDiagram: Bitmap? = null
             var outDiagramScale = 1f
             val pageIndex = pageNumber - 1
-            ParcelFileDescriptor.open(targetPdfFile, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
-                PdfRenderer(fd).use { renderer ->
-                    AppLog.d(SHEET_RENDER_TAG, "render_fn: pageIndex=$pageIndex pageCount=${renderer.pageCount} quality=$quality file=${targetPdfFile.path} exists=${targetPdfFile.exists()}")
-                    if (pageIndex !in 0 until renderer.pageCount) return null
-                    renderer.openPage(pageIndex).use { page ->
-                        val width = (page.width * quality.scale).toInt().coerceAtLeast(1)
-                        val height = (page.height * quality.scale).toInt().coerceAtLeast(1)
-                        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                        bmp.eraseColor(android.graphics.Color.WHITE)
-                        try {
-                            kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                            page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                            kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                            renderedBitmap = bmp
-                        } catch (error: Throwable) {
-                            bmp.recycle()
-                            throw error
-                        }
-                    }
-                }
-            }
             val pageMeta = resolvePageMetadata(targetMaterial, pageNumber)
             fun useThumbnailDiagram() {
-                val thumbnail = loadCncSidecarBitmap(targetPdfFile, pageMeta?.thumbnailPath)
+                val thumbnail = loadCncSidecarBitmap(targetPdfFile, pageMeta?.thumbnailPath, pageMeta?.thumbnailJxlPath, 420, 280)
                 if (thumbnail != null) {
                     outDiagram = resizeThumbnail(thumbnail)
                     if (outDiagram !== thumbnail) thumbnail.recycle()
                 }
             }
-            when (effectiveDiagramSource(quality, pageMeta?.diagramPath)) {
+            when (effectiveDiagramSource(quality, pageMeta?.diagramPath, pageMeta?.diagramJxlPath)) {
                 SheetDiagramSource.SIDECAR_THUMBNAIL -> useThumbnailDiagram()
-                SheetDiagramSource.SIDECAR_DIAGRAM -> {
-                    // Same prepared-cache key as FULL_EMBEDDED_IMAGE, so the later
-                    // quality promotion for this page reuses this decode.
-                    val prepared = progressStore.getOrPrepareDiagram(
-                        key = preparedPageKey(targetMaterial, pageNumber),
-                        source = source
-                    ) {
-                        loadCncSidecarDiagram(targetPdfFile, pageMeta?.diagramPath, pageMeta?.ocrImageWidth)
-                    }
-                    if (prepared != null) {
-                        outDiagram = prepared.bitmap
-                        outDiagramScale = prepared.sourceScale
-                    } else {
-                        useThumbnailDiagram()
-                    }
-                }
-                SheetDiagramSource.FULL_EMBEDDED_IMAGE -> {
+                SheetDiagramSource.SIDECAR_DIAGRAM, SheetDiagramSource.FULL_EMBEDDED_IMAGE -> {
                     val key = preparedPageKey(targetMaterial, pageNumber)
                     val prepared = progressStore.getOrPrepareDiagram(
                         key = key,
                         source = source
                     ) {
-                        loadCncSidecarDiagram(targetPdfFile, pageMeta?.diagramPath, pageMeta?.ocrImageWidth)
-                            ?: extractLargestEmbeddedDiagram(targetPdfFile, pageIndex)
-                            ?: loadCncSidecarBitmap(targetPdfFile, pageMeta?.thumbnailPath)?.let { PreparedDiagram(it) }
+                        loadCncDrawingForDisplay(
+                            sidecar = {
+                                loadCncSidecarDiagram(targetPdfFile, pageMeta?.diagramPath, pageMeta?.ocrImageWidth, pageMeta?.diagramJxlPath)
+                            },
+                            embeddedPdfImage = {
+                                if (quality == SheetRenderQuality.CURRENT) extractLargestEmbeddedDiagram(targetPdfFile, pageIndex) else null
+                            },
+                            thumbnail = {
+                                loadCncSidecarBitmap(targetPdfFile, pageMeta?.thumbnailPath, pageMeta?.thumbnailJxlPath, 420, 280)?.let { PreparedDiagram(it) }
+                            }
+                        )
                     }
                     outDiagram = prepared?.bitmap
                     outDiagramScale = prepared?.sourceScale ?: 1f
+                }
+            }
+            // Diagram mode needs only metadata assets. Open/render the actual
+            // PDF page on demand when the operator selects Show Full PDF.
+            if (includeFullPdfPage) {
+                ParcelFileDescriptor.open(targetPdfFile, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                    PdfRenderer(fd).use { renderer ->
+                        if (pageIndex !in 0 until renderer.pageCount) return null
+                        renderer.openPage(pageIndex).use { page ->
+                            val bmp = Bitmap.createBitmap(
+                                (page.width * quality.scale).toInt().coerceAtLeast(1),
+                                (page.height * quality.scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888
+                            )
+                            bmp.eraseColor(android.graphics.Color.WHITE)
+                            try {
+                                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                                page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                                renderedBitmap = bmp
+                            } catch (error: Throwable) {
+                                bmp.recycle()
+                                throw error
+                            }
+                        }
+                    }
                 }
             }
             RenderedSheetPage(
@@ -811,6 +808,8 @@ fun SheetViewerScreen(
             return@LaunchedEffect
         }
 
+        val drawingMetadataChanged = cncDrawingMetadataIdentity(currentMaterial?.metadata) !=
+            cncDrawingMetadataIdentity(nextMaterial?.metadata)
         currentMaterial = nextMaterial
         val naturalOrder = nextMaterial?.visibleSheetPages().orEmpty()
         visiblePages = com.kkc.sheettracker.data.mixservice.resolveViewerPageOrder(
@@ -843,8 +842,8 @@ fun SheetViewerScreen(
             }
         }
 
-        if (oldIdentity != nextIdentity) {
-            val reason = if (oldIdentity != null && nextIdentity != null) {
+        if (oldIdentity != nextIdentity || drawingMetadataChanged) {
+            val reason = if (oldIdentity != nextIdentity && oldIdentity != null && nextIdentity != null) {
                 PreparedStateInvalidationReason.FingerprintChanged
             } else {
                 PreparedStateInvalidationReason.IdentityChanged
@@ -883,7 +882,7 @@ fun SheetViewerScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(currentPage, fileFingerprint) {
+    LaunchedEffect(currentPage, fileFingerprint, showFullPdfPage, currentMaterial?.metadata) {
         val material = currentMaterial ?: run {
             Log.w(SHEET_RENDER_TAG, "render_guard: currentMaterial=null page=$currentPage fp=$fileFingerprint")
             return@LaunchedEffect
@@ -920,19 +919,21 @@ fun SheetViewerScreen(
                 "Page $currentPage render cache hit: pageBitmap=${pageBitmap?.width}x${pageBitmap?.height}, diagram=${diagramBitmap?.width}x${diagramBitmap?.height}"
             )
         }
-        if (cached == null || !isRenderQualitySufficient(cached.renderScale, SheetRenderQuality.CURRENT)) {
+        if (cached == null || !isRenderQualitySufficient(cached.renderScale, SheetRenderQuality.CURRENT) ||
+            (showFullPdfPage && cached.pageBitmap == null)) {
             AppLog.d(
                 VIEWER_PREPARED_TAG,
                 "render_recompute_reason=${if (cached == null) "cache_miss" else "quality_promotion"} page=$currentPage job=$jobFolderName pdf=$pdfFilename"
             )
             if (cached == null) delay(150L)
             val rendered = withContext(Dispatchers.IO) {
-                renderPageFromPdf(
+                loadSheetPage(
                     targetMaterial = material,
                     targetPdfFile = pdfFile,
                     pageNumber = currentPage,
                     source = "render_current",
-                    quality = SheetRenderQuality.CURRENT
+                    quality = SheetRenderQuality.CURRENT,
+                    includeFullPdfPage = showFullPdfPage
                 )
             }
             if (rendered != null) {
@@ -963,7 +964,7 @@ fun SheetViewerScreen(
         diagramBboxes = meta.toSidecarDiagramBounds()
     }
 
-    LaunchedEffect(currentPage, totalPages, fileFingerprint) {
+    LaunchedEffect(currentPage, totalPages, fileFingerprint, currentMaterial?.metadata) {
         val material = currentMaterial ?: return@LaunchedEffect
         if (fileFingerprint.isBlank()) return@LaunchedEffect
         val pages = if (selectedMixPages == null) visiblePages.ifEmpty { material.visibleSheetPages() } else visiblePages
@@ -984,7 +985,7 @@ fun SheetViewerScreen(
                         !isRenderQualitySufficient(cachedAdjacent.renderScale, SheetRenderQuality.ADJACENT)
                 }
                 if (!shouldRender) continue
-                val rendered = renderPageFromPdf(
+                val rendered = loadSheetPage(
                     targetMaterial = material,
                     targetPdfFile = pdfFile,
                     pageNumber = p,
@@ -2104,7 +2105,7 @@ private fun SheetNavigatorSheet(
 
             if (!tocThumbCache.containsKey(page)) {
                 val thumb = withContext(Dispatchers.IO) {
-                    loadSheetThumbnailForToc(pdfFile, page - 1, pageMeta?.thumbnailPath)
+                    loadSheetThumbnailForToc(pdfFile, page - 1, pageMeta?.thumbnailPath, pageMeta?.thumbnailJxlPath)
                 }
                 tocThumbCache[page] = thumb
             }
@@ -2432,23 +2433,14 @@ private fun buildTocLoadOrder(
     return ordered
 }
 
-internal fun resolveCncSidecarFile(
-    pdfFile: File,
-    relativeOrAbsolute: String?
-): File? {
-    val trimmed = relativeOrAbsolute?.trim().orEmpty()
-    if (trimmed.isBlank()) return null
-    val candidate = File(trimmed)
-    return if (candidate.isAbsolute) candidate else File(pdfFile.parentFile, trimmed)
-}
-
 internal fun loadSheetThumbnailForToc(
     pdfFile: File,
     pageIndex: Int,
-    thumbnailPath: String?
+    thumbnailPath: String?,
+    thumbnailJxlPath: String? = null
 ): Bitmap? {
     // 1) Prefer sidecar thumbnail if splitter generated one.
-    val sidecarBitmap = loadCncSidecarBitmap(pdfFile, thumbnailPath)
+    val sidecarBitmap = loadCncSidecarBitmap(pdfFile, thumbnailPath, thumbnailJxlPath, 420, 280)
     if (sidecarBitmap != null) {
         return resizeThumbnail(sidecarBitmap)
     }
@@ -2456,50 +2448,6 @@ internal fun loadSheetThumbnailForToc(
     // 2) Fallback: generate thumbnail on tablet from embedded sheet image.
     val generated = extractLargestEmbeddedImage(pdfFile, pageIndex) ?: return null
     return resizeThumbnail(generated)
-}
-
-internal fun loadCncSidecarBitmap(
-    pdfFile: File,
-    imagePath: String?
-): Bitmap? {
-    val imageFile = resolveCncSidecarFile(pdfFile, imagePath) ?: return null
-    return try {
-        if (imageFile.exists() && imageFile.isFile) {
-            BitmapFactory.decodeFile(imageFile.absolutePath)
-        } else {
-            null
-        }
-    } catch (_: Exception) {
-        null
-    }
-}
-
-/**
- * Loads the splitter's gray sheet PNG ([PageMetadata.diagramPath]). Skips PdfBox entirely (no
- * whole-PDF parse per page turn) and decodes as RGB_565: the drawing is black/white line art,
- * so half the bytes of ARGB_8888 lose nothing.
- */
-internal fun loadCncSidecarDiagram(
-    pdfFile: File,
-    diagramPath: String?,
-    ocrImageWidth: Int?
-): PreparedDiagram? {
-    val imageFile = resolveCncSidecarFile(pdfFile, diagramPath) ?: return null
-    if (!imageFile.isFile) return null
-    return try {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(imageFile.absolutePath, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = diagramDecodeSubsampling(bounds.outWidth, bounds.outHeight)
-            inPreferredConfig = Bitmap.Config.RGB_565
-        }
-        val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath, options) ?: return null
-        PreparedDiagram(bitmap, sidecarDiagramSourceScale(bitmap.width, ocrImageWidth ?: bounds.outWidth))
-    } catch (e: Exception) {
-        Log.w(SHEET_RENDER_TAG, "Sidecar diagram decode failed path=$diagramPath", e)
-        null
-    }
 }
 
 /**

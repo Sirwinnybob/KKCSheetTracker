@@ -1677,6 +1677,8 @@ class FileBackedUnifiedMetadataEngine(
                     partListSpansPages = page.partListSpansPages,
                     thumbnailPath = page.thumbnailPath,
                     diagramPath = page.diagramPath,
+                    thumbnailJxlPath = page.thumbnailJxlPath,
+                    diagramJxlPath = page.diagramJxlPath,
                     parts = (gsonNullable(page.parts) ?: emptyList()).map { part ->
                         Part(
                             number = part.number,

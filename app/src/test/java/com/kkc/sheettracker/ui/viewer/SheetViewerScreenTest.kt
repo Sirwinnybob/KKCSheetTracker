@@ -121,7 +121,7 @@ class SheetViewerScreenTest {
         // Older jobs: full quality would mean a PdfBox parse per prewarmed page, keep the thumbnail.
         assertEquals(SheetDiagramSource.SIDECAR_THUMBNAIL, effectiveDiagramSource(SheetRenderQuality.ADJACENT, null))
         assertEquals(SheetDiagramSource.SIDECAR_THUMBNAIL, effectiveDiagramSource(SheetRenderQuality.ADJACENT, " "))
-        assertEquals(SheetDiagramSource.FULL_EMBEDDED_IMAGE, effectiveDiagramSource(SheetRenderQuality.CURRENT, path))
+        assertEquals(SheetDiagramSource.SIDECAR_DIAGRAM, effectiveDiagramSource(SheetRenderQuality.CURRENT, path))
         assertEquals(SheetDiagramSource.FULL_EMBEDDED_IMAGE, effectiveDiagramSource(SheetRenderQuality.CURRENT, null))
     }
 

@@ -1,8 +1,26 @@
 package com.kkc.sheettracker.ui.viewer
 
+import com.kkc.sheettracker.data.models.MaterialMetadata
+
+/** Inputs that affect the prepared image or its OCR coordinate mapping. */
+internal data class CncDrawingMetadataIdentity(
+    val page: Int,
+    val diagram: String?,
+    val jxlDiagram: String?,
+    val thumbnail: String?,
+    val jxlThumbnail: String?,
+    val ocrWidth: Int?
+)
+
+internal fun cncDrawingMetadataIdentity(metadata: MaterialMetadata?): List<CncDrawingMetadataIdentity> =
+    metadata?.pages.orEmpty().map {
+        CncDrawingMetadataIdentity(it.pageNumber, it.diagramPath, it.diagramJxlPath,
+            it.thumbnailPath, it.thumbnailJxlPath, it.ocrImageWidth)
+    }
+
 internal enum class SheetDiagramSource {
     SIDECAR_THUMBNAIL,
-    /** Splitter's full-size gray PNG ([com.kkc.sheettracker.data.models.PageMetadata.diagramPath]). */
+    /** Splitter's drawing JXL or legacy PNG. */
     SIDECAR_DIAGRAM,
     FULL_EMBEDDED_IMAGE
 }
@@ -21,16 +39,27 @@ internal fun isRenderQualitySufficient(
 ): Boolean = cachedScale >= requiredQuality.scale
 
 /**
- * Prewarmed (adjacent) pages load the full diagram when the splitter wrote a sidecar PNG: that is
- * a cheap native decode, so the page shows sharp as soon as it scrolls in. Without one, full
+ * Current and adjacent pages load the full diagram when a JXL or PNG sidecar is published.
+ * The page shows sharp as soon as it scrolls in. Without one, full
  * quality means a PdfBox parse per page, so prewarm keeps the small thumbnail.
  */
-internal fun effectiveDiagramSource(quality: SheetRenderQuality, diagramPath: String?): SheetDiagramSource =
-    if (quality.diagramSource == SheetDiagramSource.SIDECAR_THUMBNAIL && !diagramPath.isNullOrBlank()) {
+internal fun effectiveDiagramSource(
+    quality: SheetRenderQuality,
+    diagramPath: String?,
+    diagramJxlPath: String? = null
+): SheetDiagramSource =
+    if (!diagramPath.isNullOrBlank() || !diagramJxlPath.isNullOrBlank()) {
         SheetDiagramSource.SIDECAR_DIAGRAM
     } else {
         quality.diagramSource
     }
+
+/** A usable metadata drawing stops the chain before any embedded PDF image is read. */
+internal fun <T> loadCncDrawingForDisplay(
+    sidecar: () -> T?,
+    embeddedPdfImage: () -> T?,
+    thumbnail: () -> T?
+): T? = sidecar() ?: embeddedPdfImage() ?: thumbnail()
 
 /**
  * Longest edge a decoded sheet diagram may keep. CNC diagrams embed 5100 x ~2560 JPEGs

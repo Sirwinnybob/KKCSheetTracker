@@ -339,7 +339,7 @@ fun ReferenceModalHost(
     }
 
     // Sheet tab bitmap resolution: same source order as the main viewer — the splitter's sheet
-    // preview PNG (diagramPath), then the PDF's embedded image, then the splitter thumbnail —
+    // preview JXL/PNG, then the PDF's embedded image, then the splitter thumbnail —
     // with a full-page render as the last resort. See [resolveSheetPreview]. Keyed on
     // sheetPdfFile so switching sheets/jobs resets state instead of showing a stale bitmap; the page
     // count effect is separate from the per-page bitmap effect since it only needs to run once per file.
@@ -384,10 +384,10 @@ fun ReferenceModalHost(
         val resolved = withContext(Dispatchers.IO) {
             resolveSheetPreview(
                 sidecarDiagram = {
-                    loadCncSidecarDiagram(file, pageMeta?.diagramPath, pageMeta?.ocrImageWidth)?.bitmap
+                    loadCncSidecarDiagram(file, pageMeta?.diagramPath, pageMeta?.ocrImageWidth, pageMeta?.diagramJxlPath)?.bitmap
                 },
                 embeddedImage = { extractLargestEmbeddedImage(file, pageIndex) },
-                sidecarThumbnail = { loadCncSidecarBitmap(file, pageMeta?.thumbnailPath) },
+                sidecarThumbnail = { loadCncSidecarBitmap(file, pageMeta?.thumbnailPath, pageMeta?.thumbnailJxlPath, 420, 280) },
                 fullPageRender = { renderSheetPageFallback(file, pageIndex) }
             )
         }

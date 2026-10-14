@@ -64,7 +64,7 @@ data class PageMetadata(
     val hiddenInApp: Boolean = false,
     val partListSpansPages: List<Int>? = null,
     val thumbnailPath: String? = null,
-    /** Splitter's lossless gray PNG of the sheet image, same pixels as the PDF's (and [ocrBoxes]). */
+    /** Splitter's drawing preview, capped at 2560; [ocrImageWidth] maps its OCR coordinates. */
     val diagramPath: String? = null,
     val parts: List<Part> = emptyList(),
     val ocrBoxes: Map<String, List<OcrBoxMetadata>>? = null,
@@ -73,7 +73,9 @@ data class PageMetadata(
     val ocrSource: String? = null,
     val ocrGeneratedAt: String? = null,
     val ocrVersion: String? = null,
-    val remake: RemakePageMetadata? = null
+    val remake: RemakePageMetadata? = null,
+    val thumbnailJxlPath: String? = null,
+    val diagramJxlPath: String? = null
 )
 
 data class OcrBoxMetadata(
