@@ -3,13 +3,14 @@ package com.kkc.sheettracker.ui.components
 import com.kkc.sheettracker.data.models.JobPdfCatalog
 import com.kkc.sheettracker.data.models.JobPdfRef
 import com.kkc.sheettracker.data.JobRepository
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LocalShipping
+import com.kkc.sheettracker.ui.components.icons.ReferenceDeliveryIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceHandoffIcon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.vector.ImageVector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -52,6 +53,11 @@ private fun String.toPacketLabel(): String = when (this) {
     else -> "Delivery Checklist"
 }
 
+private fun JobPdfRef.packetIcon(): ImageVector = when (label) {
+    "Handoff Sheet" -> ReferenceHandoffIcon
+    else -> ReferenceDeliveryIcon
+}
+
 @Composable
 fun rememberJobPacketActions(
     jobRepository: JobRepository,
@@ -70,7 +76,7 @@ fun rememberJobPacketActions(
                 KKCPillAction(
                     label = document.label,
                     onClick = { onOpenJobPacketDocument(document) },
-                    icon = Icons.Filled.LocalShipping
+                    icon = document.packetIcon()
                 )
             }
         }

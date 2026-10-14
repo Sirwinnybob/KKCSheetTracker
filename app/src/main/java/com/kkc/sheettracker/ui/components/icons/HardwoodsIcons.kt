@@ -239,6 +239,49 @@ private fun deliverySheet() = kkcIcon("ReferenceDeliverySheet") {
     }
 }
 
+// ── Handoff sheet: handshake — duotone hands, solid sleeve cuffs ────────────────
+private fun handoff() = kkcIcon("ReferenceHandoff") {
+    // fingertip arcs span 3√2; radius just over half that keeps them near-semicircles
+    val tip = 2.125f
+    solid(DUOTONE) {
+        moveTo(3f, 4f); horizontalLineTo(11f); lineTo(10.31f, 4.69f)
+        arcTo(5.79f, 5.79f, 0f, false, true, 17.37f, 3.82f)
+        lineTo(17.84f, 4.1f)
+        arcTo(2f, 2f, 0f, false, false, 19.26f, 4.35f)
+        lineTo(21f, 4f); lineTo(22f, 14f); horizontalLineTo(20f); lineTo(19.5f, 13.5f)
+        arcTo(tip, tip, 0f, true, true, 16.5f, 16.5f)
+        lineTo(16f, 16f)
+        arcTo(tip, tip, 0f, true, true, 13f, 19f)
+        lineTo(11.5f, 17.5f)
+        arcTo(tip, tip, 0f, true, true, 8.5f, 20.5f)
+        lineTo(2f, 14f); close()
+    }
+    line {
+        // fingers of the lower hand
+        moveTo(11f, 17f); lineTo(13f, 19f)
+        arcTo(tip, tip, 0f, true, false, 16f, 16f)
+        moveTo(2.9f, 14.9f); lineTo(8.5f, 20.5f)
+        arcTo(tip, tip, 0f, true, false, 11.5f, 17.5f)
+        moveTo(4f, 4f); horizontalLineTo(11f)
+        // upper hand wrapping over, thumb tucked in
+        moveTo(14f, 14f); lineTo(16.5f, 16.5f)
+        arcTo(tip, tip, 0f, true, false, 19.5f, 13.5f)
+        lineTo(15.62f, 9.62f)
+        arcTo(3f, 3f, 0f, false, false, 11.38f, 9.62f)
+        lineTo(10.5f, 10.5f)
+        arcTo(tip, tip, 0f, true, true, 7.5f, 7.5f)
+        lineTo(10.31f, 4.69f)
+        arcTo(5.79f, 5.79f, 0f, false, true, 17.37f, 3.82f)
+        lineTo(17.84f, 4.1f)
+        arcTo(2f, 2f, 0f, false, false, 19.26f, 4.35f)
+        lineTo(20f, 4.5f)
+    }
+    block {
+        moveTo(20f, 3.5f); horizontalLineTo(21.5f); lineTo(22f, 14f); horizontalLineTo(19.8f); close()
+        moveTo(2.5f, 3.5f); horizontalLineTo(4f); lineTo(3.6f, 14f); horizontalLineTo(2f); close()
+    }
+}
+
 // ── Pulls: drawer front with a bar pull over a door with a knob ─────────────────
 private fun pulls() = kkcIcon("ReferencePulls") {
     solid(DUOTONE) {
@@ -301,6 +344,7 @@ val ReferenceAssemblyIcon: ImageVector by lazy { assembly() }
 val ReferencePlansIcon: ImageVector by lazy { plans() }
 val ReferenceDeliveryIcon: ImageVector by lazy { delivery() }
 val ReferenceDeliverySheetIcon: ImageVector by lazy { deliverySheet() }
+val ReferenceHandoffIcon: ImageVector by lazy { handoff() }
 val ReferencePullsIcon: ImageVector by lazy { pulls() }
 val ReferenceView3DIcon: ImageVector by lazy { view3d() }
 val ActionPrintIcon: ImageVector by lazy { print() }

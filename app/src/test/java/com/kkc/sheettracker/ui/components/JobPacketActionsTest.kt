@@ -76,7 +76,11 @@ class JobPacketActionsTest {
         val pillSource = File(projectRoot, "app/src/main/java/com/kkc/sheettracker/ui/components/KKCSlidingPill.kt").readText()
         assertTrue("Action rows must keep wrapping opt-in", pillSource.contains("wrap: Boolean = false"))
         assertTrue("Wrapped action rows must use FlowRow", pillSource.contains("FlowRow("))
-        assertTrue("Both packet buttons must use the shipping icon", packetActionsSource.contains("Icons.Filled.LocalShipping"))
+        assertTrue("Handoff Sheet must use the handshake icon", packetActionsSource.contains("\"Handoff Sheet\" -> ReferenceHandoffIcon"))
+        assertTrue("Delivery Checklist must use the truck icon", packetActionsSource.contains("else -> ReferenceDeliveryIcon"))
+        assertTrue("Packet pills must pick their icon per document", packetActionsSource.contains("icon = document.packetIcon()"))
+        val jobCardSource = File(projectRoot, "app/src/main/java/com/kkc/sheettracker/ui/jobs/UnifiedJobCard.kt").readText()
+        assertTrue("Job list Cover chip must use the cover sheet icon", jobCardSource.contains("imageVector = ReferenceDeliverySheetIcon"))
         listOf("CNC", "Hardwoods").forEach { screen ->
             val source = screenSources.getValue(screen)
             assertTrue("$screen must keep its reference actions on the left", source.contains("actions = referenceActions"))

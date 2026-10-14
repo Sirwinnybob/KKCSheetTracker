@@ -56,7 +56,7 @@ import com.kkc.sheettracker.ui.components.parseJobLabelColor
 import com.kkc.sheettracker.ui.hardwoods.toStatusCounts
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.components.kkcCardDepth
-import com.kkc.sheettracker.ui.components.icons.ReferenceDeliveryIcon
+import com.kkc.sheettracker.ui.components.icons.ReferenceDeliverySheetIcon
 import com.kkc.sheettracker.ui.components.icons.DragGripIcon
 import com.kkc.sheettracker.ui.components.icons.JobLabelsIcon
 
@@ -385,7 +385,7 @@ fun UnifiedJobCard(
                             label = { Text("Cover") },
                             leadingIcon = {
                                 Icon(
-                                    imageVector = ReferenceDeliveryIcon,
+                                    imageVector = ReferenceDeliverySheetIcon,
                                     contentDescription = null,
                                     modifier = Modifier.size(FilterChipDefaults.IconSize)
                                 )
