@@ -36,6 +36,34 @@ class HandoffFlagsTest {
     }
 
     @Test
+    fun specialtyIdsAreTrimmedOnEveryBranch() {
+        assertEquals(HandoffFlagRef("specialty_items", "9a1e-uuid"), handoffFlagRef(specialty("  9a1e-uuid\t")))
+        assertEquals(HandoffFlagRef("specialty_items", "tablet:abc"), handoffFlagRef(specialty(" tablet:abc ")))
+        assertEquals(HandoffFlagRef("checklist", "c-123"), handoffFlagRef(specialty(" checklist:c-123 ")))
+        assertEquals(HandoffFlagRef("checklist", "c-123"), handoffFlagRef(specialty("checklist: c-123")))
+    }
+
+    @Test
+    fun parsesTruckSetAtTolerantly() {
+        val setAt = parseHandoffTruckSetAt(
+            """
+            {"itemFlagsSetAt":{
+              "board_stock:5f0c":{"truck":"2026-10-08T14:00:00.123Z","count":"2026-10-08T15:00:00Z"},
+              "checklist:c-1":{"count":"2026-10-08T15:00:00Z"},
+              "checklist:c-2":{"truck":"yesterday"},
+              "checklist:c-3":"2026-10-08T14:00:00Z",
+              "checklist:c-4":{"truck":12345},
+              "nocolon":{"truck":"2026-10-08T14:00:00Z"}
+            }}
+            """.trimIndent()
+        )
+        assertEquals(mapOf(HandoffFlagRef("board_stock", "5f0c") to java.time.Instant.parse("2026-10-08T14:00:00.123Z")), setAt)
+        assertTrue(parseHandoffTruckSetAt("{corrupt").isEmpty())
+        assertTrue(parseHandoffTruckSetAt("""{"itemFlagsSetAt":[1]}""").isEmpty())
+        assertTrue(parseHandoffTruckSetAt("""{"itemFlags":{}}""").isEmpty())
+    }
+
+    @Test
     fun keySplitsOnFirstColonOnly() {
         assertEquals(HandoffFlagRef("specialty_items", "tablet:9a1e"), HandoffFlagRef.fromKey("specialty_items:tablet:9a1e"))
         assertEquals("specialty_items:default:0:bumps", HandoffFlagRef("specialty_items", "default:0:bumps").key)
@@ -83,5 +111,21 @@ class HandoffFlagsTest {
         assertTrue(loadHandoffItemFlags(base, job).isEmpty())
         File(admin, "handoff.json").writeText("""{"itemFlags":{"board_stock:x":{"truck":"shop"}}}""")
         assertEquals(HandoffTruck.SHOP, loadHandoffItemFlags(base, job)[HandoffFlagRef("board_stock", "x")]?.truck)
+    }
+
+    @Test
+    fun conflictCopyWithDifferentFlagsIsNeverReadWhenHandoffJsonExists() {
+        val base = Files.createTempDirectory("handoff-flags").toFile()
+        val job = "670 - ESCHRICH"
+        val admin = File(base, "$job/.metadata/admin").apply { mkdirs() }
+        File(admin, "handoff.json").writeText(
+            """{"itemFlags":{"board_stock:x":{"truck":"shop"}},"itemFlagsSetAt":{"board_stock:x":{"truck":"2026-10-08T14:00:00Z"}}}"""
+        )
+        File(admin, "handoff.sync-conflict-20261008-140000-ABCDEFG.json").writeText(
+            """{"itemFlags":{"board_stock:x":{"truck":"loose"},"board_stock:y":{"truck":"later"}},"itemFlagsSetAt":{"board_stock:y":{"truck":"2030-01-01T00:00:00Z"}}}"""
+        )
+        val state = loadHandoffJsonState(base, job)
+        assertEquals(mapOf(HandoffFlagRef("board_stock", "x") to HandoffItemFlags(HandoffTruck.SHOP)), state.flags)
+        assertEquals(setOf(HandoffFlagRef("board_stock", "x")), state.truckSetAt.keys)
     }
 }

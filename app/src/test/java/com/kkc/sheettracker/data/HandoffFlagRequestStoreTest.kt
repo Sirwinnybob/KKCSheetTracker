@@ -75,7 +75,7 @@ class HandoffFlagRequestStoreTest {
     }
 
     @Test
-    fun twoConcurrentTapsBothLand() = runBlocking {
+    fun twentyConcurrentTapsAllLandAndLeaveNoTempFiles() = runBlocking {
         val (base, store) = setup()
         coroutineScope {
             (0 until 20).forEach { i ->
@@ -85,6 +85,17 @@ class HandoffFlagRequestStoreTest {
             }
         }
         assertEquals(20, JSONObject(sidecar(base).readText()).getJSONArray("requests").length())
+        val leftovers = sidecar(base).parentFile.listFiles()!!.filter { it.name.contains(".tmp-") }
+        assertTrue("temp files left behind: $leftovers", leftovers.isEmpty())
+    }
+
+    @Test
+    fun readOnlyStoreRefusesWithoutAnyIo() = runBlocking {
+        val base = Files.createTempDirectory("handoff-req-ro").toFile() // not even a live job
+        val store = HandoffFlagRequestStore(base, "T1", readOnly = true)
+        assertEquals(HandoffFlagWriteResult.ReadOnly, store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "2026-10-08T14:00:00Z"))
+        assertEquals(0, base.listFiles()!!.size)
+        assertEquals("This screen is read-only", HandoffFlagWriteResult.ReadOnly.userMessage())
     }
 
     @Test
@@ -124,6 +135,17 @@ class HandoffFlagRequestStoreTest {
     }
 
     @Test
+    fun missingJobReportsTheGuardEvent() = runBlocking {
+        val base = Files.createTempDirectory("handoff-req").toFile()
+        val store = HandoffFlagRequestStore(base, "T1")
+        val received = kotlinx.coroutines.CompletableDeferred<String>()
+        val collector = launch(Dispatchers.Unconfined) { JobFolderGuardEvents.skipped.collect { received.complete(it) } }
+        assertEquals(HandoffFlagWriteResult.JobMissing, store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "2026-10-08T14:00:00Z"))
+        assertEquals(job, kotlinx.coroutines.withTimeout(2_000) { received.await() })
+        collector.cancel()
+    }
+
+    @Test
     fun unreadableFileIsPreservedThenANewFileStarted() = runBlocking {
         val (base, store) = setup()
         sidecar(base).apply { parentFile.mkdirs() }.writeText("{broken")
@@ -158,17 +180,97 @@ class HandoffFlagRequestStoreTest {
         assertEquals(0, file.parentFile.listFiles()!!.count { it.name.contains("unreadable") })
     }
 
+    private val t0 = Instant.parse("2026-10-08T14:00:00Z")
+    private val other = HandoffFlagRef("board_stock", "b")
+
     @Test
-    fun pendingIsLastRequestPerRefWithinTtl() = runBlocking {
+    fun pendingIsLastRequestPerRef() = runBlocking {
         val (_, store) = setup()
-        val t0 = Instant.parse("2026-10-08T14:00:00Z")
         store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, t0.toString())
         store.appendTruckRequest(job, ref, null, t0.plusSeconds(5).toString())
-        store.appendTruckRequest(job, HandoffFlagRef("board_stock", "b"), HandoffTruck.SHOP, t0.minusSeconds(300).toString())
+        store.appendTruckRequest(job, other, HandoffTruck.SHOP, t0.minusSeconds(300).toString())
         val pending = store.pendingTruckFlags(job, now = t0.plusSeconds(10))
-        assertEquals(setOf(ref), pending.keys)
+        assertEquals(setOf(ref, other), pending.keys)
         assertEquals(null, pending.getValue(ref).truck)
-        assertTrue(store.pendingTruckFlags(job, now = t0.plusSeconds(200)).isEmpty())
+        assertEquals(HandoffTruck.SHOP, pending.getValue(other).truck)
+    }
+
+    @Test
+    fun offlineRequestTenMinutesOldIsStillPending() = runBlocking {
+        val (_, store) = setup()
+        store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, t0.toString())
+        val pending = store.pendingTruckFlags(job, now = t0.plusSeconds(600))
+        assertEquals(HandoffTruck.LOOSE, pending.getValue(ref).truck)
+    }
+
+    @Test
+    fun truckSetAtAtOrAfterTheRequestMeansItWasApplied() = runBlocking {
+        val (_, store) = setup()
+        store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, t0.toString())
+        val now = t0.plusSeconds(60)
+        assertTrue("HT applied it", store.pendingTruckFlags(job, now, mapOf(ref to t0)).isEmpty())
+        assertTrue("office overrode it later", store.pendingTruckFlags(job, now, mapOf(ref to t0.plusSeconds(30))).isEmpty())
+        assertEquals(
+            "an older setAt does not apply",
+            setOf(ref), store.pendingTruckFlags(job, now, mapOf(ref to t0.minusSeconds(1))).keys
+        )
+        assertEquals(
+            "setAt of another item does not apply",
+            setOf(ref), store.pendingTruckFlags(job, now, mapOf(other to t0.plusSeconds(30))).keys
+        )
+    }
+
+    @Test
+    fun setAtOnlyJudgesTheLastRequest() = runBlocking {
+        val (_, store) = setup()
+        store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, t0.toString())
+        store.appendTruckRequest(job, ref, null, t0.plusSeconds(20).toString())
+        // HT applied the first tap but not yet the second (back to Auto).
+        val pending = store.pendingTruckFlags(job, t0.plusSeconds(30), mapOf(ref to t0))
+        assertEquals(null, pending.getValue(ref).truck)
+        assertEquals(t0.plusSeconds(20), pending.getValue(ref).requestedAt)
+    }
+
+    @Test
+    fun backstopDropsRequestsOlderThan24Hours() = runBlocking {
+        val (_, store) = setup()
+        store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, t0.toString())
+        assertEquals(setOf(ref), store.pendingTruckFlags(job, t0.plusSeconds(24 * 3600)).keys) // exactly 24 h: kept
+        assertTrue(store.pendingTruckFlags(job, t0.plusSeconds(24 * 3600 + 1)).isEmpty())
+        assertTrue(store.pendingTruckFlags(job, t0.plusSeconds(25 * 3600)).isEmpty())
+    }
+
+    @Test
+    fun requestedAtFarInTheFutureIsTreatedAsNow() = runBlocking {
+        val (_, store) = setup()
+        store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, t0.plusSeconds(3600).toString())
+        store.appendTruckRequest(job, other, HandoffTruck.SHOP, t0.plusSeconds(240).toString())
+        val pending = store.pendingTruckFlags(job, now = t0)
+        assertEquals("clamped to now", t0, pending.getValue(ref).requestedAt)
+        assertEquals("within 5 min skew: left alone", t0.plusSeconds(240), pending.getValue(other).requestedAt)
+        // A clamped request is judged against setAt as "now".
+        assertTrue(store.pendingTruckFlags(job, t0, mapOf(ref to t0)).keys.none { it == ref })
+    }
+
+    @Test
+    fun identicalRequestedAtLaterEntryWins() = runBlocking {
+        val (_, store) = setup()
+        store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, t0.toString())
+        store.appendTruckRequest(job, ref, HandoffTruck.LATER, t0.toString())
+        assertEquals(HandoffTruck.LATER, store.pendingTruckFlags(job, t0.plusSeconds(1)).getValue(ref).truck)
+    }
+
+    @Test
+    fun countOnlyAndUnknownTruckEntriesAreIgnored() = runBlocking {
+        val (base, store) = setup()
+        sidecar(base).apply { parentFile.mkdirs() }.writeText(
+            """{"schemaVersion":1,"tabletId":"T1","requests":[
+              {"requestId":"a","requestedAt":"2026-10-08T14:00:00Z","source":"board_stock","id":"b","count":"qty"},
+              {"requestId":"b","requestedAt":"2026-10-08T14:00:01Z","source":"checklist","id":"c-123","truck":"teleport"},
+              {"requestId":"c","requestedAt":"not-a-time","source":"checklist","id":"c-9","truck":"shop"}
+            ]}"""
+        )
+        assertTrue(store.pendingTruckFlags(job, t0.plusSeconds(5)).isEmpty())
     }
 
     @Test

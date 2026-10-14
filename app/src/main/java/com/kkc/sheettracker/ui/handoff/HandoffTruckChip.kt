@@ -1,7 +1,14 @@
 package com.kkc.sheettracker.ui.handoff
 
+import android.util.Log
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.LocalShipping
@@ -12,16 +19,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -36,10 +41,14 @@ import com.kkc.sheettracker.data.models.HandoffFlagRef
 import com.kkc.sheettracker.data.models.HandoffTruck
 import com.kkc.sheettracker.data.models.HandoffTruckListEntry
 import com.kkc.sheettracker.data.userMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -49,87 +58,157 @@ data class HandoffItemUi(
     val onSelectTruck: ((HandoffTruck?) -> Unit)?
 )
 
-class HandoffFlagsUiState(
+/**
+ * Refused-tap messages waiting to be shown, oldest first. Backed by Compose state so hosts that
+ * read [head] recompose when it changes; safe to [offer] from any thread (a tap's result is
+ * posted from the app-lifetime REST scope).
+ */
+class HandoffMessageQueue {
+    private var items by mutableStateOf<List<String>>(emptyList())
+
+    /** The message to show now, or null. */
+    val head: String? get() = items.firstOrNull()
+
+    /**
+     * Appends [text]. An identical message already waiting at the tail is dropped: it would add
+     * nothing, and equal neighbours would keep the host's `LaunchedEffect(message)` key unchanged.
+     */
+    @Synchronized
+    fun offer(text: String) {
+        if (items.lastOrNull() != text) items = items + text
+    }
+
+    /** Removes the head (the message the host just finished showing). */
+    @Synchronized
+    fun consume() {
+        if (items.isNotEmpty()) items = items.drop(1)
+    }
+}
+
+/**
+ * One select callback per ref, shared by every [HandoffFlagsUiState] built for a screen, so a row's
+ * [HandoffItemUi] stays equal across snapshot refreshes and Compose can skip recomposing it.
+ */
+internal class HandoffSelectorCache(private val onSelect: (HandoffFlagRef, HandoffTruck?) -> Unit) {
+    private val selectors = HashMap<HandoffFlagRef, (HandoffTruck?) -> Unit>()
+
+    fun forRef(ref: HandoffFlagRef): (HandoffTruck?) -> Unit =
+        selectors.getOrPut(ref) { { truck -> onSelect(ref, truck) } }
+}
+
+class HandoffFlagsUiState internal constructor(
     private val snapshot: HandoffFlagsSnapshot,
     private val editable: Boolean,
-    /** One-shot user-facing text for a refused tap (null when nothing to show). */
-    val message: String? = null,
-    private val onConsumeMessage: () -> Unit = {},
-    private val onSelect: (HandoffFlagRef, HandoffTruck?) -> Unit
+    private val messages: HandoffMessageQueue,
+    private val selectors: HandoffSelectorCache
 ) {
-    fun uiFor(ref: HandoffFlagRef): HandoffItemUi = HandoffItemUi(
-        display = handoffTruckDisplay(ref, snapshot),
-        onSelectTruck = if (editable) ({ truck -> onSelect(ref, truck) }) else null
-    )
+    private val cache = HashMap<HandoffFlagRef, HandoffItemUi>()
 
-    fun consumeMessage() = onConsumeMessage()
+    /** The oldest unshown refused-tap message (null when nothing to show); see [consumeMessage]. */
+    val message: String? get() = messages.head
+
+    /** One [HandoffItemUi] per ref for this snapshot (call from composition only). */
+    fun uiFor(ref: HandoffFlagRef): HandoffItemUi = cache.getOrPut(ref) {
+        HandoffItemUi(
+            display = handoffTruckDisplay(ref, snapshot),
+            onSelectTruck = if (editable) selectors.forRef(ref) else null
+        )
+    }
+
+    /** Drops the head message so the next queued one (if any) becomes [message]. */
+    fun consumeMessage() = messages.consume()
 }
 
 /** REST writes outlive the screen; the sidecar already guarantees delivery either way. */
 private val handoffRestScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-/** Minimum gap between truck-list GETs per screen (HT applies pending requests on each GET). */
+/** Minimum gap between truck-list GETs per (screen, job) (HT applies pending requests on each GET). */
 private const val TRUCK_LIST_MIN_INTERVAL_MS = 15_000L
+
+/** Re-read the local snapshot this often so request/setAt changes show without a file event. */
+private const val LOCAL_REFRESH_INTERVAL_MS = 30_000L
+
+private const val TAG = "HandoffTruckChip"
 
 @Composable
 fun rememberHandoffFlags(basePath: String, jobFolderName: String, tabletId: String, editable: Boolean): HandoffFlagsUiState {
     val context = LocalContext.current
     val adminSyncConfig = remember { AdminSyncConfig.create(context) }
-    val service = remember(basePath, tabletId) {
+    val service = remember(basePath, tabletId, editable) {
         HandoffFlagsService(
             baseDir = File(basePath),
             tabletId = tabletId,
             clientProvider = { adminSyncConfig.getServerUrl()?.let(::HandoffFlagsClient) },
-            restScope = handoffRestScope
+            restScope = handoffRestScope,
+            readOnly = !editable
         )
     }
-    val signal by HandoffFlagsChangeSignal.version.collectAsState()
-    // Pending entries expire after 120 s; tick so an expired one stops showing without a file change.
-    var tick by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) { while (true) { delay(30_000); tick++ } }
-    var truckList by remember(jobFolderName) { mutableStateOf<Map<HandoffFlagRef, HandoffTruckListEntry>?>(null) }
-    var lastFetchMs by remember(jobFolderName) { mutableLongStateOf(0L) }
-    LaunchedEffect(jobFolderName, signal) {
-        val wait = TRUCK_LIST_MIN_INTERVAL_MS - (System.currentTimeMillis() - lastFetchMs)
-        if (wait > 0) delay(wait)
-        lastFetchMs = System.currentTimeMillis()
-        // Keep the last good list when HT is unreachable rather than flipping every Auto back to unknown.
-        service.fetchTruckList(jobFolderName)?.let { truckList = it }
+    // ONE long-lived collector per (basePath, job): a bump never cancels an in-flight GET, bumps
+    // that arrive meanwhile (or during the cool-down) collapse into one more fetch. The signal and
+    // the clock are read here, not in composition, so the host screen never recomposes for them.
+    val truckList by produceState<Map<HandoffFlagRef, HandoffTruckListEntry>?>(null, service, jobFolderName) {
+        // StateFlow is already conflated: bumps during a fetch or the cool-down collapse into one.
+        HandoffFlagsChangeSignal.version.collect {
+            // Keep the last good list when HT is unreachable rather than flipping every Auto back to unknown.
+            service.fetchTruckList(jobFolderName)?.let { value = it }
+            delay(TRUCK_LIST_MIN_INTERVAL_MS)
+        }
     }
-    val local by produceState(HandoffFlagsSnapshot(), basePath, jobFolderName, signal, tick) {
-        value = service.loadLocal(jobFolderName)
+    // Pending entries can expire (24 h backstop) or be superseded by HT; the ticker re-reads the
+    // local files periodically without any composition-level state.
+    val local by produceState(HandoffFlagsSnapshot(), service, jobFolderName) {
+        val ticker = flow { while (true) { emit(Unit); delay(LOCAL_REFRESH_INTERVAL_MS) } }
+        combine(HandoffFlagsChangeSignal.version, ticker) { _, _ -> }
+            .collectLatest { value = service.loadLocal(jobFolderName) }
     }
-    var message by remember(jobFolderName) { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-    return remember(local, truckList, editable, service, jobFolderName, message) {
+    val messages = remember(jobFolderName) { HandoffMessageQueue() }
+    val selectors = remember(service, jobFolderName, messages) {
+        HandoffSelectorCache { ref, truck ->
+            // App-lifetime scope: leaving the screen mid-tap cannot cancel the write; the result
+            // is posted to this screen's queue (dropped with the screen if it is already gone).
+            handoffRestScope.launch {
+                try {
+                    service.setTruck(jobFolderName, ref, truck).userMessage()?.let(messages::offer)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Truck flag tap failed for ${ref.key} in $jobFolderName", e)
+                    messages.offer("Couldn't save this change.")
+                }
+            }
+        }
+    }
+    return remember(local, truckList, editable, selectors, messages) {
         HandoffFlagsUiState(
             snapshot = local.copy(truckList = truckList),
             editable = editable,
-            message = message,
-            onConsumeMessage = { message = null }
-        ) { ref, truck ->
-            scope.launch(Dispatchers.IO) {
-                service.setTruck(jobFolderName, ref, truck).userMessage()?.let { message = it }
-            }
-        }
+            messages = messages,
+            selectors = selectors
+        )
     }
 }
 
 private val TRUCK_MENU: List<Pair<HandoffTruck?, String>> =
     listOf(null to "Auto (office rules)") + HandoffTruck.entries.map { it to it.label }
 
+private fun chipText(display: HandoffTruckDisplay): String = buildString {
+    append(display.label)
+    if (display.isPending) append(" · pending")
+    display.countLabel?.let { append(" · ").append(it) }
+}
+
 @Composable
 fun HandoffTruckChip(ui: HandoffItemUi, modifier: Modifier = Modifier) {
-    var menuOpen by remember { mutableStateOf(false) }
     val display = ui.display
-    val text = buildString {
-        append(display.label)
-        if (display.isPending) append(" · pending")
-        display.countLabel?.let { append(" · ").append(it) }
+    val text = chipText(display)
+    if (ui.onSelectTruck == null) {
+        ReadOnlyHandoffChip(text, modifier)
+        return
     }
+    var menuOpen by remember { mutableStateOf(false) }
     Box(modifier) {
         AssistChip(
-            onClick = { if (ui.onSelectTruck != null) menuOpen = true },
+            onClick = { menuOpen = true },
             label = { Text(text, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             leadingIcon = { Icon(Icons.Default.LocalShipping, contentDescription = "Delivery handoff", modifier = Modifier.size(16.dp)) }
         )
@@ -137,10 +216,42 @@ fun HandoffTruckChip(ui: HandoffItemUi, modifier: Modifier = Modifier) {
             TRUCK_MENU.forEach { (truck, label) ->
                 DropdownMenuItem(
                     text = { Text(label) },
-                    onClick = { menuOpen = false; ui.onSelectTruck?.invoke(truck) },
+                    onClick = { menuOpen = false; ui.onSelectTruck.invoke(truck) },
                     trailingIcon = if (truck == display.selected) ({ Icon(Icons.Default.Check, contentDescription = null) }) else null
                 )
             }
         }
+    }
+}
+
+/**
+ * Read-only screens (archive): a plain outlined label, not a disabled chip, so it has no ripple,
+ * no click semantics and keeps full-contrast text. No shadow or translucent fill involved.
+ */
+@Composable
+private fun ReadOnlyHandoffChip(text: String, modifier: Modifier) {
+    val shape = MaterialTheme.shapes.small
+    Row(
+        modifier = modifier
+            .height(32.dp)
+            .clip(shape)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Default.LocalShipping,
+            contentDescription = "Delivery handoff",
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }

@@ -76,6 +76,44 @@ class HandoffFlagsClientTest {
     }
 
     @Test
+    fun truckListKeepsAutoAndEffectiveSeparately() = runBlocking {
+        server.enqueue(MockResponse().setBody(
+            """{"items":[
+                {"source":"checklist","id":"c-1","auto":{"truck":"shop"},"effective":{"truck":"later","count":"line"},"excluded":false}
+            ]}"""
+        ))
+        val entry = client.fetchTruckList(folder)!!.getValue(HandoffFlagRef("checklist", "c-1"))
+        assertEquals(HandoffTruck.SHOP, entry.autoTruck)
+        assertEquals(HandoffTruck.LATER, entry.effectiveTruck)
+        assertEquals(HandoffCount.LINE, entry.effectiveCount)
+    }
+
+    @Test
+    fun truckListUnknownWireValuesBecomeNullInsteadOfCrashing() = runBlocking {
+        server.enqueue(MockResponse().setBody(
+            """{"items":[
+                {"source":"checklist","id":"c-1","auto":{"truck":"teleport","count":"many"},"effective":{"truck":"LOOSE","count":7},"excluded":false},
+                {"source":"checklist","id":"c-2","auto":{"truck":"loose"},"effective":{"truck":"loose"},"excluded":false}
+            ]}"""
+        ))
+        val list = client.fetchTruckList(folder)!!
+        val bad = list.getValue(HandoffFlagRef("checklist", "c-1"))
+        assertNull(bad.autoTruck)
+        assertNull(bad.effectiveTruck)
+        assertNull(bad.effectiveCount)
+        assertEquals(HandoffTruck.LOOSE, list.getValue(HandoffFlagRef("checklist", "c-2")).autoTruck)
+    }
+
+    @Test
+    fun successWithEmptyBodyIsFailedNull() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200))
+        assertEquals(
+            HandoffFlagPutResult.Failed(null),
+            client.putTruck(folder, HandoffFlagRef("checklist", "c-1"), HandoffTruck.SHOP, "2026-10-08T14:00:00Z")
+        )
+    }
+
+    @Test
     fun truckListNullOnFailure() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(404))
         assertNull(client.fetchTruckList(folder))

@@ -50,6 +50,31 @@ class HandoffFlagsWiringTest {
     }
 
     @Test
+    fun chipLifecycleRunsTapsInAppScopeAndReadsSignalInsideProducers() {
+        val src = source("ui/handoff/HandoffTruckChip.kt")
+        // Taps outlive the screen: no rememberCoroutineScope in the state holder.
+        assertFalse(src.contains("rememberCoroutineScope"))
+        assertTrue(src.contains("handoffRestScope.launch"))
+        // The 30 s tick and the change signal are collected in producers, not read in composition.
+        assertFalse(src.contains("collectAsState"))
+        assertFalse(src.contains("tick++"))
+        assertTrue(src.contains("HandoffFlagsChangeSignal.version.collect {"))
+        assertTrue(src.contains("delay(TRUCK_LIST_MIN_INTERVAL_MS)"))
+    }
+
+    @Test
+    fun jobFolderGuardsReportEverySkip() {
+        listOf(
+            "data/SheetRipProgressStore.kt", "data/TabletSpecialtyItemsStore.kt", "data/SpecialtyProgressStore.kt",
+            "data/HardwoodsProgressStore.kt", "data/PdfMarkupStore.kt", "data/ProgressStore.kt",
+            "data/HiddenMaterialsRequestStore.kt", "data/HandoffFlagRequestStore.kt"
+        ).forEach { path ->
+            assertTrue("$path must call JobFolderGuardEvents.report", source(path).contains("JobFolderGuardEvents.report("))
+        }
+        assertTrue(source("MainActivity.kt").contains("JobFolderGuardEvents.skipped"))
+    }
+
+    @Test
     fun nothingEverWritesHandoffJson() {
         listOf("data/HandoffFlags.kt", "data/HandoffFlagRequestStore.kt", "data/HandoffFlagsService.kt", "ui/handoff/HandoffTruckChip.kt").forEach { path ->
             val src = source(path)

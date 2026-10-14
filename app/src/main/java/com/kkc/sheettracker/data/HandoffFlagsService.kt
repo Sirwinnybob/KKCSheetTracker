@@ -35,6 +35,7 @@ fun HandoffFlagWriteResult.userMessage(): String? = when (this) {
     HandoffFlagWriteResult.JobMissing -> "This job is no longer in Ready Jobs"
     HandoffFlagWriteResult.StorageUnavailable -> "Couldn't save on this tablet. Try again."
     HandoffFlagWriteResult.Invalid -> "Couldn't save this change."
+    HandoffFlagWriteResult.ReadOnly -> "This screen is read-only"
 }
 
 data class HandoffFlagsSnapshot(
@@ -60,10 +61,13 @@ fun handoffTruckDisplay(ref: HandoffFlagRef, snapshot: HandoffFlagsSnapshot): Ha
     val stored = snapshot.stored[ref]
     val selected = if (pending != null) pending.truck else stored?.truck
     val countLabel = stored?.count?.label
-    if (selected != null) {
-        return HandoffTruckDisplay(selected.label, selected, false, pending != null, selected == HandoffTruck.LOOSE, countLabel)
-    }
     val entry = snapshot.truckList?.get(ref)
+    if (selected != null) {
+        // A pin on a row the office excluded still shows the pin, but says the row is excluded.
+        val excluded = entry?.excluded == true
+        val label = if (excluded) "${selected.label} · Excluded by office" else selected.label
+        return HandoffTruckDisplay(label, selected, false, pending != null, selected == HandoffTruck.LOOSE && !excluded, countLabel)
+    }
     // With no pin, effective == auto. Use autoTruck: the cached list's effectiveTruck is stale
     // right after a tap back to Auto (it still reflects the old pin until the next fetch).
     val autoTruck = entry?.autoTruck
@@ -86,18 +90,21 @@ class HandoffFlagsService(
     tabletId: String,
     private val clientProvider: suspend () -> HandoffFlagsClient?,
     private val restScope: CoroutineScope,
-    private val clock: Clock = Clock.systemUTC()
+    private val clock: Clock = Clock.systemUTC(),
+    readOnly: Boolean = false
 ) {
-    private val requests = HandoffFlagRequestStore(baseDir, tabletId)
+    private val requests = HandoffFlagRequestStore(baseDir, tabletId, readOnly = readOnly)
 
     /**
-     * Stored flags (handoff.json) plus this tablet's pending sidecar requests. File reads run on
-     * [Dispatchers.IO], so it is safe to call from a UI-scoped coroutine.
+     * Stored flags (handoff.json) plus this tablet's pending sidecar requests (those HT has not
+     * yet applied, judged against `itemFlagsSetAt`). File reads run on [Dispatchers.IO], so it is
+     * safe to call from a UI-scoped coroutine.
      */
     suspend fun loadLocal(jobFolderName: String): HandoffFlagsSnapshot = withContext(Dispatchers.IO) {
+        val state = loadHandoffJsonState(baseDir, jobFolderName)
         HandoffFlagsSnapshot(
-            stored = loadHandoffItemFlags(baseDir, jobFolderName),
-            pending = requests.pendingTruckFlags(jobFolderName, Instant.now(clock))
+            stored = state.flags,
+            pending = requests.pendingTruckFlags(jobFolderName, Instant.now(clock), state.truckSetAt)
         )
     }
 
@@ -114,17 +121,16 @@ class HandoffFlagsService(
 
     /**
      * Records the tap. The sidecar append (mutex, file read/parse, atomic write) runs on
-     * [Dispatchers.IO]; the REST call is launched in [restScope] and never awaited, and only after
+     * [Dispatchers.IO] inside the store; the REST call is launched in [restScope] and never awaited, and only after
      * the sidecar write succeeded ([HandoffFlagWriteResult.Written]). Any other result means
      * nothing was recorded anywhere: no PUT, no change signal, and no job folder is ever created.
      */
     suspend fun setTruck(jobFolderName: String, ref: HandoffFlagRef, truck: HandoffTruck?): HandoffFlagWriteResult {
         val requestedAt = Instant.now(clock).toString()
-        val result = withContext(Dispatchers.IO) {
-            requests.appendTruckRequest(jobFolderName, ref, truck, requestedAt)
-        }
+        val result = requests.appendTruckRequest(jobFolderName, ref, truck, requestedAt)
         when (result) {
             HandoffFlagWriteResult.Written -> Unit
+            HandoffFlagWriteResult.ReadOnly -> return result
             HandoffFlagWriteResult.Invalid -> {
                 Log.w(TAG, "Truck flag tap rejected as invalid for ${ref.key} in $jobFolderName — tablet bug")
                 return result

@@ -20,7 +20,11 @@ sealed interface HandoffFlagPutResult {
     data class Applied(val flags: HandoffItemFlags) : HandoffFlagPutResult
     /** The office changed this flag more recently; refresh, show theirs, don't retry. */
     object Skipped : HandoffFlagPutResult
-    /** Any non-2xx or no connection (status null). The sidecar carries the change. */
+    /**
+     * Any non-2xx (status = HTTP code), or status null for no connection, a timeout, and a 2xx whose
+     * body is empty or not JSON (the reply cannot be trusted, so it is not treated as applied).
+     * The sidecar carries the change in every case.
+     */
     data class Failed(val status: Int?) : HandoffFlagPutResult
 }
 
@@ -85,6 +89,7 @@ class HandoffFlagsClient(serverUrl: String) {
         val http: OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(5, TimeUnit.SECONDS)
+            .callTimeout(10, TimeUnit.SECONDS)
             .build()
     }
 }

@@ -3,8 +3,10 @@ package com.kkc.sheettracker.data
 import android.util.Log
 import com.kkc.sheettracker.data.models.HandoffFlagRef
 import com.kkc.sheettracker.data.models.HandoffTruck
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -25,6 +27,8 @@ sealed interface HandoffFlagWriteResult {
     object JobMissing : HandoffFlagWriteResult
     /** Sidecar unreadable, backup failed, or write IOException. */
     object StorageUnavailable : HandoffFlagWriteResult
+    /** The store was built read-only (archive screens): nothing is read or written. */
+    object ReadOnly : HandoffFlagWriteResult
 }
 
 /**
@@ -45,20 +49,35 @@ sealed interface HandoffFlagWriteResult {
 class HandoffFlagRequestStore(
     private val baseDir: File,
     private val tabletId: String,
-    internal val clockMillis: () -> Long = System::currentTimeMillis
+    internal val clockMillis: () -> Long = System::currentTimeMillis,
+    private val readOnly: Boolean = false
 ) {
 
+    /** File I/O runs on [Dispatchers.IO] inside this call, so callers need not switch context. */
     suspend fun appendTruckRequest(
         jobFolderName: String,
         ref: HandoffFlagRef,
         truck: HandoffTruck?,
         requestedAt: String
     ): HandoffFlagWriteResult {
+        if (readOnly) return HandoffFlagWriteResult.ReadOnly
         if (ref.source !in HandoffFlagRef.SOURCES || ref.id.isBlank()) return HandoffFlagWriteResult.Invalid
         if (runCatching { Instant.parse(requestedAt) }.isFailure) return HandoffFlagWriteResult.Invalid
+        return withContext(Dispatchers.IO) { appendLocked(jobFolderName, ref, truck, requestedAt) }
+    }
+
+    private suspend fun appendLocked(
+        jobFolderName: String,
+        ref: HandoffFlagRef,
+        truck: HandoffTruck?,
+        requestedAt: String
+    ): HandoffFlagWriteResult {
         // Before the lock and before any read/mkdirs: atomicWriteFile creates missing parents, so a
         // renamed/archived job would otherwise get a near-empty folder recreated by a stale tap.
-        if (!isLiveJobFolder(baseDir, jobFolderName)) return HandoffFlagWriteResult.JobMissing
+        if (!isLiveJobFolder(baseDir, jobFolderName)) {
+            JobFolderGuardEvents.report(jobFolderName)
+            return HandoffFlagWriteResult.JobMissing
+        }
         val file = requestFile(jobFolderName)
         return lockFor(file).withLock {
             val root = readOrStartNew(file) ?: return@withLock HandoffFlagWriteResult.StorageUnavailable
@@ -79,21 +98,47 @@ class HandoffFlagRequestStore(
         }
     }
 
-    /** Last truck request per item still in this tablet's file and younger than [ttl]. */
-    fun pendingTruckFlags(jobFolderName: String, now: Instant, ttl: Duration = PENDING_TTL): Map<HandoffFlagRef, PendingTruckFlag> {
+    /**
+     * Last truck request per item in this tablet's file that HT has not yet applied.
+     *
+     * A request stays pending for as long as it sits in the sidecar (HT deletes the file once it
+     * has applied it; offline, that can take hours) UNLESS
+     * - [truckSetAt] (`handoff.json` `itemFlagsSetAt[key].truck`) is at or after its `requestedAt`
+     *   (HT applied it, or the office has overridden it since), or
+     * - it is older than the [backstop] (a stuck file must not show "pending" forever).
+     *
+     * A `requestedAt` more than [CLOCK_SKEW] in the future (tablet clock ahead of HT) counts as
+     * [now]. Ties on `requestedAt` go to the later entry in the file.
+     */
+    fun pendingTruckFlags(
+        jobFolderName: String,
+        now: Instant,
+        truckSetAt: Map<HandoffFlagRef, Instant> = emptyMap(),
+        backstop: Duration = PENDING_BACKSTOP
+    ): Map<HandoffFlagRef, PendingTruckFlag> {
         val file = requestFile(jobFolderName)
         if (!file.isFile) return emptyMap()
         val requests = runCatching { JSONObject(file.readText()).getJSONArray("requests") }.getOrNull() ?: return emptyMap()
         val result = LinkedHashMap<HandoffFlagRef, PendingTruckFlag>()
+        val orderKey = HashMap<HandoffFlagRef, Instant>()
         for (i in 0 until requests.length()) {
             val obj = requests.optJSONObject(i) ?: continue
             if (!obj.has("truck")) continue
-            val at = runCatching { Instant.parse(obj.getString("requestedAt")) }.getOrNull() ?: continue
-            if (Duration.between(at, now) > ttl) continue
+            val raw = runCatching { Instant.parse(obj.getString("requestedAt")) }.getOrNull() ?: continue
+            val at = if (raw.isAfter(now.plus(CLOCK_SKEW))) now else raw
+            if (Duration.between(at, now) > backstop) continue
             val ref = HandoffFlagRef(obj.optString("source"), obj.optString("id"))
             val truck = if (obj.isNull("truck")) null else HandoffTruck.fromWire(obj.optString("truck")) ?: continue
-            val previous = result[ref]
-            if (previous == null || !at.isBefore(previous.requestedAt)) result[ref] = PendingTruckFlag(truck, at)
+            val previous = orderKey[ref]
+            // Order by the stamped time so a skewed-ahead entry still sorts after earlier ones.
+            if (previous == null || !raw.isBefore(previous)) {
+                orderKey[ref] = raw
+                result[ref] = PendingTruckFlag(truck, at)
+            }
+        }
+        result.entries.removeAll { (ref, pending) ->
+            val setAt = truckSetAt[ref]
+            setAt != null && !setAt.isBefore(pending.requestedAt)
         }
         return result
     }
@@ -135,7 +180,10 @@ class HandoffFlagRequestStore(
 
     companion object {
         private const val TAG = "HandoffFlagRequests"
-        val PENDING_TTL: Duration = Duration.ofSeconds(120)
+        /** Hard upper bound on how long a queued request is shown as pending. */
+        val PENDING_BACKSTOP: Duration = Duration.ofHours(24)
+        /** A `requestedAt` further ahead than this is a tablet clock problem and is treated as now. */
+        val CLOCK_SKEW: Duration = Duration.ofMinutes(5)
         private val locks = ConcurrentHashMap<String, Mutex>()
     }
 }

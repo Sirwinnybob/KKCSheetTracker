@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -1338,7 +1339,8 @@ internal fun SpecialtySheetRipRow(
                     Icon(Icons.Filled.Visibility, contentDescription = "Preview ${item.name} molding profile")
                 }
             }
-            handoff?.let { HandoffTruckChip(it, Modifier.padding(start = 6.dp)) }
+            // Capped so a long label ellipsizes in the chip instead of squeezing the material name.
+            handoff?.let { HandoffTruckChip(it, Modifier.padding(start = 6.dp).widthIn(max = 180.dp)) }
             Column(horizontalAlignment = Alignment.End) {
                 Text(text = "${(item.feet ?: 0.0).toInt()} ft", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                 Text(
