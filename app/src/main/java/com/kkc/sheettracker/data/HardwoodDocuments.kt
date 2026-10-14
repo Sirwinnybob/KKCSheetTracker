@@ -93,6 +93,31 @@ object HardwoodDocuments {
             }
         }
 
+    /** Row ids that are pending (per [isPending]) in any doc of each type, unioned across batches. */
+    fun pendingRowIdsByType(
+        docs: List<HardwoodDocumentIndex>,
+        isPending: (HardwoodDocType, HardwoodCutlistRow) -> Boolean
+    ): Map<HardwoodDocType, Set<String>> =
+        docs.groupBy { it.docType }.mapValues { (type, group) ->
+            group.flatMap { doc -> doc.rows.filter { isPending(type, it) }.map { it.rowId } }.toSet()
+        }
+
+    /**
+     * The doc of [type] holding at least one row in [pendingRowIds]: [preferred] when it is of that
+     * type and has one, otherwise the first such doc, or null when no doc of the type has any.
+     */
+    fun firstDocWithPending(
+        docs: List<HardwoodDocumentIndex>,
+        type: HardwoodDocType,
+        pendingRowIds: Set<String>,
+        preferred: HardwoodDocumentIndex? = null
+    ): HardwoodDocumentIndex? {
+        if (pendingRowIds.isEmpty()) return null
+        fun hasPending(doc: HardwoodDocumentIndex) = doc.rows.any { it.rowId in pendingRowIds }
+        if (preferred != null && preferred.docType == type && hasPending(preferred)) return preferred
+        return docs.firstOrNull { it.docType == type && hasPending(it) }
+    }
+
     /** The doc of [type] for an explicit batch, else the one owning [owningRowId], else the first. */
     fun selectDoc(
         docs: List<HardwoodDocumentIndex>,

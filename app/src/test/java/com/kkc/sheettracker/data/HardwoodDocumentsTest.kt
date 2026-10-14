@@ -175,4 +175,50 @@ class HardwoodDocumentsTest {
         val merged = HardwoodDocuments.mergedByType(withNull.documents)
         assertEquals(setOf(HardwoodDocType.NAILER_CUT_LIST), merged.keys)
     }
+
+    @Test
+    fun pendingRowIdsByTypeUnionsBatchesPerType() {
+        val ff = HardwoodDocType.FACE_FRAME_CUT_LIST
+        val docs = listOf(
+            batch(ff, "b1", "A", row("cv:b1:a"), row("cv:b1:b")),
+            batch(ff, "b2", "B", row("cv:b2:a")),
+            legacy(HardwoodDocType.NAILER_CUT_LIST, "n.pdf", row("n1"))
+        )
+        val pending = HardwoodDocuments.pendingRowIdsByType(docs) { type, r ->
+            (type == ff && r.rowId != "cv:b1:b") || r.rowId == "n1"
+        }
+        assertEquals(setOf("cv:b1:a", "cv:b2:a"), pending[ff])
+        assertEquals(setOf("n1"), pending[HardwoodDocType.NAILER_CUT_LIST])
+        val none = HardwoodDocuments.pendingRowIdsByType(docs) { _, _ -> false }
+        assertEquals(emptySet<String>(), none[ff])
+    }
+
+    @Test
+    fun firstDocWithPendingFindsTheBatchThatHasTheChanges() {
+        val ff = HardwoodDocType.FACE_FRAME_CUT_LIST
+        val a = batch(ff, "b1", "A", row("cv:b1:a"))
+        val b = batch(ff, "b2", "B", row("cv:b2:a"))
+        val docs = listOf(a, b)
+
+        assertSame(b, HardwoodDocuments.firstDocWithPending(docs, ff, setOf("cv:b2:a")))
+        assertSame(a, HardwoodDocuments.firstDocWithPending(listOf(a), ff, setOf("cv:b1:a")))
+        assertNull(HardwoodDocuments.firstDocWithPending(docs, ff, emptySet()))
+        assertNull(HardwoodDocuments.firstDocWithPending(docs, ff, setOf("other")))
+        assertNull(HardwoodDocuments.firstDocWithPending(docs, HardwoodDocType.NAILER_CUT_LIST, setOf("cv:b1:a")))
+    }
+
+    @Test
+    fun firstDocWithPendingPrefersTheCurrentDocWhenItHasPending() {
+        val ff = HardwoodDocType.FACE_FRAME_CUT_LIST
+        val a = batch(ff, "b1", "A", row("cv:b1:a"))
+        val b = batch(ff, "b2", "B", row("cv:b2:a"))
+        val both = setOf("cv:b1:a", "cv:b2:a")
+
+        assertSame(b, HardwoodDocuments.firstDocWithPending(listOf(a, b), ff, both, preferred = b))
+        // A preferred doc without pending rows loses to one that has them.
+        assertSame(b, HardwoodDocuments.firstDocWithPending(listOf(a, b), ff, setOf("cv:b2:a"), preferred = a))
+        // A preferred doc of another type is ignored.
+        val nailer = legacy(HardwoodDocType.NAILER_CUT_LIST, "n.pdf", row("cv:b1:a"))
+        assertSame(a, HardwoodDocuments.firstDocWithPending(listOf(a, b), ff, both, preferred = nailer))
+    }
 }

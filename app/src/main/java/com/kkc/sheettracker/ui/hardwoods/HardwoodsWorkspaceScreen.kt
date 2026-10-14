@@ -774,16 +774,12 @@ fun HardwoodsWorkspaceScreen(
         }
     }
     val pendingChangedByDoc = remember(availableDocuments, rowRevisionStateMap, rowProgressMap) {
-        availableDocuments.groupBy { it.docType }.mapValues { (docType, docs) ->
-            docs.flatMap { doc ->
-                doc.rows.filter { row ->
-                    val state = rowRevisionStateMap[docType.name to row.rowId] ?: return@filter false
-                    if (state.latestRevision <= 0) return@filter false
-                    val qty = row.qty.coerceAtLeast(0)
-                    val done = rowProgressMap[docType.name to row.rowId]?.doneCount ?: 0
-                    qty > 0 && done < qty
-                }.map { it.rowId }
-            }.toSet()
+        HardwoodDocuments.pendingRowIdsByType(availableDocuments) { docType, row ->
+            val state = rowRevisionStateMap[docType.name to row.rowId] ?: return@pendingRowIdsByType false
+            if (state.latestRevision <= 0) return@pendingRowIdsByType false
+            val qty = row.qty.coerceAtLeast(0)
+            val done = rowProgressMap[docType.name to row.rowId]?.doneCount ?: 0
+            qty > 0 && done < qty
         }
     }
     val hasAnyPendingChanged = remember(pendingChangedByDoc) {
@@ -798,6 +794,14 @@ fun HardwoodsWorkspaceScreen(
                 progressByRow = rowProgressMap
             )
         } ?: emptyList()
+    }
+
+    // The pending map is a union across batches, so CHANGED must land on the batch that has the changes.
+    LaunchedEffect(showChangedOnly, selectedDocType, selectedDoc, pendingChangedByDoc) {
+        if (!showChangedOnly) return@LaunchedEffect
+        val pending = pendingChangedByDoc[selectedDocType].orEmpty()
+        val target = HardwoodDocuments.firstDocWithPending(availableDocuments, selectedDocType, pending, preferred = selectedDoc)
+        if (target != null && target !== selectedDoc) selectedBatchId = target.batchId
     }
 
     LaunchedEffect(hasAnyPendingChanged) {
