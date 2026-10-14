@@ -29,8 +29,9 @@ Diff vs base: 17 files, +626 / -40 (11 source files, 4 new test files).
 ### APK
 
 - Path: `C:\Scripts\KKCSheetTracker\.claude\worktrees\cv-cutlists\app\build\outputs\apk\debug\app-debug.apk`
-- Size 88,149,703 bytes, version 8.8.2 (versionCode 80802), applicationId `com.kkc.sheettracker`
-- SHA-256 `398ea79eadcf1365ac35d1f1a13bc82cbfc5d5759cde7ef7614716b34b58c2d9`
+- Size 88,670,945 bytes, version 8.8.2 (versionCode 80802), applicationId `com.kkc.sheettracker`
+- SHA-256 `3a13ddb04b3d94c4f7f5464dc362eddb6bfdb2c5938b00df9fd7f1417a03478f`
+- Rebuilt after the final-review fix below; the size and hash above supersede the earlier build's (88,149,703 bytes, `398ea79e...`).
 
 ### Real-data decode check
 
@@ -47,7 +48,7 @@ Input: the actual `cutlist_index.json` the Hours Tracker worker published for a 
 - Decode of legacy PDF-backed indexes (empty batch fields), metadata docs with batch fields and doors, future keys ignored, unknown doc types dropped (`CvCutlistIndexDecodeTest`).
 - Availability rules, doc selection by owning row, merge and summary logic (`HardwoodDocumentsTest`).
 - Roll-ups across batches and progress isolation between batches (`MetadataBatchRollupTest`).
-- Batch chip helper logic (`HardwoodsBatchUiTest`).
+- Batch chip helper logic and door summary lines, including labelled profiles (`HardwoodsBatchUiTest`).
 - Real worker output decodes correctly (scratch check above).
 
 ## Needs a human check on a test tablet (not verified by any automated test)
@@ -56,9 +57,15 @@ Input: the actual `cutlist_index.json` the Hours Tracker worker published for a 
 2. It opens from both the active route and the archived route.
 3. Cutlist rows can be completed with the tablet offline, and the completion survives restart and sync.
 4. Batch chips switch between the Main and Second tables, and progress stays separate per batch.
-5. The door list expands and shows style, size, hinge, grain and notes.
+5. The door list expands and shows style, size, room/cabinet, hinge, grain, profiles and notes. It is a capped (240dp) scrollable panel: with a 30-60 door job, confirm the list scrolls inside its cap and the cutlist table stays visible and usable below it.
 6. A legacy PDF-backed job is unchanged (PDF still renders, rows, rip totals and progress as before).
 7. The rip-totals tab is empty for metadata docs (the worker publishes `totals: []`); confirm that is acceptable.
+
+## Final-review fixes (after the verification above)
+
+- Door list: the expanded list is now a capped (240dp) scrollable panel, so a 30-60 door job no longer pushes the cutlist table off screen. Compose layout; verified by compiling only (`:app:compileDebugKotlin` re-run and `assembleDebug` succeeded), not by a unit test.
+- Door profiles are now shown. `profiles` is outside edge, inside edge, panel detail, route pattern (in that order, blanks skipped); a door line reads for example `D2 · profiles: outside Ogee, panel Raised, route Cove · x`. Covered by `HardwoodsBatchUiTest`.
+- `testDebugUnitTest --tests "com.kkc.sheettracker.ui.*"` passed after the change. The full-suite run in the table above predates this fix.
 
 ## Known limits
 

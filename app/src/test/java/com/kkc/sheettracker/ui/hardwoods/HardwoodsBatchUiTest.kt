@@ -25,4 +25,11 @@ class HardwoodsBatchUiTest {
         assertEquals("Door · Cab 3", hardwoodsDoorSummaryLine(HardwoodDoorAssembly(cabinet = "3")))
         assertEquals("Door", hardwoodsDoorSummaryLine(HardwoodDoorAssembly(width = "15")))
     }
+
+    @Test
+    fun doorSummaryShowsLabelledProfilesSkippingBlanks() {
+        val door = HardwoodDoorAssembly(label = "D2", profiles = listOf("Ogee", "", "Raised", "Cove"), notes = "x")
+        assertEquals("D2 · profiles: outside Ogee, panel Raised, route Cove · x", hardwoodsDoorSummaryLine(door))
+        assertEquals("Door", hardwoodsDoorSummaryLine(HardwoodDoorAssembly(profiles = listOf("", " "))))
+    }
 }
