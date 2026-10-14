@@ -135,14 +135,15 @@ class HandoffFlagRequestStoreTest {
     }
 
     @Test
-    fun missingJobReportsTheGuardEvent() = runBlocking {
+    fun missingJobDoesNotReportTheGuardEventBecauseTheTapShowsItsOwnMessage() = runBlocking {
         val base = Files.createTempDirectory("handoff-req").toFile()
         val store = HandoffFlagRequestStore(base, "T1")
-        val received = kotlinx.coroutines.CompletableDeferred<String>()
-        val collector = launch(Dispatchers.Unconfined) { JobFolderGuardEvents.skipped.collect { received.complete(it) } }
+        val received = mutableListOf<String>()
+        val collector = launch(Dispatchers.Unconfined) { JobFolderGuardEvents.skipped.collect { received += it } }
         assertEquals(HandoffFlagWriteResult.JobMissing, store.appendTruckRequest(job, ref, HandoffTruck.LOOSE, "2026-10-08T14:00:00Z"))
-        assertEquals(job, kotlinx.coroutines.withTimeout(2_000) { received.await() })
+        Thread.sleep(100)
         collector.cancel()
+        assertTrue("unexpected guard events: $received", received.isEmpty())
     }
 
     @Test

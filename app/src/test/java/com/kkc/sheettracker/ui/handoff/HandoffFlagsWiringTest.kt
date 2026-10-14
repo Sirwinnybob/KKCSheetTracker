@@ -67,10 +67,12 @@ class HandoffFlagsWiringTest {
         listOf(
             "data/SheetRipProgressStore.kt", "data/TabletSpecialtyItemsStore.kt", "data/SpecialtyProgressStore.kt",
             "data/HardwoodsProgressStore.kt", "data/PdfMarkupStore.kt", "data/ProgressStore.kt",
-            "data/HiddenMaterialsRequestStore.kt", "data/HandoffFlagRequestStore.kt"
+            "data/HiddenMaterialsRequestStore.kt"
         ).forEach { path ->
             assertTrue("$path must call JobFolderGuardEvents.report", source(path).contains("JobFolderGuardEvents.report("))
         }
+        // The flag tap shows its own message for a missing job, so the handoff store must not also report.
+        assertFalse(source("data/HandoffFlagRequestStore.kt").contains("JobFolderGuardEvents.report("))
         assertTrue(source("MainActivity.kt").contains("JobFolderGuardEvents.skipped"))
     }
 

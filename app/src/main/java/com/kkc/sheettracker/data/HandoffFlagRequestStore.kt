@@ -74,10 +74,8 @@ class HandoffFlagRequestStore(
     ): HandoffFlagWriteResult {
         // Before the lock and before any read/mkdirs: atomicWriteFile creates missing parents, so a
         // renamed/archived job would otherwise get a near-empty folder recreated by a stale tap.
-        if (!isLiveJobFolder(baseDir, jobFolderName)) {
-            JobFolderGuardEvents.report(jobFolderName)
-            return HandoffFlagWriteResult.JobMissing
-        }
+        // Not reported to JobFolderGuardEvents: the tap shows its own "no longer in Ready Jobs" snackbar.
+        if (!isLiveJobFolder(baseDir, jobFolderName)) return HandoffFlagWriteResult.JobMissing
         val file = requestFile(jobFolderName)
         return lockFor(file).withLock {
             val root = readOrStartNew(file) ?: return@withLock HandoffFlagWriteResult.StorageUnavailable
