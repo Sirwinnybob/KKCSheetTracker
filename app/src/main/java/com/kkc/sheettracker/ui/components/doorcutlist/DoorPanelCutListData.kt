@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.ui.components.doorcutlist
 
 import com.google.gson.Gson
+import com.kkc.sheettracker.data.HardwoodDocuments
 import com.kkc.sheettracker.data.filterDoorCutRowsToSheets
 import com.kkc.sheettracker.data.loadHardwoodsCutlistIndexRawJson
 import com.kkc.sheettracker.data.models.CabinetPageDetail
@@ -335,9 +336,10 @@ fun buildDoorPanelCutListSource(
     cabinetIndex: CabinetSheetIndex?,
 ): DoorPanelCutListSource? {
     if (rawCutlistIndexJson.isNullOrBlank()) return null
-    val index = runCatching { cutListGson.fromJson(rawCutlistIndexJson, HardwoodCutlistIndex::class.java) }
-        .getOrNull() ?: return null
-    val doorDoc = index.documents.orEmpty().firstOrNull { it.docType == HardwoodDocType.DOOR_CUT_LIST }
+    val index = runCatching {
+        HardwoodDocuments.dropUnknownDocTypes(cutListGson.fromJson(rawCutlistIndexJson, HardwoodCutlistIndex::class.java))
+    }.getOrNull() ?: return null
+    val doorDoc = HardwoodDocuments.mergedByType(index.documents.orEmpty())[HardwoodDocType.DOOR_CUT_LIST]
         ?: return null
     val unitTypes = parseDoorCutUnitTypeMetadata(rawCutlistIndexJson)
     val sheetRows = filterDoorCutRowsToSheets(doorDoc.rows.orEmpty(), unitTypes)

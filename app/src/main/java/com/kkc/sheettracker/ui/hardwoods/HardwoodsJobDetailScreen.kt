@@ -60,6 +60,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.data.HardwoodDocuments
 import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
 import com.kkc.sheettracker.data.HiddenMaterialsRepository
@@ -216,7 +217,7 @@ fun HardwoodsJobDetailScreen(
     val rowProgressMap = detailProgress.rowProgressMap
     val totalsDoneMap = detailProgress.totalsDoneMap
     val docsByType = remember(resolvedJob.index) {
-        resolvedJob.index?.documents.orEmpty().associateBy { it.docType }
+        HardwoodDocuments.mergedByType(resolvedJob.index?.documents.orEmpty())
     }
     val availableDocsByType by produceState(
         initialValue = emptyMap<HardwoodDocType, HardwoodDocumentIndex>(),
@@ -225,14 +226,14 @@ fun HardwoodsJobDetailScreen(
     ) {
         value = withContext(Dispatchers.IO) {
             docsByType.filterValues { doc ->
-                // Door lists are retired; legacy jobs may still carry one in their index.
-                doc.docType != HardwoodDocType.DOOR_LIST &&
-                    doc.pdfFilename.isNotBlank() &&
+                // Door lists are retired; metadata-backed docs need no PDF.
+                HardwoodDocuments.isAvailable(doc) { pdfFilename ->
                     jobRepository.getJobRootPdfFile(
                         jobFolderName = jobFolderName,
-                        pdfFilename = doc.pdfFilename,
+                        pdfFilename = pdfFilename,
                         preferDarkMode = false
                     ) != null
+                }
             }
         }
     }
@@ -253,10 +254,10 @@ fun HardwoodsJobDetailScreen(
         }
     }
     val docSummariesByType = remember(summary.documents) {
-        summary.documents.associateBy { it.docType }
+        HardwoodDocuments.mergeSummaries(summary.documents)
     }
     val filteredDocsByType = remember(progressJob.index) {
-        progressJob.index?.documents.orEmpty().associateBy { it.docType }
+        HardwoodDocuments.mergedByType(progressJob.index?.documents.orEmpty())
     }
     var suppressLeavePrompt by remember { mutableStateOf(false) }
     val jobPacketActions = rememberJobPacketActions(jobRepository, jobFolderName) { document ->

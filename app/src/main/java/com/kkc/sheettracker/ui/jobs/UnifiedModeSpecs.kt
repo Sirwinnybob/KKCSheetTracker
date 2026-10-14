@@ -208,7 +208,7 @@ fun rememberHardwoodsJobsSpec(
                         val docSegments = mutableListOf<MaterialSegmentData>()
                         docSegments.addAll(hwProgress.docTypes.map { docType ->
                             MaterialSegmentData(
-                                materialName = docType.docType,
+                                materialName = if (docType.batchName.isBlank()) docType.docType else "${docType.docType} — ${docType.batchName}",
                                 counts = StatusCounts(
                                     total = docType.total,
                                     complete = docType.done,
