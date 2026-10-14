@@ -359,12 +359,34 @@ data class HardwoodTotalsBlock(
     val unitType: String = ""
 )
 
+data class HardwoodDoorAssembly(
+    val id: String = "",
+    val cabinet: String = "",
+    val room: String = "",
+    val number: String = "",
+    val label: String = "",
+    val style: String = "",
+    val schedule: String = "",
+    val width: String = "",
+    val height: String = "",
+    val hinge: String = "",
+    val doorType: String = "",
+    val notes: String = "",
+    val grain: String = "",
+    val profiles: List<String> = emptyList()
+)
+
 data class HardwoodDocumentIndex(
     val docType: HardwoodDocType = HardwoodDocType.FACE_FRAME_CUT_LIST,
     val pdfFilename: String = "",
     val pageCount: Int = 0,
     val rows: List<HardwoodCutlistRow> = emptyList(),
-    val totals: List<HardwoodTotalsBlock> = emptyList()
+    val totals: List<HardwoodTotalsBlock> = emptyList(),
+    val sourceKind: String = "",
+    val batchId: String = "",
+    val batchName: String = "",
+    val revisionId: String = "",
+    val doors: List<HardwoodDoorAssembly> = emptyList()
 )
 
 data class HardwoodCutlistIndex(

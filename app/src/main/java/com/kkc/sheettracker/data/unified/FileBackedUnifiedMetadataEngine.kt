@@ -41,6 +41,7 @@ import com.kkc.sheettracker.data.models.AssemblySourceDocumentIndex
 import com.kkc.sheettracker.data.models.AssemblyVirtualCombinedIndex
 import com.kkc.sheettracker.data.models.AssemblyVirtualEntry
 import com.kkc.sheettracker.data.models.AssemblyVirtualSourceRef
+import com.kkc.sheettracker.data.models.HardwoodDoorAssembly
 import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodTotalsBlock
@@ -1568,11 +1569,36 @@ class FileBackedUnifiedMetadataEngine(
         if (index == null) return HardwoodCutlistIndex()
         return HardwoodCutlistIndex(
             generatedAt = index.generatedAt,
-            documents = (gsonNullable(index.documents) ?: emptyList()).map { doc ->
+            documents = (gsonNullable(index.documents) ?: emptyList())
+                // A doc type this build does not know (Gson yields null) is dropped, not relabelled.
+                .filter { doc -> gsonNullable(doc.docType) != null }
+                .map { doc ->
                 HardwoodDocumentIndex(
-                    docType = gsonNullable(doc.docType) ?: HardwoodDocType.FACE_FRAME_CUT_LIST,
+                    docType = doc.docType,
                     pdfFilename = gsonNullable(doc.pdfFilename) ?: "",
                     pageCount = doc.pageCount,
+                    sourceKind = gsonNullable(doc.sourceKind) ?: "",
+                    batchId = gsonNullable(doc.batchId) ?: "",
+                    batchName = gsonNullable(doc.batchName) ?: "",
+                    revisionId = gsonNullable(doc.revisionId) ?: "",
+                    doors = (gsonNullable(doc.doors) ?: emptyList()).map { door ->
+                        HardwoodDoorAssembly(
+                            id = gsonNullable(door.id) ?: "",
+                            cabinet = gsonNullable(door.cabinet) ?: "",
+                            room = gsonNullable(door.room) ?: "",
+                            number = gsonNullable(door.number) ?: "",
+                            label = gsonNullable(door.label) ?: "",
+                            style = gsonNullable(door.style) ?: "",
+                            schedule = gsonNullable(door.schedule) ?: "",
+                            width = gsonNullable(door.width) ?: "",
+                            height = gsonNullable(door.height) ?: "",
+                            hinge = gsonNullable(door.hinge) ?: "",
+                            doorType = gsonNullable(door.doorType) ?: "",
+                            notes = gsonNullable(door.notes) ?: "",
+                            grain = gsonNullable(door.grain) ?: "",
+                            profiles = (gsonNullable(door.profiles) ?: emptyList()).map { gsonNullable(it) ?: "" }
+                        )
+                    },
                     rows = (gsonNullable(doc.rows) ?: emptyList()).map { row ->
                         HardwoodCutlistRow(
                             rowId = gsonNullable(row.rowId) ?: "",

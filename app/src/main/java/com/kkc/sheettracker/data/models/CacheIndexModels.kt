@@ -34,7 +34,9 @@ data class CacheIndexHardwoodsDocType(
     val total: Int = 0,
     val done: Int = 0,
     val bad: Int = 0,
-    val skipped: Int = 0
+    val skipped: Int = 0,
+    val batchId: String = "",
+    val batchName: String = ""
 )
 
 data class CacheIndexHardwoodsProgress(
