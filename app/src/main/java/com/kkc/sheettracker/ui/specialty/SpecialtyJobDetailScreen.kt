@@ -63,6 +63,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -478,7 +479,8 @@ internal fun SpecialtyJobDetailScreen(
                                 onSetDone = { completed -> onSetSheetRipDone(rip, completed) },
                                 enabled = !readOnly,
                                 onPreviewMolding = if (rip.moldingId != null) ({ previewMoldingItem = rip }) else null,
-                                handoff = handoffFlags.uiFor(handoffFlagRef(rip))
+                                handoff = handoffFlags.uiFor(handoffFlagRef(rip)),
+                                compact = true
                             )
                         },
                         handoffFor = { item -> handoffFlags.uiFor(handoffFlagRef(item)) },
@@ -1308,48 +1310,105 @@ internal fun SpecialtySheetRipRow(
     onPreviewMolding: (() -> Unit)?,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    handoff: HandoffItemUi? = null
+    handoff: HandoffItemUi? = null,
+    compact: Boolean = false
 ) {
-    Surface(
-        tonalElevation = 3.dp,
-        shape = MaterialTheme.shapes.medium,
-        modifier = modifier
-            .fillMaxWidth()
-            .alpha(if (isDone) 0.5f else 1f)
-            .clickable(enabled = enabled) { onSetDone(!isDone) }
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+    if (compact) {
+        StatusBorderedCard(
+            status = if (isDone) SheetStatus.COMPLETE else SheetStatus.NOT_STARTED,
+            onClick = if (enabled) ({ onSetDone(!isDone) }) else null,
+            shape = MaterialTheme.shapes.medium,
+            tonalElevation = 2.dp,
+            modifier = modifier.fillMaxWidth()
         ) {
-            Checkbox(checked = isDone, onCheckedChange = onSetDone, enabled = enabled)
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = item.material, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    text = specialtySheetRipItemLabel(item),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            if (onPreviewMolding != null) {
-                IconButton(onClick = onPreviewMolding) {
-                    Icon(Icons.Filled.Visibility, contentDescription = "Preview ${item.name} molding profile")
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = isDone,
+                        onCheckedChange = onSetDone,
+                        enabled = enabled,
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = kanbanColumnColor(SPECIALTY_VIEWER_SECTION_ID_SHEET_RIPS)
+                        )
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (onPreviewMolding != null) {
+                        IconButton(onClick = onPreviewMolding) {
+                            Icon(Icons.Filled.Visibility, contentDescription = "Preview ${item.name} molding profile")
+                        }
+                    }
                 }
-            }
-            // Capped so a long label ellipsizes in the chip instead of squeezing the material name.
-            handoff?.let { HandoffTruckChip(it, Modifier.padding(start = 6.dp).widthIn(max = 180.dp)) }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(text = "${(item.feet ?: 0.0).toInt()} ft", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    text = specialtySheetRipLengthLabel(target, item.ripLength),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Column(
+                    modifier = Modifier.alpha(if (isDone) 0.6f else 1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(text = item.material, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = specialtySheetRipItemLabel(item),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(Modifier.weight(1f))
+                        SpecialtySheetRipMetrics(item = item, target = target)
+                    }
+                }
+                // A separate row prevents the handoff chip from squeezing card content.
+                handoff?.let { HandoffTruckChip(it, Modifier.widthIn(max = 180.dp)) }
             }
         }
+    } else {
+        Surface(
+            tonalElevation = 3.dp,
+            shape = MaterialTheme.shapes.medium,
+            modifier = modifier
+                .fillMaxWidth()
+                .alpha(if (isDone) 0.5f else 1f)
+                .clickable(enabled = enabled) { onSetDone(!isDone) }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Checkbox(checked = isDone, onCheckedChange = onSetDone, enabled = enabled)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = item.material, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = specialtySheetRipItemLabel(item),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (onPreviewMolding != null) {
+                    IconButton(onClick = onPreviewMolding) {
+                        Icon(Icons.Filled.Visibility, contentDescription = "Preview ${item.name} molding profile")
+                    }
+                }
+                // Capped so a long label ellipsizes in the chip instead of squeezing the material name.
+                handoff?.let { HandoffTruckChip(it, Modifier.padding(start = 6.dp).widthIn(max = 180.dp)) }
+                SpecialtySheetRipMetrics(item = item, target = target)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpecialtySheetRipMetrics(item: AdminBoardStockItem, target: Int) {
+    Column(horizontalAlignment = Alignment.End) {
+        Text(text = "${(item.feet ?: 0.0).toInt()} ft", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+        Text(
+            text = specialtySheetRipLengthLabel(target, item.ripLength),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
