@@ -68,4 +68,39 @@ class CvCutlistIndexDecodeTest {
         )
         assertEquals(listOf(HardwoodDocType.NAILER_CUT_LIST), docs.map { it.docType })
     }
+
+    @Test
+    fun nullDocumentElementDoesNotLoseTheValidDocs() {
+        val docs = documentsFor(
+            """{"documents":[null,{"docType":"NAILER_CUT_LIST","pdfFilename":"n.pdf","rows":[{"rowId":"n1","qty":1}]}]}"""
+        )
+        assertEquals(listOf(HardwoodDocType.NAILER_CUT_LIST), docs.map { it.docType })
+        assertEquals(listOf("n1"), docs.single().rows.map { it.rowId })
+    }
+
+    @Test
+    fun nullRowElementDoesNotLoseTheValidRows() {
+        val docs = documentsFor(
+            """{"documents":[{"docType":"NAILER_CUT_LIST","rows":[null,{"rowId":"n1","qty":1,"cabinets":[null,"3"]}],
+               "totals":[null,{"page":1,"sourcePages":[null],"widthValues":[null,"2"]}]}]}"""
+        )
+        val doc = docs.single()
+        assertEquals(listOf("n1"), doc.rows.map { it.rowId })
+        assertEquals(listOf("", "3"), doc.rows.single().cabinets)
+        assertEquals(1, doc.totals.size)
+        assertEquals(listOf("", "2"), doc.totals.single().widthValues)
+    }
+
+    @Test
+    fun nullDoorElementDoesNotLoseTheValidDoors() {
+        val docs = documentsFor(
+            """{"documents":[{"docType":"DOOR_CUT_LIST","sourceKind":"CV_METADATA","batchId":"b1",
+               "rows":[{"rowId":"cv:b1:a","qty":1}],
+               "doors":[null,{"id":"d1","cabinet":"1","profiles":[null,"a"]}]}]}"""
+        )
+        val doc = docs.single()
+        assertEquals(listOf("cv:b1:a"), doc.rows.map { it.rowId })
+        assertEquals(listOf("d1"), doc.doors.map { it.id })
+        assertEquals(listOf("", "a"), doc.doors.single().profiles)
+    }
 }

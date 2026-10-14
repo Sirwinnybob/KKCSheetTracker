@@ -31,8 +31,8 @@ object HardwoodDocuments {
     @Suppress("SENSELESS_COMPARISON", "USELESS_CAST")
     fun dropUnknownDocTypes(index: HardwoodCutlistIndex?): HardwoodCutlistIndex? {
         if (index == null) return null
-        val documents = (index.documents as List<HardwoodDocumentIndex>?).orEmpty()
-        val known = documents.filter { (it.docType as HardwoodDocType?) != null }
+        val documents = (index.documents as List<HardwoodDocumentIndex?>?).orEmpty()
+        val known = documents.filterNotNull().filter { (it.docType as HardwoodDocType?) != null }
         return if (documents === index.documents && known.size == documents.size) index else index.copy(documents = known)
     }
 
@@ -48,8 +48,9 @@ object HardwoodDocuments {
     fun cacheIndexDocTypeCount(docTypes: List<CacheIndexHardwoodsDocType>): Int =
         docTypes.map { it.docType }.distinct().size
 
+    @Suppress("USELESS_CAST")
     fun docsOfType(index: HardwoodCutlistIndex?, type: HardwoodDocType): List<HardwoodDocumentIndex> =
-        index?.documents.orEmpty().filter { it.docType == type }
+        (index?.documents as List<HardwoodDocumentIndex?>?).orEmpty().filterNotNull().filter { it.docType == type }
 
     /** Rows of every doc of [type] (all batches), or null when the index has no doc of that type. */
     fun rowsOfTypeOrNull(index: HardwoodCutlistIndex?, type: HardwoodDocType): List<HardwoodCutlistRow>? {
@@ -58,8 +59,9 @@ object HardwoodDocuments {
     }
 
     /** One doc per type for per-type tiles: single docs pass through; batches merge into one doc. */
+    @Suppress("USELESS_CAST")
     fun mergedByType(docs: List<HardwoodDocumentIndex>): Map<HardwoodDocType, HardwoodDocumentIndex> =
-        docs.groupBy { it.docType }.mapValues { (_, group) ->
+        (docs as List<HardwoodDocumentIndex?>).filterNotNull().groupBy { it.docType }.mapValues { (_, group) ->
             if (group.size == 1) {
                 group.first()
             } else {

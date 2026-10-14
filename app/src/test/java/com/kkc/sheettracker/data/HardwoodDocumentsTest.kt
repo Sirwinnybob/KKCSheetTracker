@@ -161,4 +161,18 @@ class HardwoodDocumentsTest {
         assertEquals(2, HardwoodDocuments.cacheIndexDocTypeCount(docTypes))
         assertEquals(0, HardwoodDocuments.cacheIndexDocTypeCount(emptyList()))
     }
+
+    @Test
+    fun nullDocumentElementsAreToleratedByTheSharedRules() {
+        val withNull = Gson().fromJson(
+            """{"documents":[null,{"docType":"NAILER_CUT_LIST","pdfFilename":"n.pdf","rows":[{"rowId":"n1","qty":1}]}]}""",
+            HardwoodCutlistIndex::class.java
+        )
+        val cleaned = HardwoodDocuments.dropUnknownDocTypes(withNull)
+        assertEquals(listOf(HardwoodDocType.NAILER_CUT_LIST), cleaned?.documents?.map { it.docType })
+        assertEquals(1, HardwoodDocuments.docsOfType(withNull, HardwoodDocType.NAILER_CUT_LIST).size)
+        assertEquals(listOf("n1"), HardwoodDocuments.rowsOfTypeOrNull(withNull, HardwoodDocType.NAILER_CUT_LIST)?.map { it.rowId })
+        val merged = HardwoodDocuments.mergedByType(withNull.documents)
+        assertEquals(setOf(HardwoodDocType.NAILER_CUT_LIST), merged.keys)
+    }
 }
