@@ -42,6 +42,7 @@ import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.ui.components.headerBackground
 import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.data.DoorCutUnitTypeMetadata
+import com.kkc.sheettracker.data.HardwoodDocuments
 import com.kkc.sheettracker.data.HardwoodsRepository
 import com.kkc.sheettracker.data.filterDoorCutRowsToSheets as sharedFilterDoorCutRowsToSheets
 import com.kkc.sheettracker.data.loadHardwoodsCutlistIndexRawJson as sharedLoadHardwoodsCutlistIndexRawJson
@@ -273,7 +274,7 @@ internal fun buildDoorPanelsViewModel(
     hardwoodIndex: HardwoodCutlistIndex?,
     rawCutlistIndexJson: String?
 ): DoorPanelsViewModel {
-    val docs = hardwoodIndex?.documents.orEmpty().associateBy { it.docType }
+    val docs = HardwoodDocuments.mergedByType(hardwoodIndex?.documents.orEmpty())
     val doorListDoc = docs[HardwoodDocType.DOOR_LIST]
     val doorCutDoc = docs[HardwoodDocType.DOOR_CUT_LIST]
 

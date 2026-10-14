@@ -411,7 +411,9 @@ fun preciseMatches(row: HardwoodCutlistRow, part: Part): Boolean {
 private fun loadHardwoodsCutlistIndex(baseDir: File, jobFolderName: String): HardwoodCutlistIndex? {
     val file = File(baseDir, "$jobFolderName/.metadata/hardwoods/cutlist_index.json")
     if (!file.exists() || !file.isFile) return null
-    return runCatching { doorCutGson.fromJson(file.readText(), HardwoodCutlistIndex::class.java) }.getOrNull()
+    return runCatching {
+        HardwoodDocuments.dropUnknownDocTypes(doorCutGson.fromJson(file.readText(), HardwoodCutlistIndex::class.java))
+    }.getOrNull()
 }
 
 private fun loadDoorPanelCncJob(baseDir: File, jobFolderName: String): Job {

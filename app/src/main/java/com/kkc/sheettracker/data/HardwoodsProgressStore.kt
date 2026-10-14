@@ -130,7 +130,7 @@ class HardwoodsProgressStore(
         val indexFile = File(baseDir, "$jobFolderName/.metadata/hardwoods/cutlist_index.json")
         if (!indexFile.exists()) return null
         return runCatching {
-            gson.fromJson(indexFile.readText(), HardwoodCutlistIndex::class.java)
+            HardwoodDocuments.dropUnknownDocTypes(gson.fromJson(indexFile.readText(), HardwoodCutlistIndex::class.java))
         }.getOrNull()
     }
 

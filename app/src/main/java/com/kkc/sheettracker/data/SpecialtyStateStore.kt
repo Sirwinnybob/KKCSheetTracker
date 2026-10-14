@@ -219,10 +219,10 @@ class SpecialtyStateStore(
 
         runCatching {
             val rawJson = loadHardwoodsCutlistIndexRawJson(baseDir.absolutePath, jobFolderName) ?: return
-            val hardwoodIndex = hardwoodIndexGson.fromJson(rawJson, HardwoodCutlistIndex::class.java) ?: return
-            val closetRows = hardwoodIndex.documents
-                .firstOrNull { it.docType == HardwoodDocType.CLOSET_ROD_CUT_LIST }
-                ?.rows
+            val hardwoodIndex = HardwoodDocuments.dropUnknownDocTypes(
+                hardwoodIndexGson.fromJson(rawJson, HardwoodCutlistIndex::class.java)
+            ) ?: return
+            val closetRows = HardwoodDocuments.rowsOfTypeOrNull(hardwoodIndex, HardwoodDocType.CLOSET_ROD_CUT_LIST)
                 ?: return
             val normalizedMaterial = normalizeClosetRodAutomationMaterial(automationKey, item.material)
             closetRows
@@ -251,10 +251,10 @@ class SpecialtyStateStore(
 
         runCatching {
             val rawJson = loadHardwoodsCutlistIndexRawJson(baseDir.absolutePath, jobFolderName) ?: return
-            val hardwoodIndex = hardwoodIndexGson.fromJson(rawJson, HardwoodCutlistIndex::class.java) ?: return
-            val doorCutRows = hardwoodIndex.documents
-                .firstOrNull { it.docType == HardwoodDocType.DOOR_CUT_LIST }
-                ?.rows
+            val hardwoodIndex = HardwoodDocuments.dropUnknownDocTypes(
+                hardwoodIndexGson.fromJson(rawJson, HardwoodCutlistIndex::class.java)
+            ) ?: return
+            val doorCutRows = HardwoodDocuments.rowsOfTypeOrNull(hardwoodIndex, HardwoodDocType.DOOR_CUT_LIST)
                 ?: return
             val sheetRows = filterDoorCutRowsToSheets(
                 rows = doorCutRows,
