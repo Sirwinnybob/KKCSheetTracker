@@ -6,7 +6,9 @@ import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocSummary
 import com.kkc.sheettracker.data.models.HardwoodDocType
+import com.kkc.sheettracker.data.models.HardwoodDoorAssembly
 import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
+import com.kkc.sheettracker.data.models.HardwoodTotalsBlock
 import com.kkc.sheettracker.data.models.HardwoodStatusCounts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -106,6 +108,24 @@ class HardwoodDocumentsTest {
     }
 
     @Test
+    fun mergedByTypeMergesDoorsAndTotalsAcrossBatches() {
+        val ff = HardwoodDocType.DOOR_CUT_LIST
+        val a = batch(ff, "b1", "A", row("cv:b1:a")).copy(
+            doors = listOf(HardwoodDoorAssembly(id = "d1")),
+            totals = listOf(HardwoodTotalsBlock(page = 1, material = "Oak"))
+        )
+        val b = batch(ff, "b2", "B", row("cv:b2:a")).copy(
+            doors = listOf(HardwoodDoorAssembly(id = "d2"), HardwoodDoorAssembly(id = "d3")),
+            totals = listOf(HardwoodTotalsBlock(page = 2, material = "Maple"))
+        )
+        val merged = HardwoodDocuments.mergedByType(listOf(a, b)).getValue(ff)
+
+        assertEquals(listOf("d1", "d2", "d3"), merged.doors.map { it.id })
+        assertEquals(listOf("Oak", "Maple"), merged.totals.map { it.material })
+        assertEquals(listOf("cv:b1:a", "cv:b2:a"), merged.rows.map { it.rowId })
+    }
+
+    @Test
     fun mergeSummariesSumsCountsPerType() {
         val merged = HardwoodDocuments.mergeSummaries(
             listOf(
@@ -118,6 +138,28 @@ class HardwoodDocumentsTest {
         assertEquals(5, face.rowCount)
         assertEquals(HardwoodStatusCounts(10, 3, 1, 0), face.counts)
         assertEquals(1, merged.getValue(HardwoodDocType.NAILER_CUT_LIST).rowCount)
+    }
+
+    @Test
+    fun mergeSummariesPassesASingleItemGroupThroughUnchanged() {
+        val only = HardwoodDocSummary(
+            HardwoodDocType.NAILER_CUT_LIST, pdfFilename = "n.pdf", rowCount = 3,
+            counts = HardwoodStatusCounts(totalPieces = 9, donePieces = 4, badPieces = 1, skippedPieces = 2)
+        )
+        val merged = HardwoodDocuments.mergeSummaries(listOf(only))
+        assertSame(only, merged.getValue(HardwoodDocType.NAILER_CUT_LIST))
+    }
+
+    @Test
+    fun mergeSummariesSumsSkippedPieces() {
+        val merged = HardwoodDocuments.mergeSummaries(
+            listOf(
+                HardwoodDocSummary(HardwoodDocType.FACE_FRAME_CUT_LIST, rowCount = 1, counts = HardwoodStatusCounts(4, 1, 0, 2)),
+                HardwoodDocSummary(HardwoodDocType.FACE_FRAME_CUT_LIST, rowCount = 1, counts = HardwoodStatusCounts(6, 2, 0, 3))
+            )
+        ).getValue(HardwoodDocType.FACE_FRAME_CUT_LIST)
+        assertEquals(5, merged.counts.skippedPieces)
+        assertEquals(10, merged.counts.totalPieces)
     }
 
     @Test

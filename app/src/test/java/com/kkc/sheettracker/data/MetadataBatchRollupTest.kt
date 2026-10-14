@@ -6,6 +6,7 @@ import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
 import com.kkc.sheettracker.data.models.HardwoodJob
+import com.kkc.sheettracker.data.unified.FileBackedUnifiedMetadataEngine
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.io.File
@@ -30,11 +31,15 @@ class MetadataBatchRollupTest {
         )
     )
 
+    private var lastBaseDir: File? = null
+
     private fun newStore(index: HardwoodCutlistIndex, transformJson: (String) -> String = { it }): Pair<HardwoodsProgressStore, HardwoodJob> {
         val baseDir = Files.createTempDirectory("cv-rollup-test").toFile()
         val path = File(baseDir, "$folder/.metadata/hardwoods/cutlist_index.json")
         path.parentFile.mkdirs()
         path.writeText(transformJson(Gson().toJson(index)))
+        File(baseDir, "$folder/.metadata/deployment_gate.json").writeText("""{"deployed": true}""")
+        lastBaseDir = baseDir
         return HardwoodsProgressStore(baseDir, tabletId) to
             HardwoodJob(folderName = folder, jobNumber = "686", jobName = "Example", index = index)
     }
@@ -84,14 +89,23 @@ class MetadataBatchRollupTest {
             )
         )
         // A newer publisher wrote a doc type this build does not know.
-        val (store, job) = newStore(index) { it.replace("\"CLOSET_ROD_CUT_LIST\"", "\"FUTURE_DOC_TYPE\"") }
-        val knownJob = job.copy(index = HardwoodDocuments.dropUnknownDocTypes(index.copy(documents = twoBatchIndex().documents)))
+        val (store, _) = newStore(index) { it.replace("\"CLOSET_ROD_CUT_LIST\"", "\"FUTURE_DOC_TYPE\"") }
+
+        // The job is loaded from the on-disk file through the real engine, not hand-built.
+        val snapshot = FileBackedUnifiedMetadataEngine(lastBaseDir!!.absolutePath, isDebugBuild = true).getHardwoodsSnapshot(folder)
+        val loadedJob = snapshot!!.job
+        assertEquals(
+            listOf("cv:b1:a", "cv:b2:a"),
+            loadedJob.index!!.documents.flatMap { doc -> doc.rows.map { it.rowId } }
+        )
 
         store.incrementDoneCount(jobFolderName = folder, docType = "FACE_FRAME_CUT_LIST", rowId = "cv:b1:a", qty = 2)
+        store.incrementDoneCount(jobFolderName = folder, docType = "FUTURE_DOC_TYPE", rowId = "future:a", qty = 1)
 
         val progress = store.getRowProgressMap(folder)
         assertEquals(1, progress.getValue("FACE_FRAME_CUT_LIST" to "cv:b1:a").doneCount)
-        val summary = store.summarizeJob(knownJob)
+        val summary = store.summarizeJob(loadedJob)
+        assertEquals(listOf(HardwoodDocType.FACE_FRAME_CUT_LIST, HardwoodDocType.FACE_FRAME_CUT_LIST), summary.documents.map { it.docType })
         assertEquals(4, summary.counts.totalPieces)
         assertEquals(1, summary.counts.donePieces)
     }

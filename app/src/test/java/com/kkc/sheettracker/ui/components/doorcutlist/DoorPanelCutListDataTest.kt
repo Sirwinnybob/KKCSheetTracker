@@ -493,4 +493,14 @@ class DoorPanelCutListDataTest {
         assertEquals(listOf("Room #5 (CLOSET)"), source.roomKeys)
         assertEquals(2, source.rows.single().groups.single().qty)
     }
+
+    @Test
+    fun `unknown docType next to a door doc does not throw and the door doc is still used`() {
+        val doorRow = rowJson("DOOR_CUT_LIST:1:0", 1, 0, 2, "20", "1/4 MDF", "SHEETS")
+        val json = """{"documents":[{"docType":"HINGE_ORDER_LIST","rows":[{"rowId":"h1","qty":4,"unitType":"SHEETS"}]},""" +
+            """{"docType":"DOOR_CUT_LIST","pdfFilename":"x.pdf","pageCount":1,"rows":[$doorRow]}]}"""
+        val source = buildDoorPanelCutListSource("684 - X", json, null)!!
+        assertEquals(listOf("1/4 MDF"), source.materials)
+        assertEquals(2, source.rows.single().groups.single().qty)
+    }
 }
