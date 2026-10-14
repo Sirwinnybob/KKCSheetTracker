@@ -6,8 +6,6 @@ import com.kkc.sheettracker.data.models.DeliveryJob
 import com.kkc.sheettracker.data.models.DeliverySchedule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -51,69 +49,88 @@ class DeliveryScheduleBannerTest {
     private val sat = java.time.LocalDate.of(2026, 10, 17)
     private val sun = java.time.LocalDate.of(2026, 10, 18)
 
-    private fun weekendSchedule(slotKey: String) =
-        DeliverySchedule(isDated = true, weekOf = mon.plusWeeks(1)).withSlot(slotKey, listOf(job))
+    private fun weekendSchedule(vararg slotKeys: String) =
+        slotKeys.fold(DeliverySchedule(isDated = true, weekOf = mon.plusWeeks(1))) { s, key -> s.withSlot(key, listOf(job)) }
 
-    private fun weekendTodayDay(s: DeliverySchedule, today: java.time.LocalDate) =
-        com.kkc.sheettracker.data.weekendTodayDay(s, today, defaultDeliveryWeekStart(s, today))
+    private fun weekendDays(s: DeliverySchedule, today: java.time.LocalDate) =
+        com.kkc.sheettracker.data.weekendDays(s, today, defaultDeliveryWeekStart(s, today))
 
     @Test
     fun staleWeekOfDoesNotDuplicateSaturdayInTheBanner() {
         // HT has not rolled weekOf yet: it is still this Monday, so the week view already holds Saturday.
         val s = DeliverySchedule(isDated = true, weekOf = mon).withSlot("2026-10-17_am", listOf(job))
         val w = week(s, sat)
-        val today = weekendTodayDay(s, sat)
-        assertNull(today)
+        val weekend = weekendDays(s, sat)
+        assertTrue(weekend.isEmpty())
         assertEquals(1, w.days.count { it.date == sat })
         assertEquals(1, w.totalCount)
-        assertEquals("Deliveries This Week", deliveryBannerTitle(w, sat, today))
-        assertTrue(shouldShowDeliveryScheduleBanner(w, showWhenEmpty = false, weekendToday = today))
+        assertEquals("Deliveries This Week", deliveryBannerTitle(w, sat, weekend))
+        assertTrue(shouldShowDeliveryScheduleBanner(w, showWhenEmpty = false, weekendDays = weekend))
     }
 
     @Test
     fun saturdayWithTodaysJobTitlesTodayAndNextWeek() {
         val s = weekendSchedule("2026-10-17_am")
-        val today = weekendTodayDay(s, sat)
-        assertNotNull(today)
-        assertEquals("Deliveries Today & Next Week", deliveryBannerTitle(week(s, sat), sat, today))
+        val weekend = weekendDays(s, sat)
+        assertEquals(listOf(sat), weekend.map { it.date })
+        assertEquals("Deliveries Today & Next Week", deliveryBannerTitle(week(s, sat), sat, weekend))
     }
 
     @Test
     fun sundayWithTodaysJobTitlesTodayAndNextWeek() {
         val s = weekendSchedule("2026-10-18_pm")
-        val today = weekendTodayDay(s, sun)
-        assertNotNull(today)
-        assertEquals("Deliveries Today & Next Week", deliveryBannerTitle(week(s, sun), sun, today))
+        val weekend = weekendDays(s, sun)
+        assertEquals(listOf(sun), weekend.map { it.date })
+        assertEquals("Deliveries Today & Next Week", deliveryBannerTitle(week(s, sun), sun, weekend))
     }
 
     @Test
-    fun saturdayWithNoJobTodayKeepsNextWeekTitle() {
+    fun saturdayWithOnlySundayJobsTitlesThisWeekendAndNextWeek() {
+        val s = weekendSchedule("2026-10-18_am")
+        val weekend = weekendDays(s, sat)
+        assertEquals(listOf(sun), weekend.map { it.date })
+        assertEquals("Deliveries This Weekend & Next Week", deliveryBannerTitle(week(s, sat), sat, weekend))
+        assertTrue(shouldShowDeliveryScheduleBanner(week(s, sat), showWhenEmpty = false, weekendDays = weekend))
+    }
+
+    @Test
+    fun saturdayWithJobsBothWeekendDaysListsBothAndTitlesToday() {
+        val s = weekendSchedule("2026-10-17_am", "2026-10-18_pm")
+        val weekend = weekendDays(s, sat)
+        assertEquals(listOf(sat, sun), weekend.map { it.date })
+        assertEquals("Deliveries Today & Next Week", deliveryBannerTitle(week(s, sat), sat, weekend))
+        // The header count is the week's plus every listed weekend day.
+        assertEquals(2, weekend.sumOf { it.count })
+    }
+
+    @Test
+    fun saturdayWithNoWeekendJobsKeepsNextWeekTitle() {
         val s = weekendSchedule("2026-10-21_am")
-        val today = weekendTodayDay(s, sat)
-        assertNull(today)
-        assertEquals("Deliveries Next Week", deliveryBannerTitle(week(s, sat), sat, today))
+        val weekend = weekendDays(s, sat)
+        assertTrue(weekend.isEmpty())
+        assertEquals("Deliveries Next Week", deliveryBannerTitle(week(s, sat), sat, weekend))
     }
 
     @Test
-    fun weekdayHasNoWeekendTodayAndKeepsThisWeekTitle() {
+    fun weekdayHasNoWeekendDaysAndKeepsThisWeekTitle() {
         val s = DeliverySchedule(isDated = true, weekOf = mon).withSlot("2026-10-14_am", listOf(job))
         val wed = java.time.LocalDate.of(2026, 10, 14)
-        val today = weekendTodayDay(s, wed)
-        assertNull(today)
-        assertEquals("Deliveries This Week", deliveryBannerTitle(week(s, wed), wed, today))
+        val weekend = weekendDays(s, wed)
+        assertTrue(weekend.isEmpty())
+        assertEquals("Deliveries This Week", deliveryBannerTitle(week(s, wed), wed, weekend))
     }
 
     @Test
-    fun v1ScheduleHasNoWeekendToday() {
-        assertNull(weekendTodayDay(DeliverySchedule(), sat))
+    fun v1ScheduleHasNoWeekendDays() {
+        assertTrue(weekendDays(DeliverySchedule(), sat).isEmpty())
     }
 
     @Test
-    fun bannerShowsForNonAdminWhenOnlyWeekendTodayHasJobs() {
+    fun bannerShowsForNonAdminWhenOnlyWeekendDaysHaveJobs() {
         val s = weekendSchedule("2026-10-17_am")
         val w = week(s, sat)
         assertEquals(0, w.totalCount)
         assertFalse(shouldShowDeliveryScheduleBanner(w, showWhenEmpty = false))
-        assertTrue(shouldShowDeliveryScheduleBanner(w, showWhenEmpty = false, weekendToday = weekendTodayDay(s, sat)))
+        assertTrue(shouldShowDeliveryScheduleBanner(w, showWhenEmpty = false, weekendDays = weekendDays(s, sat)))
     }
 }

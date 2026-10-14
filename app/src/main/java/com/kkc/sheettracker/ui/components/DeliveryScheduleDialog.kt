@@ -75,7 +75,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
@@ -93,7 +93,9 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -113,6 +115,10 @@ import com.kkc.sheettracker.data.buildDeliveryWeek
 import com.kkc.sheettracker.data.defaultDeliveryWeekStart
 import com.kkc.sheettracker.data.deliveryDayJobs
 import com.kkc.sheettracker.data.shopToday
+import kotlinx.coroutines.delay
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.temporal.TemporalAdjusters
 import com.kkc.sheettracker.data.models.DELIVERY_PERIODS
 import com.kkc.sheettracker.data.models.DeliveryJob
 import com.kkc.sheettracker.data.models.DeliverySchedule
@@ -142,6 +148,78 @@ private data class DeliveryDragState(
     val dragOffset: Offset
 )
 
+private val DeliveryDateLabel: java.time.format.DateTimeFormatter =
+    java.time.format.DateTimeFormatter.ofPattern("EEE M/d", java.util.Locale.US)
+private const val DeliveryDropNoticeMillis = 3_000L
+
+/** Why a job may or may not be placed on a day/half-day (see [deliveryDropAllowed]). */
+internal enum class DropDecision { Allowed, DayFull, HalfDayFull, PastCutoff }
+
+private fun DeliveryJob.sameDeliveryJob(other: DeliveryJob): Boolean =
+    if (folderName.isNotBlank() && other.folderName.isNotBlank()) folderName.equals(other.folderName, ignoreCase = true)
+    else jobNumber == other.jobNumber
+
+/**
+ * Whether a job may land in [targetKey] on [day]. The job moving does not count against its own
+ * destination: pass [job] when known, otherwise [sourceKey] (the slot it is dragged from, null for
+ * the pool) is used to recognise an AM <-> PM move inside the same day. A v1 ([isDated] false)
+ * Hours Tracker also caps each half-day at [MAX_DELIVERY_JOBS_PER_LEGACY_SLOT].
+ */
+internal fun deliveryDropAllowed(
+    schedule: DeliverySchedule,
+    day: DeliveryDayView,
+    targetKey: String,
+    sourceKey: String?,
+    isDated: Boolean,
+    job: DeliveryJob? = null
+): DropDecision {
+    if (!day.acceptsPlacement) return DropDecision.PastCutoff
+    val dayJobs = deliveryDayJobs(schedule, targetKey)
+    val targetJobs = schedule.slotByKey(targetKey).jobs
+    val movingOnDay = if (job != null) dayJobs.count { it.sameDeliveryJob(job) }
+    else if (sourceKey == day.amKey || sourceKey == day.pmKey) 1 else 0
+    if (dayJobs.size - movingOnDay >= MAX_DELIVERY_JOBS_PER_DAY) return DropDecision.DayFull
+    if (!isDated) {
+        val movingInTarget = if (job != null) targetJobs.count { it.sameDeliveryJob(job) }
+        else if (sourceKey == targetKey) 1 else 0
+        if (targetJobs.size - movingInTarget >= MAX_DELIVERY_JOBS_PER_LEGACY_SLOT) return DropDecision.HalfDayFull
+    }
+    return DropDecision.Allowed
+}
+
+/** The transient message for a rejected drop/add; null when [decision] is [DropDecision.Allowed]. */
+internal fun deliveryDropNotice(decision: DropDecision): String? = when (decision) {
+    DropDecision.Allowed -> null
+    DropDecision.DayFull -> "That day already has $MAX_DELIVERY_JOBS_PER_DAY deliveries"
+    DropDecision.HalfDayFull -> "That half-day already has $MAX_DELIVERY_JOBS_PER_LEGACY_SLOT deliveries"
+    DropDecision.PastCutoff -> "Too far in the past"
+}
+
+/**
+ * The week the dialog shows. [selectedWeek] is an absolute date the admin navigated to (null = the
+ * default week), so the view does not jump when HT's weekOf rolls over on Saturday. A v1 schedule
+ * has no week navigation and always shows its default week.
+ */
+internal fun resolveDeliveryWeekStart(schedule: DeliverySchedule, today: LocalDate, selectedWeek: LocalDate?): LocalDate {
+    val default = defaultDeliveryWeekStart(schedule, today)
+    if (!schedule.isDated) return default
+    return selectedWeek?.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)) ?: default
+}
+
+/** [target] as the new selection, or null (follow the default week) when it IS the default week. */
+internal fun selectDeliveryWeek(target: LocalDate, defaultWeek: LocalDate): LocalDate? =
+    target.takeIf { it != defaultWeek }
+
+/** Reset clears the mirrored Mon-Fri week starting at [weekStart]; the button says exactly which dates. */
+internal fun deliveryResetConfirmLabel(weekStart: LocalDate): String =
+    "Confirm: clear ${weekStart.format(DeliveryDateLabel)} – ${weekStart.plusDays(4).format(DeliveryDateLabel)}"
+
+/** Header status from facts, not a local counter: edits still running plus slots queued on this tablet. */
+internal fun deliveryEditStatusText(inFlightEdits: Int, pendingSlotCount: Int): String? {
+    val total = inFlightEdits + pendingSlotCount
+    return if (total > 0) "$total edit(s) sending/queued" else null
+}
+
 @Composable
 private fun Modifier.pressScale(onClick: () -> Unit = {}): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
@@ -166,18 +244,27 @@ fun DeliveryScheduleDialog(
     notices: List<String> = emptyList(),
     onDismissNotices: () -> Unit = {},
     pendingSlotKeys: Set<String> = emptySet(),
+    /** Edits the caller has submitted that have not finished yet (sending, or waiting their turn). */
+    inFlightEdits: Int = 0,
     /** Bumped by the caller after a refused/noticed edit so the optimistic local change is reverted to [schedule]. */
     revision: Int = 0
 ) {
     val context = LocalContext.current
     val today = shopToday()
-    var weekOffset by remember { mutableIntStateOf(0) }
-    if (!schedule.isDated && weekOffset != 0) weekOffset = 0
-    val weekStart = defaultDeliveryWeekStart(schedule, today).plusWeeks(weekOffset.toLong())
+    // Absolute date, null = follow the default week: a Saturday weekOf rollover must not shift the view.
+    var selectedWeek by remember { mutableStateOf<LocalDate?>(null) }
+    val defaultWeekStart = defaultDeliveryWeekStart(schedule, today)
+    val weekStart = resolveDeliveryWeekStart(schedule, today, selectedWeek)
     var editableSchedule by remember(schedule, revision) { mutableStateOf(schedule) }
     var activeAddSlot by remember { mutableStateOf<String?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
-    var pendingEdits by remember { mutableIntStateOf(0) }
+    var dropNotice by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(dropNotice) {
+        if (dropNotice != null) {
+            delay(DeliveryDropNoticeMillis)
+            dropNotice = null
+        }
+    }
 
     var dragState by remember { mutableStateOf<DeliveryDragState?>(null) }
     var hoveredSlotKey by remember { mutableStateOf<String?>(null) }
@@ -187,24 +274,34 @@ fun DeliveryScheduleDialog(
 
     LaunchedEffect(schedule, revision) {
         editableSchedule = schedule
-        pendingEdits = 0
         confirmReset = false
     }
 
     val week = remember(editableSchedule, weekStart, today, isAdminMode) {
         buildDeliveryWeek(editableSchedule, weekStart, today, includeEmptyWeekend = isAdminMode && editableSchedule.isDated)
     }
-    fun placeJob(job: DeliveryJob, toSlot: String, fromSlot: String?) {
+    /** Day of [slotKey] in the shown week, for the drop/add rules; null when that slot isn't on screen. */
+    fun dayOfSlot(slotKey: String): DeliveryDayView? =
+        week.days.firstOrNull { it.amKey == slotKey || it.pmKey == slotKey }
+
+    /** Returns false (after telling the admin why) when the job may not go there. */
+    fun placeJob(job: DeliveryJob, toSlot: String, fromSlot: String?): Boolean {
         val dest = editableSchedule.slotByKey(toSlot).jobs
-        // The limit is per day; the moving job doesn't count against its own destination day.
-        if (deliveryDayJobs(editableSchedule, toSlot).count { it != job } >= MAX_DELIVERY_JOBS_PER_DAY) return
-        // A v1 (undated) HT also caps each half-day at 3 and quarantines a request that exceeds it.
-        if (!editableSchedule.isDated && dest.count { it != job } >= MAX_DELIVERY_JOBS_PER_LEGACY_SLOT) return
+        // Already in this slot: nothing to place (a drop onto its own slot, or a pool job already there).
+        if (dest.any { it.sameDeliveryJob(job) }) return true
+        val day = dayOfSlot(toSlot) ?: return false
+        // The limit is per day (the moving job doesn't count against its own destination day); a v1
+        // HT also caps each half-day at 3 and quarantines a request that exceeds it.
+        val decision = deliveryDropAllowed(editableSchedule, day, toSlot, fromSlot, !editableSchedule.isDated, job)
+        if (decision != DropDecision.Allowed) {
+            dropNotice = deliveryDropNotice(decision)
+            return false
+        }
         var next = editableSchedule
         if (fromSlot != null) next = next.withSlot(fromSlot, next.slotByKey(fromSlot).jobs.filterNot { it == job })
         editableSchedule = next.withSlot(toSlot, dest + job)
         onPlaceJob?.invoke(job, toSlot, fromSlot)
-        pendingEdits += 1
+        return true
     }
 
     fun removeJob(slotKey: String, index: Int) {
@@ -212,18 +309,15 @@ fun DeliveryScheduleDialog(
         val job = jobs.getOrNull(index) ?: return
         editableSchedule = editableSchedule.withSlot(slotKey, jobs.filterIndexed { i, _ -> i != index })
         onRemoveJob?.invoke(job, slotKey)
-        pendingEdits += 1
     }
 
     fun replaceSlot(slotKey: String, jobs: List<DeliveryJob>) {
         editableSchedule = editableSchedule.withSlot(slotKey, jobs)
         onReplaceSlot?.invoke(slotKey, jobs)
-        pendingEdits += 1
     }
 
     fun resetWeek() {
         onResetWeek?.invoke()
-        pendingEdits += 1
         confirmReset = false
         activeAddSlot = null
     }
@@ -251,8 +345,7 @@ fun DeliveryScheduleDialog(
         if (drag != null && target != null) {
             val fromSlot = drag.sourceSlotKey
             val fromIndex = drag.sourceIndex
-            val targetDay = week.days.firstOrNull { it.amKey == target || it.pmKey == target }
-            if (targetDay?.acceptsPlacement == true) {
+            if (dayOfSlot(target) != null) {
                 if (fromSlot != null && fromIndex != null) {
                     val sourceSlot = editableSchedule.slotByKey(fromSlot)
                     if (fromSlot != target && sourceSlot.jobs.getOrNull(fromIndex) == drag.job) {
@@ -289,7 +382,10 @@ fun DeliveryScheduleDialog(
                             Text(
                                 text = buildString {
                                     append("Week of ${week.weekStart.format(java.time.format.DateTimeFormatter.ofPattern("EEE M/d", java.util.Locale.US))}")
-                                    if (isAdminMode) append(if (pendingEdits > 0) " · $pendingEdits edit(s) sent" else " · Admin editing")
+                                    if (isAdminMode) {
+                                        append(" · ")
+                                        append(deliveryEditStatusText(inFlightEdits, pendingSlotKeys.size) ?: "Admin editing")
+                                    }
                                 },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -298,17 +394,23 @@ fun DeliveryScheduleDialog(
                     },
                     actions = {
                         if (schedule.isDated) {
-                            IconButton(onClick = { weekOffset -= 1 }, enabled = week.canGoBack) {
+                            IconButton(
+                                onClick = { selectedWeek = selectDeliveryWeek(week.weekStart.minusWeeks(1), defaultWeekStart) },
+                                enabled = week.canGoBack
+                            ) {
                                 Icon(Icons.Default.ChevronLeft, contentDescription = "Previous week")
                             }
-                            TextButton(onClick = { weekOffset = 0 }, enabled = !week.isDefaultWeek) { Text("This week") }
-                            IconButton(onClick = { weekOffset += 1 }, enabled = week.canGoForward) {
+                            TextButton(onClick = { selectedWeek = null }, enabled = !week.isDefaultWeek) { Text("This week") }
+                            IconButton(
+                                onClick = { selectedWeek = selectDeliveryWeek(week.weekStart.plusWeeks(1), defaultWeekStart) },
+                                enabled = week.canGoForward
+                            ) {
                                 Icon(Icons.Default.ChevronRight, contentDescription = "Next week")
                             }
                         }
                         if (isAdminMode && onResetWeek != null && week.isDefaultWeek) {
                             if (confirmReset) {
-                                TextButton(onClick = ::resetWeek) { Text("Confirm: clear Mon–Fri dates") }
+                                TextButton(onClick = ::resetWeek) { Text(deliveryResetConfirmLabel(week.weekStart)) }
                                 TextButton(onClick = { confirmReset = false }) { Text("Cancel") }
                             } else {
                                 TextButton(onClick = { confirmReset = true }) { Text("Reset") }
@@ -370,18 +472,19 @@ fun DeliveryScheduleDialog(
 
                     DeliveryScheduleGrid(
                         week = week,
+                        schedule = editableSchedule,
                         pendingSlotKeys = pendingSlotKeys,
                         // v2 jobs need a folderName to be dated; manual entry has none, so placement is drag-only.
                         allowManualAdd = !schedule.isDated,
                         // v1 HT rejects a 4th job in one half-day, so undated schedules cap each slot at 3.
-                        legacyHalfDayCap = !schedule.isDated,
+                        isDated = schedule.isDated,
                         isAdminMode = isAdminMode,
                         activeAddSlot = activeAddSlot,
                         dragState = dragState,
                         hoveredSlotKey = hoveredSlotKey,
                         onStartAdd = { slotKey -> activeAddSlot = if (activeAddSlot == slotKey) null else slotKey },
                         onCancelAdd = { activeAddSlot = null },
-                        onAddJob = { slotKey, job -> placeJob(job, slotKey, null); activeAddSlot = null },
+                        onAddJob = { slotKey, job -> if (placeJob(job, slotKey, null)) activeAddSlot = null },
                         onSaveJob = { slotKey, index, job ->
                             replaceSlot(slotKey, editableSchedule.slotByKey(slotKey).jobs.mapIndexed { i, e -> if (i == index) job else e })
                         },
@@ -413,6 +516,25 @@ fun DeliveryScheduleDialog(
                         offset = drag.dragOffset
                     )
                 }
+
+                // Transient: tells the admin why a drop/add did nothing. Pinned to the viewport (not the
+                // scrolling column) so it is visible wherever the drag ended.
+                dropNotice?.let { notice ->
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(KKCSpacing.screenHorizontal)
+                            .semantics { liveRegion = LiveRegionMode.Polite }
+                    ) {
+                        Text(
+                            text = notice,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(KKCSpacing.cardPaddingSmall)
+                        )
+                    }
+                }
             }
         }
     }
@@ -424,9 +546,10 @@ private fun rememberScrollStateCompat() = androidx.compose.foundation.rememberSc
 @Composable
 private fun DeliveryScheduleGrid(
     week: DeliveryWeekView,
+    schedule: DeliverySchedule,
     pendingSlotKeys: Set<String>,
     allowManualAdd: Boolean,
-    legacyHalfDayCap: Boolean,
+    isDated: Boolean,
     isAdminMode: Boolean,
     activeAddSlot: String?,
     context: Context,
@@ -457,28 +580,33 @@ private fun DeliveryScheduleGrid(
             horizontalArrangement = Arrangement.spacedBy(KKCSpacing.l)
         ) {
             week.days.forEach { day ->
-                DeliveryDayColumn(
-                    day = day,
-                    pendingSlotKeys = pendingSlotKeys,
-                    allowManualAdd = allowManualAdd,
-                    legacyHalfDayCap = legacyHalfDayCap,
-                    isAdminMode = isAdminMode,
-                    activeAddSlot = activeAddSlot,
-                    context = context,
-                    dragState = dragState,
-                    hoveredSlotKey = hoveredSlotKey,
-                    columnWidth = if (needsScroll) DeliveryMinColumnWidth else columnWidth,
-                    onStartAdd = onStartAdd,
-                    onCancelAdd = onCancelAdd,
-                    onAddJob = onAddJob,
-                    onSaveJob = onSaveJob,
-                    onRemoveJob = onRemoveJob,
-                    onSlotBoundsChanged = onSlotBoundsChanged,
-                    onDragStart = onDragStart,
-                    onDragMove = onDragMove,
-                    onDragEnd = onDragEnd,
-                    onDragCancel = onDragCancel
-                )
+                // Keyed by date so a day keeps its cell state (open Add panel, animations) when the
+                // list of days changes (weekend columns appear/disappear, week navigation).
+                key(day.date) {
+                    DeliveryDayColumn(
+                        day = day,
+                        schedule = schedule,
+                        pendingSlotKeys = pendingSlotKeys,
+                        allowManualAdd = allowManualAdd,
+                        isDated = isDated,
+                        isAdminMode = isAdminMode,
+                        activeAddSlot = activeAddSlot,
+                        context = context,
+                        dragState = dragState,
+                        hoveredSlotKey = hoveredSlotKey,
+                        columnWidth = if (needsScroll) DeliveryMinColumnWidth else columnWidth,
+                        onStartAdd = onStartAdd,
+                        onCancelAdd = onCancelAdd,
+                        onAddJob = onAddJob,
+                        onSaveJob = onSaveJob,
+                        onRemoveJob = onRemoveJob,
+                        onSlotBoundsChanged = onSlotBoundsChanged,
+                        onDragStart = onDragStart,
+                        onDragMove = onDragMove,
+                        onDragEnd = onDragEnd,
+                        onDragCancel = onDragCancel
+                    )
+                }
             }
         }
     }
@@ -487,9 +615,10 @@ private fun DeliveryScheduleGrid(
 @Composable
 private fun DeliveryDayColumn(
     day: DeliveryDayView,
+    schedule: DeliverySchedule,
     pendingSlotKeys: Set<String>,
     allowManualAdd: Boolean,
-    legacyHalfDayCap: Boolean,
+    isDated: Boolean,
     isAdminMode: Boolean,
     activeAddSlot: String?,
     context: Context,
@@ -516,26 +645,25 @@ private fun DeliveryDayColumn(
             modifier = Modifier.padding(bottom = KKCSpacing.xs)
         )
         // The six-delivery limit belongs to the whole day, so the meter sits once under the day label.
-        if (isAdminMode) {
+        // A past day can't be edited, so its meter would only be noise.
+        if (isAdminMode && day.state != DeliveryDayState.PAST) {
             DeliveryCapacityIndicator(
                 count = day.count,
                 max = MAX_DELIVERY_JOBS_PER_DAY,
                 modifier = Modifier.padding(bottom = KKCSpacing.xs)
             )
         }
-        val dayHasRoom = day.count < MAX_DELIVERY_JOBS_PER_DAY
         DELIVERY_PERIODS.forEach { period ->
             val slotKey = day.slotKey(period)
             val slot = day.slot(period)
             val isHovered = hoveredSlotKey == slotKey
-            // v1 only: the half-day itself is full at 3 (v2 days have no per-half-day limit).
-            val slotHasRoom = !legacyHalfDayCap || slot.jobs.size < MAX_DELIVERY_JOBS_PER_LEGACY_SLOT
-            // Full day: only a job already on this day (AM <-> PM) may still land here.
+            // Day limit (6), v1 half-day limit (3) and the past cutoff all live in deliveryDropAllowed;
+            // a full day still accepts a job already on it (AM <-> PM).
             val isValidDropTarget = dragState != null &&
                 dragState.sourceSlotKey != slotKey &&
-                day.acceptsPlacement &&
-                slotHasRoom &&
-                (dayHasRoom || dragState.sourceSlotKey == day.amKey || dragState.sourceSlotKey == day.pmKey)
+                deliveryDropAllowed(schedule, day, slotKey, dragState.sourceSlotKey, isDated, dragState.job) ==
+                DropDecision.Allowed
+            val canAdd = deliveryDropAllowed(schedule, day, slotKey, null, isDated) == DropDecision.Allowed
             val dragSourceIndex = if (dragState?.sourceSlotKey == slotKey) dragState.sourceIndex else null
             DeliveryPeriodCell(
                 slotKey = slotKey,
@@ -548,7 +676,7 @@ private fun DeliveryDayColumn(
                 isValidDropTarget = isValidDropTarget,
                 dragSourceIndex = dragSourceIndex,
                 acceptsPlacement = day.acceptsPlacement && allowManualAdd,
-                canAdd = dayHasRoom && slotHasRoom,
+                canAdd = canAdd,
                 isPending = slotKey in pendingSlotKeys,
                 onStartAdd = { onStartAdd(slotKey) },
                 onCancelAdd = onCancelAdd,

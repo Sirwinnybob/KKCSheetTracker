@@ -203,12 +203,52 @@ class DeliveryWeekTest {
         assertTrue(moved.slotByKey("2026-10-14_am").jobs.isEmpty())
         assertTrue(moved.slotByKey("wednesday_am").jobs.isEmpty())
 
-        val second = move.copy(
-            slotEdits = move.slotEdits + DeliveryScheduleSlotEdit("2026-10-14_am", listOf(b))
+        // Second half: the later edit of the same request wins. The job is moved to 21_pm and then
+        // sent back to 14_am (re-cased folder), so it must leave 21_pm; an unrelated job placed in a
+        // slot the request never touched stays exactly where it was.
+        val bystander = DeliveryJob("800", "JONES", folderName = "800 - JONES")
+        val withBystander = schedule.copy(datedSlots = schedule.datedSlots + ("2026-10-15_am" to DeliverySlot(listOf(bystander))))
+        val back = move.copy(
+            slotEdits = move.slotEdits + DeliveryScheduleSlotEdit("2026-10-14_am", listOf(job.copy(folderName = "670 - ESCHRICH"), b))
         )
-        val both = overlayPendingDeliveryRequest(schedule, second)
-        assertEquals(listOf(b), both.slotByKey("2026-10-14_am").jobs)
+        val both = overlayPendingDeliveryRequest(withBystander, back)
+        assertEquals(listOf(job.copy(folderName = "670 - ESCHRICH"), b), both.slotByKey("2026-10-14_am").jobs)
+        assertTrue("job must leave its earlier destination", both.slotByKey("2026-10-21_pm").jobs.isEmpty())
+        assertEquals(listOf(bystander), both.slotByKey("2026-10-15_am").jobs)
         assertEquals(1, both.datedSlots.values.sumOf { s -> s.jobs.count { it.folderName.equals(job.folderName, true) } })
+    }
+
+    @Test
+    fun pendingDatedEditWithABlankFolderJobStripsNothingElse() {
+        // A manual (blank-folder) job has no identity to dedupe on: a dated edit carrying it must not
+        // pull a different job with the same number/blank folder out of another slot.
+        val manual = DeliveryJob("900", "MANUAL")
+        val other = DeliveryJob("901", "OTHER")
+        val s = v2(mon, "2026-10-14_am" to manual, "2026-10-16_pm" to other)
+        val request = DeliveryScheduleEditRequest(
+            "T1", "x",
+            slotEdits = listOf(DeliveryScheduleSlotEdit("2026-10-15_am", listOf(manual)))
+        )
+        val overlaid = overlayPendingDeliveryRequest(s, request, today = wed)
+        assertEquals(listOf(manual), overlaid.slotByKey("2026-10-15_am").jobs)
+        assertEquals(listOf(manual), overlaid.slotByKey("2026-10-14_am").jobs)
+        assertEquals(listOf(other), overlaid.slotByKey("2026-10-16_pm").jobs)
+    }
+
+    @Test
+    fun pendingDatedEditWithAFolderStripsOnlyThatFolderFromEverySlot() {
+        val b = DeliveryJob("702", "SMITH", folderName = "702 - SMITH")
+        val s = v2(mon, "2026-10-14_am" to job, "2026-10-15_pm" to b)
+            .copy(slots = mapOf("wednesday_am" to DeliverySlot(listOf(job, b))))
+        val request = DeliveryScheduleEditRequest(
+            "T1", "x",
+            slotEdits = listOf(DeliveryScheduleSlotEdit("2026-10-16_am", listOf(job)))
+        )
+        val overlaid = overlayPendingDeliveryRequest(s, request, today = wed)
+        assertEquals(listOf(job), overlaid.slotByKey("2026-10-16_am").jobs)
+        assertTrue(overlaid.slotByKey("2026-10-14_am").jobs.isEmpty())
+        assertEquals(listOf(b), overlaid.slotByKey("2026-10-15_pm").jobs)
+        assertEquals(listOf(b), overlaid.slotByKey("wednesday_am").jobs)
     }
 
     @Test

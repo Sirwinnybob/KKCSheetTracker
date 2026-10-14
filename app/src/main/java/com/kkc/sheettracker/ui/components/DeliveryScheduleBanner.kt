@@ -6,7 +6,7 @@ import com.kkc.sheettracker.data.DeliveryWeekView
 import com.kkc.sheettracker.data.buildDeliveryWeek
 import com.kkc.sheettracker.data.defaultDeliveryWeekStart
 import com.kkc.sheettracker.data.shopToday
-import com.kkc.sheettracker.data.weekendTodayDay
+import com.kkc.sheettracker.data.weekendDays as hiddenWeekendDays
 import com.kkc.sheettracker.data.models.DELIVERY_PERIODS
 import com.kkc.sheettracker.data.models.DeliverySchedule
 import androidx.compose.animation.AnimatedVisibility
@@ -47,6 +47,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -75,28 +80,33 @@ import androidx.compose.ui.unit.Constraints
 import com.kkc.sheettracker.data.models.DeliveryJob
 
 internal fun shouldShowDeliveryScheduleBanner(week: DeliveryWeekView, showWhenEmpty: Boolean): Boolean =
-    shouldShowDeliveryScheduleBanner(week, showWhenEmpty, weekendToday = null)
+    shouldShowDeliveryScheduleBanner(week, showWhenEmpty, weekendDays = emptyList())
 
-/** [weekendToday] is today's own delivery day on a Saturday/Sunday (see `weekendTodayDay`). */
+/** [weekendDays] are the hidden Saturday/Sunday days that have jobs (see `weekendDays`). */
 internal fun shouldShowDeliveryScheduleBanner(
     week: DeliveryWeekView,
     showWhenEmpty: Boolean,
-    weekendToday: DeliveryDayView?
-): Boolean = showWhenEmpty || week.totalCount > 0 || (weekendToday?.count ?: 0) > 0
+    weekendDays: List<DeliveryDayView>
+): Boolean = showWhenEmpty || week.totalCount > 0 || weekendDays.any { it.count > 0 }
 
 internal fun daysWithDeliveries(week: DeliveryWeekView): Set<LocalDate> =
     week.days.filter { it.count > 0 }.map { it.date }.toSet()
 
 /** After HT's Saturday rollover `weekOf` is next Monday, so the banner is about next week. */
 internal fun deliveryBannerTitle(week: DeliveryWeekView, today: LocalDate): String =
-    deliveryBannerTitle(week, today, weekendToday = null)
+    deliveryBannerTitle(week, today, weekendDays = emptyList())
 
+/**
+ * [weekendDays] lead the strip ahead of the coming week: "Today" when one of them is today,
+ * otherwise (a Saturday's Sunday jobs) "This Weekend".
+ */
 internal fun deliveryBannerTitle(
     week: DeliveryWeekView,
     today: LocalDate,
-    weekendToday: DeliveryDayView?
+    weekendDays: List<DeliveryDayView>
 ): String = when {
-    weekendToday != null -> "Deliveries Today & Next Week"
+    weekendDays.any { it.date == today } -> "Deliveries Today & Next Week"
+    weekendDays.isNotEmpty() -> "Deliveries This Weekend & Next Week"
     week.weekStart > today -> "Deliveries Next Week"
     else -> "Deliveries This Week"
 }
@@ -125,17 +135,17 @@ fun DeliveryScheduleBanner(
     val week = remember(schedule, today) {
         buildDeliveryWeek(schedule, defaultDeliveryWeekStart(schedule, today), today, includeEmptyWeekend = false)
     }
-    // Saturday/Sunday: HT's weekOf already points at next Monday, so a delivery dated today would
-    // otherwise be invisible. It leads the strip, ahead of the coming week.
-    val weekendToday = remember(schedule, today, week.weekStart) { weekendTodayDay(schedule, today, week.weekStart) }
-    if (!shouldShowDeliveryScheduleBanner(week, showWhenEmpty, weekendToday)) return
+    // Saturday/Sunday: HT's weekOf already points at next Monday, so a delivery dated today (or, on a
+    // Saturday, tomorrow) would otherwise be invisible. Those days lead the strip, ahead of the coming week.
+    val weekendDays = remember(schedule, today, week.weekStart) { hiddenWeekendDays(schedule, today, week.weekStart) }
+    if (!shouldShowDeliveryScheduleBanner(week, showWhenEmpty, weekendDays)) return
 
-    val deliveryDays = daysWithDeliveries(week) + listOfNotNull(weekendToday?.date)
+    val deliveryDays = daysWithDeliveries(week) + weekendDays.map { it.date }
     var bannerExpanded by rememberSaveable { mutableStateOf(false) }
     var expandedDays by remember { mutableStateOf(deliveryDays) }
     var previousDeliveryDays by remember { mutableStateOf(deliveryDays) }
-    LaunchedEffect(week, weekendToday) {
-        val currentDeliveryDays = daysWithDeliveries(week) + listOfNotNull(weekendToday?.date)
+    LaunchedEffect(week, weekendDays) {
+        val currentDeliveryDays = daysWithDeliveries(week) + weekendDays.map { it.date }
         expandedDays = expandedDays + (currentDeliveryDays - previousDeliveryDays)
         previousDeliveryDays = currentDeliveryDays
     }
@@ -165,7 +175,7 @@ fun DeliveryScheduleBanner(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${week.totalCount + (weekendToday?.count ?: 0)} — ${deliveryBannerTitle(week, today, weekendToday)}",
+                    text = "${week.totalCount + weekendDays.sumOf { it.count }} — ${deliveryBannerTitle(week, today, weekendDays)}",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -189,7 +199,7 @@ fun DeliveryScheduleBanner(
             ) {
                 DeliveryDayStrip(
                     week = week,
-                    weekendToday = weekendToday,
+                    weekendDays = weekendDays,
                     expandedDays = expandedDays,
                     onToggleDay = { day ->
                         expandedDays = if (day in expandedDays) expandedDays - day else expandedDays + day
@@ -210,13 +220,15 @@ private val DeliveryDaySegmentExpandedWidth = 220.dp
 // with zero measurement risk; any day with unusually many jobs scrolls within the fixed
 // box (see verticalScroll below) instead of being clipped.
 private val DeliveryDaySegmentHeight = 200.dp
+// Height of the "more below" fade at the bottom of a scrollable day segment.
+private val DeliverySegmentFadeHeight = 28.dp
 private val DeliveryDaySegmentWidthSpring: FiniteAnimationSpec<Dp> =
     spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
 
 @Composable
 private fun DeliveryDayStrip(
     week: DeliveryWeekView,
-    weekendToday: DeliveryDayView?,
+    weekendDays: List<DeliveryDayView>,
     expandedDays: Set<LocalDate>,
     onToggleDay: (LocalDate) -> Unit,
     onJobSelected: (folderName: String) -> Unit
@@ -228,7 +240,7 @@ private fun DeliveryDayStrip(
             .padding(horizontal = KKCSpacing.l, vertical = KKCSpacing.s),
         horizontalArrangement = Arrangement.spacedBy(KKCSpacing.xs)
     ) {
-        (listOfNotNull(weekendToday) + week.days).forEach { day ->
+        (weekendDays + week.days).forEach { day ->
             DeliveryDaySegment(
                 day = day,
                 isExpanded = day.date in expandedDays,
@@ -281,7 +293,29 @@ private fun DeliveryDaySegment(
             .padding(KKCSpacing.s)
     ) {
         if (isExpanded) {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
+            val scrollState = rememberScrollState()
+            // Bottom fade in the segment's own container color while more content is below the fold.
+            // Drawn (not a Surface/shadow) so it can't bleed through the translucent past-day fill.
+            val fadeColor = containerColor.copy(alpha = contentAlpha)
+            Column(
+                Modifier
+                    .drawWithContent {
+                        drawContent()
+                        if (scrollState.canScrollForward) {
+                            val fadeHeight = DeliverySegmentFadeHeight.toPx().coerceAtMost(size.height)
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(Color.Transparent, fadeColor),
+                                    startY = size.height - fadeHeight,
+                                    endY = size.height
+                                ),
+                                topLeft = Offset(0f, size.height - fadeHeight),
+                                size = Size(size.width, fadeHeight)
+                            )
+                        }
+                    }
+                    .verticalScroll(scrollState)
+            ) {
                 Text(
                     text = buildString {
                         append(dayCount)

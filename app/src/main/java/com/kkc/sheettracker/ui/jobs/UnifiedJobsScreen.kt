@@ -85,7 +85,6 @@ import com.kkc.sheettracker.data.DeliveryScheduleEditRequest
 import com.kkc.sheettracker.data.DeliveryScheduleRequestStore
 import com.kkc.sheettracker.data.DeliveryEditOutcome
 import com.kkc.sheettracker.data.DeliveryScheduleEditor
-import com.kkc.sheettracker.data.asDeliveryRemote
 import com.kkc.sheettracker.data.overlayPendingDeliveryRequest
 import com.kkc.sheettracker.data.pendingDeliverySlotKeys
 import com.kkc.sheettracker.data.HardwoodsRepository
@@ -121,6 +120,7 @@ import com.kkc.sheettracker.ui.components.animateEntrance
 import com.kkc.sheettracker.ui.components.mergeActiveReorder
 import com.kkc.sheettracker.ui.detail.RestoreArchivedJobSheet
 import com.kkc.sheettracker.ui.detail.restoreActionVisible
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -393,27 +393,17 @@ fun UnifiedJobsScreen(
         value = adminSyncConfig.getServerUrl()
     }
     val adminSyncClient = remember(adminSyncServerUrl) { adminSyncServerUrl?.let { AdminSyncClient(it) } }
-    val deliveryEditor = remember(adminSyncClient, deliveryScheduleRequestStore, tabletId) {
+    // The server URL is read from DataStore at EACH edit (lazyDeliveryRemote), not from composition
+    // state: the first edit after entering the screen would otherwise find no client yet and be
+    // queued although Hours Tracker is reachable.
+    val deliveryEditor = remember(adminSyncConfig, deliveryScheduleRequestStore, tabletId) {
         DeliveryScheduleEditor(
-            adminSyncClient?.asDeliveryRemote(),
+            lazyDeliveryRemote { adminSyncConfig.getServerUrl()?.let { AdminSyncClient(it) } },
             deliveryScheduleRequestStore,
             tabletId,
             // While our request file waits for HT, edits join it instead of racing it online.
             hasPendingRequest = { deliveryScheduleRequestStore.readPending(tabletId) != null }
         )
-    }
-    var deliveryNotices by remember { mutableStateOf(emptyList<String>()) }
-    var deliveryPendingRequest by remember { mutableStateOf<DeliveryScheduleEditRequest?>(null) }
-    // HT polls request files every 15 s and deletes them once applied; re-read ours on the same
-    // cadence while the dialog is open so "Pending" clears when the edit lands.
-    LaunchedEffect(showScheduleDialog, deliveryScheduleBinding.dialogSchedule) {
-        while (showScheduleDialog) {
-            deliveryPendingRequest = withContext(Dispatchers.IO) { deliveryScheduleRequestStore.readPending(tabletId) }
-            delay(15_000)
-        }
-    }
-    val deliveryDialogSchedule = remember(deliveryScheduleBinding.dialogSchedule, deliveryPendingRequest) {
-        overlayPendingDeliveryRequest(deliveryScheduleBinding.dialogSchedule, deliveryPendingRequest)
     }
     // Drag gestures outlive recompositions, so edits must never close over this composition's
     // schedule/editor/binding: read the latest through updated state, and serialize edits so each
@@ -423,6 +413,58 @@ fun UnifiedJobsScreen(
     val latestDeliveryBinding by rememberUpdatedState(deliveryScheduleBinding)
     val latestDeliveryRequestStore by rememberUpdatedState(deliveryScheduleRequestStore)
     val latestTabletId by rememberUpdatedState(tabletId)
+    var deliveryNotices by remember { mutableStateOf(emptyList<String>()) }
+    var deliveryPendingRequest by remember { mutableStateOf<DeliveryScheduleEditRequest?>(null) }
+    // The request file can vanish (HT applied it) a moment before the live schedule shows the result;
+    // keep overlaying it until the schedule changes or DELIVERY_OVERLAY_HOLD_MILLIS passes.
+    var deliveryHeldRequest by remember { mutableStateOf<HeldDeliveryRequest?>(null) }
+    // False until the first read of this dialog session finished, so "Pending" markers are never
+    // drawn from the previous session's value (or missed for a frame).
+    var deliveryPendingLoaded by remember { mutableStateOf(false) }
+    fun updateDeliveryPending(new: DeliveryScheduleEditRequest?) {
+        deliveryHeldRequest = nextHeldDeliveryRequest(
+            previous = deliveryPendingRequest,
+            new = new,
+            held = deliveryHeldRequest,
+            schedule = latestDeliveryBinding.dialogSchedule
+        )
+        deliveryPendingRequest = new
+    }
+    // HT polls request files every 15 s and deletes them once applied; re-read ours on the same
+    // cadence while the dialog is open so "Pending" clears when the edit lands.
+    LaunchedEffect(showScheduleDialog, deliveryScheduleBinding.dialogSchedule) {
+        while (showScheduleDialog) {
+            val read = try {
+                withContext(Dispatchers.IO) { deliveryScheduleRequestStore.readPending(tabletId) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            if (!deliveryPendingLoaded) {
+                // First read of this dialog session: nothing from an earlier session (or an edit that
+                // finished after it was dismissed) may seed a hold.
+                deliveryPendingRequest = null
+                deliveryHeldRequest = null
+            }
+            updateDeliveryPending(read)
+            deliveryPendingLoaded = true
+            delay(15_000)
+        }
+    }
+    LaunchedEffect(deliveryHeldRequest) {
+        if (deliveryHeldRequest != null) {
+            delay(DELIVERY_OVERLAY_HOLD_MILLIS)
+            deliveryHeldRequest = null
+        }
+    }
+    val deliveryDialogSchedule = remember(deliveryScheduleBinding.dialogSchedule, deliveryPendingRequest, deliveryHeldRequest) {
+        overlayPendingDeliveryRequest(
+            deliveryScheduleBinding.dialogSchedule,
+            effectiveDeliveryOverlayRequest(deliveryPendingRequest, deliveryHeldRequest, deliveryScheduleBinding.dialogSchedule)
+        )
+    }
+    val deliveryInFlightEdits by deliveryEditRunner.inFlight.collectAsState()
     // Bumped after a refused/noticed edit so the dialog reverts its optimistic local change.
     var deliveryEditRevision by remember { mutableIntStateOf(0) }
     // Runs in a process-lifetime scope (see deliveryEditRunner): leaving the Jobs route must not
@@ -437,7 +479,9 @@ fun UnifiedJobsScreen(
             onApplied = { latestDeliveryBinding.applyCanonicalResponse(it) },
             onResult = { result ->
                 if (result.notices.isNotEmpty()) deliveryNotices = deliveryNotices + result.notices
-                deliveryPendingRequest = result.pending
+                updateDeliveryPending(result.pending)
+                // The runner holds a revert back until the last queued edit finished, so a refused
+                // edit can't wipe the optimistic state of one still waiting behind it.
                 if (result.revert) deliveryEditRevision += 1
             },
             edit = edit
@@ -984,10 +1028,17 @@ fun UnifiedJobsScreen(
         )
     }
 
-    if (showScheduleDialog) {
+    if (showScheduleDialog && deliveryPendingLoaded) {
         DeliveryScheduleDialog(
             schedule = deliveryDialogSchedule,
-            onDismiss = { showScheduleDialog = false; deliveryNotices = emptyList() },
+            onDismiss = {
+                showScheduleDialog = false
+                deliveryNotices = emptyList()
+                // Don't let this session's request/hold seed the next open's markers.
+                deliveryPendingRequest = null
+                deliveryHeldRequest = null
+                deliveryPendingLoaded = false
+            },
             isAdminMode = adminMode,
             availableJobs = deliveryPickerJobs,
             onPlaceJob = { job, toSlot, fromSlot -> runDeliveryEdit { editor, current -> editor.placeJob(current, job, toSlot, fromSlot) } },
@@ -997,6 +1048,7 @@ fun UnifiedJobsScreen(
             notices = deliveryNotices,
             onDismissNotices = { deliveryNotices = emptyList() },
             pendingSlotKeys = pendingDeliverySlotKeys(deliveryPendingRequest, deliveryScheduleBinding.dialogSchedule),
+            inFlightEdits = deliveryInFlightEdits,
             revision = deliveryEditRevision
         )
     }
