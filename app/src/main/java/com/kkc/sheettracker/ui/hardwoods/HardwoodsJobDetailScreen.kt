@@ -471,7 +471,7 @@ fun HardwoodsJobDetailScreen(
                     }
                 ) {
                     StatusSummaryRow(statusCounts)
-                    if (available) {
+                    if (available && !HardwoodDocuments.isMetadataBacked(doc)) {
                         Text(
                             "${doc.totals.size} totals block" + if (doc.totals.size == 1) "" else "s",
                             style = MaterialTheme.typography.bodySmall,

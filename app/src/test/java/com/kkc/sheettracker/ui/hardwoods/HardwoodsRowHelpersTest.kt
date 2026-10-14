@@ -71,6 +71,31 @@ class HardwoodsRowHelpersTest {
     }
 
     @Test
+    fun completedRemovedRowsForDocument_filtersByBatchWhenBatchIdGiven() {
+        val type = HardwoodDocType.FACE_FRAME_CUT_LIST.name
+        val inB1 = HardwoodRevisionRowSnapshot(docType = type, rowId = "cv:b1:a", qty = 1, description = "In batch one")
+        val inB2 = HardwoodRevisionRowSnapshot(docType = type, rowId = "cv:b2:a", qty = 1, description = "In batch two")
+        val history = HardwoodRevisionHistory(
+            currentRevision = 1,
+            revisions = listOf(HardwoodRevisionEntry(revision = 1, removed = listOf(inB1, inB2)))
+        )
+        val progress = mapOf(
+            type to "cv:b1:a" to HardwoodRowProgress(doneCount = 1),
+            type to "cv:b2:a" to HardwoodRowProgress(doneCount = 1)
+        )
+
+        val forB1 = completedRemovedRowsForDocument(history, HardwoodDocType.FACE_FRAME_CUT_LIST, progress, batchId = "b1")
+        val forB2 = completedRemovedRowsForDocument(history, HardwoodDocType.FACE_FRAME_CUT_LIST, progress, batchId = "b2")
+        val legacy = completedRemovedRowsForDocument(history, HardwoodDocType.FACE_FRAME_CUT_LIST, progress)
+        val blank = completedRemovedRowsForDocument(history, HardwoodDocType.FACE_FRAME_CUT_LIST, progress, batchId = "")
+
+        assertEquals(listOf("cv:b1:a"), forB1.map { it.row.rowId })
+        assertEquals(listOf("cv:b2:a"), forB2.map { it.row.rowId })
+        assertEquals(listOf("cv:b1:a", "cv:b2:a"), legacy.map { it.row.rowId })
+        assertEquals(listOf("cv:b1:a", "cv:b2:a"), blank.map { it.row.rowId })
+    }
+
+    @Test
     fun hardwoodsRowBackgroundTint_usesVeryFaintSkipWashForSkippedStates() {
         val expected = LightStatusColors.skipBg.copy(alpha = 0.08f)
 

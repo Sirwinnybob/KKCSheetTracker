@@ -264,13 +264,16 @@ internal data class CompletedRemovedHardwoodsRow(
 internal fun completedRemovedRowsForDocument(
     history: HardwoodRevisionHistory?,
     docType: HardwoodDocType,
-    progressByRow: Map<Pair<String, String>, HardwoodRowProgress>
+    progressByRow: Map<Pair<String, String>, HardwoodRowProgress>,
+    batchId: String = ""
 ): List<CompletedRemovedHardwoodsRow> {
     val currentRevision = history?.currentRevision ?: return emptyList()
     val revision = history.revisions.lastOrNull { it.revision == currentRevision }
         ?: return emptyList()
     return revision.removed.mapNotNull { snapshot ->
         if (snapshot.docType != docType.name || snapshot.rowId.isBlank()) return@mapNotNull null
+        // Metadata row ids are "cv:<batchId>:..."; another batch's removed rows are not this batch's.
+        if (batchId.isNotBlank() && !snapshot.rowId.startsWith("cv:$batchId:")) return@mapNotNull null
         val qty = snapshot.qty.coerceAtLeast(0)
         val doneCount = progressByRow[docType.name to snapshot.rowId]?.doneCount ?: 0
         if (qty <= 0 || doneCount < qty) return@mapNotNull null
@@ -786,12 +789,13 @@ fun HardwoodsWorkspaceScreen(
         pendingChangedByDoc.values.any { it.isNotEmpty() }
     }
     val selectedDocPendingChanged = pendingChangedByDoc[selectedDocType].orEmpty()
-    val completedRemovedRows = remember(revisionHistory, selectedDoc?.docType, rowProgressMap) {
+    val completedRemovedRows = remember(revisionHistory, selectedDoc?.docType, selectedDoc?.batchId, rowProgressMap) {
         selectedDoc?.let { document ->
             completedRemovedRowsForDocument(
                 history = revisionHistory,
                 docType = document.docType,
-                progressByRow = rowProgressMap
+                progressByRow = rowProgressMap,
+                batchId = document.batchId
             )
         } ?: emptyList()
     }
@@ -848,6 +852,10 @@ fun HardwoodsWorkspaceScreen(
     var promptSwitchDocForCab by remember { mutableStateOf<String?>(null) }
     var promptSwitchTarget by remember { mutableStateOf<ReferenceDocType?>(null) }
     var lastJumpCab by remember(jobFolderName) { mutableStateOf<String?>(null) }
+    // Collapse state is per batch; every other per-doc key (progress, skips, revisions) stays docType-wide.
+    val selectedDocStateKey = selectedDoc
+        ?.let { it.docType.name + if (it.batchId.isBlank()) "" else "#${it.batchId}" }
+        ?: selectedDocType.name
     var collapsedPartSectionsByDoc by rememberSaveable(jobFolderName) { mutableStateOf(mapOf<String, Set<String>>()) }
     var showReferencePane by remember(jobFolderName) { mutableStateOf(true) }
     var continuousScrollEnabled by rememberSaveable(jobFolderName) { mutableStateOf(continuousScrollDefault) }
@@ -916,9 +924,9 @@ fun HardwoodsWorkspaceScreen(
         }
     }
     val displayRows = remember(partSections) { partSections.flatMap { it.rows } }
-    val collapsedPartSections = remember(selectedDocType.name, partSections, collapsedPartSectionsByDoc) {
-        collapsedPartSectionsByDoc[selectedDocType.name]
-            ?: partSections.mapTo(linkedSetOf()) { hardwoodsPartSectionStateKey(selectedDocType.name, it.material) }
+    val collapsedPartSections = remember(selectedDocStateKey, partSections, collapsedPartSectionsByDoc) {
+        collapsedPartSectionsByDoc[selectedDocStateKey]
+            ?: partSections.mapTo(linkedSetOf()) { hardwoodsPartSectionStateKey(selectedDocStateKey, it.material) }
     }
     val visiblePartSections = remember(
         partSections, showChangedOnly, selectedDocPendingChanged, hiddenMaterialsDocument,
@@ -931,18 +939,18 @@ fun HardwoodsWorkspaceScreen(
             else VisibleHardwoodsPartSection(section, sectionRows, hidden)
         }
     }
-    val partSectionKeys = visiblePartSections.map { hardwoodsPartSectionStateKey(selectedDocType.name, it.section.material) }
+    val partSectionKeys = visiblePartSections.map { hardwoodsPartSectionStateKey(selectedDocStateKey, it.section.material) }
     val partExpansions = rememberLazySectionExpansions(
         partSectionKeys, partSectionKeys.toSet() - collapsedPartSections, listState,
         // Programmatic row jumps need the complete list immediately for their index.
         snapKeys = visiblePartSections.filter { visible -> visible.rows.any { it.rowId == initialRowId } }
-            .mapTo(linkedSetOf()) { hardwoodsPartSectionStateKey(selectedDocType.name, it.section.material) },
+            .mapTo(linkedSetOf()) { hardwoodsPartSectionStateKey(selectedDocStateKey, it.section.material) },
         minimumRowHeight = 64.dp
     )
-    val lazyIndexByRowId = remember(visiblePartSections, selectedDocType.name, collapsedPartSections) {
+    val lazyIndexByRowId = remember(visiblePartSections, selectedDocStateKey, collapsedPartSections) {
         hardwoodsVisibleRowIndices(
             visiblePartSections.map { visible ->
-                hardwoodsPartSectionStateKey(selectedDocType.name, visible.section.material) to visible.rows.map { it.rowId }
+                hardwoodsPartSectionStateKey(selectedDocStateKey, visible.section.material) to visible.rows.map { it.rowId }
             },
             collapsedPartSections
         )
@@ -982,10 +990,10 @@ fun HardwoodsWorkspaceScreen(
             ?: return@LaunchedEffect
         val targetSection = visiblePartSections.firstOrNull { visible -> visible.rows.any { it.rowId == target } }
             ?: return@LaunchedEffect
-        val targetSectionKey = hardwoodsPartSectionStateKey(selectedDocType.name, targetSection.section.material)
+        val targetSectionKey = hardwoodsPartSectionStateKey(selectedDocStateKey, targetSection.section.material)
         if (targetSectionKey in collapsedPartSections) {
             collapsedPartSectionsByDoc = collapsedPartSectionsByDoc +
-                (selectedDocType.name to (collapsedPartSections - targetSectionKey))
+                (selectedDocStateKey to (collapsedPartSections - targetSectionKey))
             return@LaunchedEffect // Resume after the expanded list has been composed.
         }
         val idx = lazyIndexByRowId[target]
@@ -1680,7 +1688,7 @@ fun HardwoodsWorkspaceScreen(
                             val sectionRows = visibleSection.rows
                             val sectionHidden = visibleSection.hidden
                             val sectionKey = section.material
-                            val sectionStateKey = hardwoodsPartSectionStateKey(selectedDoc.docType.name, sectionKey)
+                            val sectionStateKey = hardwoodsPartSectionStateKey(selectedDocStateKey, sectionKey)
                             val isCollapsed = sectionStateKey in collapsedPartSections
                             val sectionProgress = run {
                                 val totalPieces = sectionRows.sumOf { row ->
@@ -1715,7 +1723,7 @@ fun HardwoodsWorkspaceScreen(
                                             collapsedPartSections + sectionStateKey
                                         }
                                         collapsedPartSectionsByDoc =
-                                            collapsedPartSectionsByDoc + (selectedDoc.docType.name to updated)
+                                            collapsedPartSectionsByDoc + (selectedDocStateKey to updated)
                                     },
                                     headerActions = {
                                         if (isNailerDoc) {
