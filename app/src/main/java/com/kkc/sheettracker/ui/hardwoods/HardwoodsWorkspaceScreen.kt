@@ -629,7 +629,7 @@ fun HardwoodsWorkspaceScreen(
     }
 
     val listState = rememberLazyListState()
-    var selectedBatchId by rememberSaveable(jobFolderName) { mutableStateOf<String?>(null) }
+    var selectedBatchId by rememberSaveable(jobFolderName, initialRowId) { mutableStateOf<String?>(null) }
     val selectedDoc = remember(availableDocuments, selectedDocType, selectedBatchId, initialRowId) {
         HardwoodDocuments.selectDoc(availableDocuments, selectedDocType, selectedBatchId, initialRowId)
     }
