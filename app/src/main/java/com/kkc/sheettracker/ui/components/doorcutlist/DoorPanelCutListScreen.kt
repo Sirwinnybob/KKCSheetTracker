@@ -60,6 +60,7 @@ import java.util.Locale
 private const val TAG = "DoorPanelCutList"
 private const val PREFS_NAME = "kkc_ui_prefs"
 private const val PREF_ROOM_TAGS = "door_cut_list_room_tags"
+private const val PREF_SORT = "door_cut_list_sort"
 
 /** Page 2 of the print modal: settings on the left, live PDF preview on the right. */
 @Composable
@@ -67,13 +68,23 @@ internal fun DoorPanelCutListScreen(source: DoorPanelCutListSource, onPrinted: (
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
-    // Only the Standard / Room Tags choice is remembered per tablet; materials and rooms keep per-job defaults.
+    // Only the Standard / Room Tags and sort choices are remembered per tablet; materials and rooms keep per-job defaults.
     var selection by remember(source) {
-        mutableStateOf(defaultSelection(source).copy(roomTags = prefs.getBoolean(PREF_ROOM_TAGS, false)))
+        mutableStateOf(
+            defaultSelection(source).copy(
+                roomTags = prefs.getBoolean(PREF_ROOM_TAGS, false),
+                sort = CutListSort.entries.firstOrNull { it.name == prefs.getString(PREF_SORT, null) }
+                    ?: CutListSort.SIZE,
+            )
+        )
     }
     fun setRoomTags(value: Boolean) {
         selection = selection.copy(roomTags = value)
         prefs.edit().putBoolean(PREF_ROOM_TAGS, value).apply()
+    }
+    fun setSort(value: CutListSort) {
+        selection = selection.copy(sort = value)
+        prefs.edit().putString(PREF_SORT, value.name).apply()
     }
     var building by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
@@ -90,6 +101,14 @@ internal fun DoorPanelCutListScreen(source: DoorPanelCutListSource, onPrinted: (
                 options = listOf(
                     KKCPillOption("Standard", !selection.roomTags, { setRoomTags(false) }),
                     KKCPillOption("Room Tags", selection.roomTags, { setRoomTags(true) }),
+                ),
+                fillWidth = true
+            )
+            SectionHeader("Sort")
+            KKCSlidingPillRow(
+                options = listOf(
+                    KKCPillOption("Size", selection.sort == CutListSort.SIZE, { setSort(CutListSort.SIZE) }),
+                    KKCPillOption("Cabinet", selection.sort == CutListSort.CABINET, { setSort(CutListSort.CABINET) }),
                 ),
                 fillWidth = true
             )

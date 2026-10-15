@@ -9,6 +9,7 @@ import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocType
+import com.kkc.sheettracker.data.parseDimension
 import com.kkc.sheettracker.data.parseDoorCutUnitTypeMetadata
 import java.util.Locale
 
@@ -143,6 +144,9 @@ data class DoorPanelCutListSource(
         rows.flatMap { r -> r.groups.map { it.roomKey } }.distinct().sortedWith(roomKeyComparator)
 }
 
+/** Row order within each material: by size (CV PDF order) or grouped by cabinet number. */
+enum class CutListSort { SIZE, CABINET }
+
 data class CutListSelection(
     val roomTags: Boolean,
     val materials: Set<String>,
@@ -150,6 +154,7 @@ data class CutListSelection(
     /** Both types start included so opening the generator preserves the complete cut list. */
     val includeSlabs: Boolean = true,
     val includePanels: Boolean = true,
+    val sort: CutListSort = CutListSort.SIZE,
 )
 
 fun isDefaultUncheckedMaterial(material: String): Boolean = material.contains("MDF", ignoreCase = true)
@@ -270,6 +275,31 @@ data class DoorPanelCutListModel(
     val canPrint: Boolean get() = materials.any { it.rows.isNotEmpty() }
 }
 
+/**
+ * Printed order within a material: widest first, then longest first (matches the Cabinet Vision
+ * PDF). Source order is not reliable: PDF-parsed jobs arrive width-sorted, but CV-metadata jobs
+ * arrive by description. Stable, so equal sizes keep their CV order; unparseable sizes go last.
+ */
+private val widthThenLengthDescending: Comparator<ResolvedCutListRow> =
+    compareByDescending<ResolvedCutListRow> { parseDimension(it.width) ?: -1.0 }
+        .thenByDescending { parseDimension(it.length) ?: -1.0 }
+
+/** Lowest cabinet number a row feeds ("10, 12" -> 10, "4 (3), 8 (2)" -> 4); no number sorts last. */
+internal fun ResolvedCutListRow.firstCabinetNumber(): Int =
+    groups.flatMap { it.cabinets }
+        .mapNotNull { CABINET_LEADING_DIGITS.find(it.cabinet)?.value?.toIntOrNull() }
+        .minOrNull() ?: Int.MAX_VALUE
+
+private val CABINET_LEADING_DIGITS = Regex("""^\d+""")
+
+private val cabinetThenWidthDescending: Comparator<ResolvedCutListRow> =
+    compareBy<ResolvedCutListRow> { it.firstCabinetNumber() }.then(widthThenLengthDescending)
+
+private fun CutListSort.comparator(): Comparator<ResolvedCutListRow> = when (this) {
+    CutListSort.SIZE -> widthThenLengthDescending
+    CutListSort.CABINET -> cabinetThenWidthDescending
+}
+
 fun cutListJobNumber(jobFolderName: String): String = jobFolderName.substringBefore(" - ").trim()
 
 fun buildCutListModel(
@@ -282,6 +312,7 @@ fun buildCutListModel(
         .mapNotNull { material ->
             val rows = source.rows
                 .filter { it.material == material && it.isIncludedByPartType(selection) }
+                .sortedWith(selection.sort.comparator())
                 .flatMap { outputRows(it, selection) }
             rows.takeIf { it.isNotEmpty() }?.let { CutListMaterialSection(material, "Sheet", it) }
         }

@@ -148,6 +148,7 @@ class DoorPanelCutListDataTest {
         width: String = "17.125",
         description: String = "Door Slab 1B-L",
         cabinets: List<String> = emptyList(),
+        length: String = "24.125",
     ) = HardwoodCutlistRow(
         rowId = "DOOR_CUT_LIST:1:$ordinal",
         page = 1,
@@ -156,7 +157,7 @@ class DoorPanelCutListDataTest {
         material = material,
         description = description,
         width = width,
-        length = "24.125",
+        length = length,
         unitType = "SHEETS",
         cabinets = cabinets,
         rawCabinetText = cabinetText,
@@ -332,17 +333,17 @@ class DoorPanelCutListDataTest {
     // ---- model ----
 
     @Test
-    fun `room tags splits rows per room and keeps CV order`() {
+    fun `room tags splits rows per room and keeps size order`() {
         val s = source669()
         val m = buildCutListModel(s, defaultSelection(s).copy(roomTags = true), "1 October, 2026")
         val oak = m.materials.first { it.material == "3/4 2s White Oak Rift" }.rows
         assertEquals(
             listOf(
                 Triple(1, "20", "Room #1 (KITCHEN)"),
-                Triple(1, "20", "Room #1 (KITCHEN)"),
-                Triple(1, "42", "Room #4 (UTILITY - BENCH)"),
                 Triple(1, "23", "Room #2 (PANTRY)"),
                 Triple(1, "30", "Room #3 (VANITIES)"),
+                Triple(1, "20", "Room #1 (KITCHEN)"),
+                Triple(1, "42", "Room #4 (UTILITY - BENCH)"),
             ),
             oak.map { Triple(it.qty, it.cabinetText, it.roomKey) }
         )
@@ -355,8 +356,8 @@ class DoorPanelCutListDataTest {
         val s = source669()
         val m = buildCutListModel(s, defaultSelection(s), "d")
         val oak = m.materials.first().rows
-        assertEquals(listOf(1, 2, 2), oak.map { it.qty })
-        assertEquals(listOf("20", "20, 42", "23, 30"), oak.map { it.cabinetText })
+        assertEquals(listOf(1, 2, 2), oak.map { it.qty }) // widths 34.375, 19.125, 17.125
+        assertEquals(listOf("20", "23, 30", "20, 42"), oak.map { it.cabinetText })
         assertTrue(oak.all { it.roomKey == null })
         assertTrue(m.rooms.isEmpty())
         assertTrue(m.filteredRoomNames.isEmpty())
@@ -369,7 +370,7 @@ class DoorPanelCutListDataTest {
         val m = buildCutListModel(s, sel, "d")
         assertEquals(listOf("3/4 2s White Oak Rift"), m.materials.map { it.material }) // CLOSET-only material gone
         val oak = m.materials.single().rows
-        assertEquals(listOf(Pair(1, "20"), Pair(1, "20"), Pair(1, "23")), oak.map { it.qty to it.cabinetText })
+        assertEquals(listOf(Pair(1, "20"), Pair(1, "23"), Pair(1, "20")), oak.map { it.qty to it.cabinetText })
         assertEquals(listOf("KITCHEN", "PANTRY"), m.filteredRoomNames)
     }
 
@@ -435,6 +436,74 @@ class DoorPanelCutListDataTest {
         assertEquals(1 + 2 + 2 + 2, buildCutListModel(s, defaultSelection(s), "d").totalPieces)
         assertEquals("669", cutListJobNumber("669 - WIECHERT 3146 NW CROSSINGS"))
         assertEquals("644d", cutListJobNumber("644d - SHOWROOM"))
+    }
+
+    @Test
+    fun `rows print width descending then length descending within each material`() {
+        val mdf = "1/4 MDF"
+        val oak = "3/4 White Oak"
+        val s = DoorPanelCutListSource(
+            jobFolderName = "688 - KENT FREY WHIPP",
+            rows = listOf(
+                // CV-metadata order: by description, not by size.
+                resolveRow(row(0, 1, "1", material = mdf, description = "Door Flat Panel 1A", width = "9.686", length = "17.311"), emptyMap()),
+                resolveRow(row(1, 1, "2", material = mdf, description = "Door Flat Panel 1A-L", width = "14.2173", length = "30.311"), emptyMap()),
+                resolveRow(row(2, 1, "3", material = mdf, description = "Door Flat Panel 1A-R", width = "10.311", length = "21.811"), emptyMap()),
+                resolveRow(row(3, 1, "4", material = mdf, description = "Door Flat Panel 1D", width = "10.311", length = "25.811"), emptyMap()),
+                resolveRow(row(4, 1, "5", material = oak, description = "Door Slab 1A", width = "6.0", length = "9.0"), emptyMap()),
+                resolveRow(row(5, 1, "6", material = oak, description = "Door Slab 1B", width = "12.5", length = "9.0"), emptyMap()),
+            ),
+        )
+        val m = buildCutListModel(s, defaultSelection(s).copy(materials = setOf(mdf, oak)), "d")
+        val byMaterial = m.materials.associate { section ->
+            section.material to section.rows.map { it.width to it.length }
+        }
+        assertEquals(
+            listOf("14.2173" to "30.311", "10.311" to "25.811", "10.311" to "21.811", "9.686" to "17.311"),
+            byMaterial.getValue(mdf),
+        )
+        assertEquals(listOf("12.5" to "9.0", "6.0" to "9.0"), byMaterial.getValue(oak))
+    }
+
+    @Test
+    fun `cabinet sort orders by lowest cabinet number then width descending`() {
+        val mat = "1/4 Ply"
+        val s = DoorPanelCutListSource(
+            jobFolderName = "688 - KENT FREY WHIPP",
+            rows = listOf(
+                resolveRow(row(0, 2, "12, 10", material = mat, description = "multi", width = "9", length = "20"), emptyMap()),
+                resolveRow(row(1, 1, "4", material = mat, description = "cab4 narrow", width = "7", length = "20"), emptyMap()),
+                resolveRow(row(2, 1, "", material = mat, description = "no cab", width = "30", length = "20"), emptyMap()),
+                resolveRow(row(3, 1, "4", material = mat, description = "cab4 wide", width = "11", length = "20"), emptyMap()),
+                resolveRow(row(4, 1, "9", material = mat, description = "cab9", width = "15", length = "20"), emptyMap()),
+                resolveRow(row(5, 1, "10a", material = mat, description = "cab10a", width = "5", length = "20"), emptyMap()),
+            ),
+        )
+        val sel = defaultSelection(s).copy(sort = CutListSort.CABINET)
+        assertEquals(
+            listOf("cab4 wide", "cab4 narrow", "cab9", "multi", "cab10a", "no cab"),
+            buildCutListModel(s, sel, "d").materials.single().rows.map { it.description },
+        )
+        // Default stays size-sorted: widest first.
+        assertEquals(
+            listOf("no cab", "cab9", "cab4 wide", "multi", "cab4 narrow", "cab10a"),
+            buildCutListModel(s, defaultSelection(s), "d").materials.single().rows.map { it.description },
+        )
+    }
+
+    @Test
+    fun `equal sizes keep CV order and unparseable sizes sort last`() {
+        val mat = "1/4 Ply"
+        val s = DoorPanelCutListSource(
+            jobFolderName = "1 - X",
+            rows = listOf(
+                resolveRow(row(0, 1, "1", material = mat, description = "bad", width = "n/a", length = "5"), emptyMap()),
+                resolveRow(row(1, 1, "2", material = mat, description = "first", width = "8", length = "20"), emptyMap()),
+                resolveRow(row(2, 1, "3", material = mat, description = "second", width = "8", length = "20"), emptyMap()),
+            ),
+        )
+        val m = buildCutListModel(s, defaultSelection(s), "d")
+        assertEquals(listOf("first", "second", "bad"), m.materials.single().rows.map { it.description })
     }
 
     // ---- buildDoorPanelCutListSource (JSON) ----
