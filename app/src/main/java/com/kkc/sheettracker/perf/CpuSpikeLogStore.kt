@@ -54,6 +54,8 @@ data class CpuSpikeEntry(
     val blockedMs: Long? = null,
     /** Main thread stack captured while it was busy or blocked. */
     val mainThreadStack: List<String>? = null,
+    /** RUNNABLE non-main thread stacks seen while CPU stayed high, most frequent first. */
+    val hotThreadStacks: List<HotStack>? = null,
     /** Shared by the opening, bounded detail reports, and closing report for one UI stall. */
     val stallId: String? = null,
     val stallSamples: List<MainThreadStallSample>? = null,
@@ -168,6 +170,7 @@ class CpuSpikeLogStore(
             "thermalStatus" to entry.thermalStatus,
             "blockedMs" to entry.blockedMs,
             "mainThreadStack" to entry.mainThreadStack,
+            "hotThreadStacks" to entry.hotThreadStacks,
             "stallId" to entry.stallId,
             "stallSamples" to entry.stallSamples,
             "longestWatchdogTickGapMs" to entry.longestWatchdogTickGapMs,

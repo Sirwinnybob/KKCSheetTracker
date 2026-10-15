@@ -2,6 +2,7 @@ package com.kkc.sheettracker.perf
 
 import android.content.Context
 import android.os.Build
+import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.system.Os
@@ -171,8 +172,12 @@ object CpuSpikeMonitor {
     private fun startSampling() {
         val clkTck = runCatching { Os.sysconf(OsConstants._SC_CLK_TCK) }.getOrDefault(100L)
         val threadSampler = ThreadCpuSampler(clkTck, Os.getpid(), { ThreadCpuSampler.readSelfThreads() })
-        val detector = PerfEventDetector()
+        val detectorConfig = PerfEventDetector.Config()
+        val detector = PerfEventDetector(detectorConfig)
         scope.launch {
+            val hotStacks = HotStackAggregator()
+            var inCpuEpisode = false
+            val mainThread = Looper.getMainLooper().thread
             var prevTicks = -1L
             var prevWallMs = 0L
             while (isActive) {
@@ -202,12 +207,28 @@ object CpuSpikeMonitor {
                     viewerInteracting = ViewerInteractionSignal.isViewerInteracting.value,
                     msSinceUserInput = now - lastInputMs
                 )
-                for (event in detector.process(sample)) record(event)
+                // The detector only reports after a minute of high CPU, by which time most spikes
+                // are nearly over, so collect worker stacks from the first high tick onward.
+                if (cpuPercent >= detectorConfig.cpuThresholdPercent) {
+                    runCatching { hotStacks.add(HotStackSource.capture(Thread.currentThread(), mainThread)) }
+                } else if (!inCpuEpisode) {
+                    hotStacks.reset()
+                }
+                for (event in detector.process(sample)) {
+                    val isCpuStart = event.entryType == "sustained_start"
+                    val isCpuEnd = event.entryType == "episode_end" && event.detector == "cpu"
+                    if (isCpuStart) inCpuEpisode = true
+                    record(event, hotStacks.summary().takeIf { (isCpuStart || isCpuEnd) && it.isNotEmpty() })
+                    if (isCpuEnd) {
+                        inCpuEpisode = false
+                        hotStacks.reset()
+                    }
+                }
             }
         }
     }
 
-    private fun record(event: PerfEvent) {
+    private fun record(event: PerfEvent, hotStacks: List<HotStack>? = null) {
         val s = event.sample
         val isStart = event.entryType.endsWith("_start") || event.entryType == "memory_growth"
         if (isStart && !limiter.tryAcquire(event.entryType, s.nowMs)) return
@@ -238,7 +259,8 @@ object CpuSpikeMonitor {
                 rssMb = s.rssBytes?.let { it / BYTES_PER_MB },
                 memoryGrowthMb = event.memoryGrowthBytes?.let { it / BYTES_PER_MB },
                 thermalStatus = thermalStatus(),
-                mainThreadStack = stack
+                mainThreadStack = stack,
+                hotThreadStacks = hotStacks
             )
         )
     }
