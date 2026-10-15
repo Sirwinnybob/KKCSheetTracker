@@ -1,0 +1,178 @@
+package com.kkc.sheettracker.ui.doorpreview
+
+import com.kkc.sheettracker.data.cvjob.DoorConstruction
+import com.kkc.sheettracker.data.cvjob.DoorGeometry
+import com.kkc.sheettracker.data.cvjob.DoorHingeSide
+import com.kkc.sheettracker.data.cvjob.DoorPoint
+import com.kkc.sheettracker.data.cvjob.DoorRect
+import kotlin.math.min
+
+/*
+ * Pure mapping from published door geometry to drawing shapes, so the Canvas only paints.
+ * Shapes are in door inches: origin at the door's bottom-left seen from the front, x across, y up
+ * (the job_data contract's coordinates). [DoorPreviewFit] turns them into canvas pixels (y down).
+ */
+
+/** 35 mm cup, the size the shop's hinges bore. */
+const val HINGE_CUP_DIAMETER_IN = 35.0 / 25.4
+
+enum class DoorShapeRole {
+    OUTLINE,
+    STILE,
+    RAIL,
+    PANEL,
+    GLASS,
+    /** Panel edge hidden in the frame groove (dashed). */
+    HIDDEN_PANEL_EDGE,
+    /** Rail tenon inside a stile (dashed). */
+    TENON
+}
+
+sealed interface DoorShape {
+    data class Rect(val rect: DoorRect, val role: DoorShapeRole) : DoorShape
+    data class HingeCup(val center: DoorPoint, val radius: Double) : DoorShape
+}
+
+data class DoorDrawing(
+    val width: Double,
+    val height: Double,
+    /** Paint order: fills first, then members, dashed hidden lines, hinge cups, outline last. */
+    val shapes: List<DoorShape>,
+    /** Plain-language notes about what is not drawn. */
+    val notes: List<String>,
+    /** The publisher's `checks`, shown as a warning badge. */
+    val warnings: List<String>
+)
+
+const val OUTLINE_ONLY_NOTE = "Mid rails, mullions or several panels: outline only"
+const val FRAME_MISSING_NOTE = "Frame sizes missing: outline only"
+
+fun buildDoorDrawing(door: DoorGeometry): DoorDrawing {
+    val w = door.width
+    val h = door.height
+    val notes = mutableListOf<String>()
+    val fills = mutableListOf<DoorShape>()
+    val members = mutableListOf<DoorShape>()
+    val hidden = mutableListOf<DoorShape>()
+    val hardware = mutableListOf<DoorShape>()
+
+    when (door.construction) {
+        DoorConstruction.FIVE_PIECE -> {
+            val frame = door.frame
+            if (frame == null) {
+                notes += FRAME_MISSING_NOTE
+            } else {
+                val railLength = w - frame.leftStile - frame.rightStile
+                // Stiles run the full height; rails sit between them.
+                members += DoorShape.Rect(DoorRect(0.0, 0.0, frame.leftStile, h), DoorShapeRole.STILE)
+                members += DoorShape.Rect(DoorRect(w - frame.rightStile, 0.0, frame.rightStile, h), DoorShapeRole.STILE)
+                members += DoorShape.Rect(DoorRect(frame.leftStile, h - frame.topRail, railLength, frame.topRail), DoorShapeRole.RAIL)
+                members += DoorShape.Rect(DoorRect(frame.leftStile, 0.0, railLength, frame.bottomRail), DoorShapeRole.RAIL)
+
+                val panel = door.panel
+                val opening = panel?.opening ?: DoorRect(
+                    frame.leftStile,
+                    frame.bottomRail,
+                    railLength,
+                    h - frame.topRail - frame.bottomRail
+                )
+                if (opening.width > 0.0 && opening.height > 0.0) {
+                    fills += DoorShape.Rect(opening, if (panel?.isGlass == true) DoorShapeRole.GLASS else DoorShapeRole.PANEL)
+                    val insetX = panel?.insetX ?: 0.0
+                    val insetY = panel?.insetY ?: 0.0
+                    if (insetX > 0.0 || insetY > 0.0) {
+                        hidden += DoorShape.Rect(
+                            DoorRect(opening.x - insetX, opening.y - insetY, opening.width + 2 * insetX, opening.height + 2 * insetY),
+                            DoorShapeRole.HIDDEN_PANEL_EDGE
+                        )
+                    }
+                }
+
+                val tenon = frame.tenon ?: 0.0
+                if (tenon > 0.0) {
+                    for ((railY, railHeight) in listOf(h - frame.topRail to frame.topRail, 0.0 to frame.bottomRail)) {
+                        hidden += DoorShape.Rect(DoorRect(frame.leftStile - tenon, railY, tenon, railHeight), DoorShapeRole.TENON)
+                        hidden += DoorShape.Rect(DoorRect(w - frame.rightStile, railY, tenon, railHeight), DoorShapeRole.TENON)
+                    }
+                }
+            }
+        }
+        DoorConstruction.SLAB -> Unit
+        DoorConstruction.OTHER -> notes += OUTLINE_ONLY_NOTE
+    }
+
+    if (door.construction != DoorConstruction.OTHER) {
+        hardware += hingeCups(door)
+        if (door.hinges.side == DoorHingeSide.OTHER) {
+            notes += "Hinge code ${door.hinges.code.ifBlank { "?" }}: side not confirmed, no hinges drawn"
+        }
+    }
+
+    val outline = DoorShape.Rect(DoorRect(0.0, 0.0, w, h), DoorShapeRole.OUTLINE)
+    return DoorDrawing(
+        width = w,
+        height = h,
+        shapes = fills + members + hidden + hardware + outline,
+        notes = notes,
+        warnings = door.checks
+    )
+}
+
+/**
+ * Cup centres are CV's published `points` (verified to share the door coordinates on job 688).
+ * A door without points or without `edgeOffset` gets no cups: many doors have no hinges, and
+ * guessing from `positions` would draw hinges that are not there. Doors whose side is none or
+ * unconfirmed get none either. Cups off the door are dropped.
+ */
+internal fun hingeCups(door: DoorGeometry): List<DoorShape.HingeCup> {
+    val hinges = door.hinges
+    if (hinges.side == DoorHingeSide.NONE || hinges.side == DoorHingeSide.OTHER) return emptyList()
+    if (hinges.edgeOffset == null) return emptyList()
+    return hinges.points
+        .filter { it.x in 0.0..door.width && it.y in 0.0..door.height }
+        .map { DoorShape.HingeCup(it, HINGE_CUP_DIAMETER_IN / 2) }
+}
+
+/** Scale-to-fit transform from door inches (y up) to canvas pixels (y down), centred. */
+data class DoorPreviewFit(val scale: Float, val offsetX: Float, val offsetY: Float, val doorHeight: Double) {
+    fun x(inches: Double): Float = offsetX + (inches * scale).toFloat()
+    fun y(inches: Double): Float = offsetY + ((doorHeight - inches) * scale).toFloat()
+
+    /** Canvas left, top, right, bottom of a door-coordinate rectangle. */
+    fun rect(r: DoorRect): FloatArray = floatArrayOf(x(r.x), y(r.y + r.height), x(r.x + r.width), y(r.y))
+
+    fun length(inches: Double): Float = (inches * scale).toFloat()
+
+    companion object {
+        fun of(doorWidth: Double, doorHeight: Double, canvasWidth: Float, canvasHeight: Float, padding: Float): DoorPreviewFit {
+            val availW = (canvasWidth - 2 * padding).coerceAtLeast(1f)
+            val availH = (canvasHeight - 2 * padding).coerceAtLeast(1f)
+            val scale = min(availW / doorWidth.toFloat(), availH / doorHeight.toFloat())
+            val drawnW = (doorWidth * scale).toFloat()
+            val drawnH = (doorHeight * scale).toFloat()
+            return DoorPreviewFit(
+                scale = scale,
+                offsetX = (canvasWidth - drawnW) / 2,
+                offsetY = (canvasHeight - drawnH) / 2,
+                doorHeight = doorHeight
+            )
+        }
+    }
+}
+
+/** `16.625` → `16 5/8`; sizes off the 1/64" grid stay decimal (trimmed to 4 places). */
+fun formatDoorInches(value: Double): String {
+    val sixtyFourths = Math.round(value * 64)
+    if (kotlin.math.abs(value * 64 - sixtyFourths) > 0.01) {
+        return "%.4f".format(java.util.Locale.US, value).trimEnd('0').trimEnd('.')
+    }
+    val whole = sixtyFourths / 64
+    var num = sixtyFourths % 64
+    if (num == 0L) return whole.toString()
+    var den = 64L
+    while (num % 2 == 0L) {
+        num /= 2
+        den /= 2
+    }
+    return if (whole == 0L) "$num/$den" else "$whole $num/$den"
+}

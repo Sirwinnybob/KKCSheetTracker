@@ -72,6 +72,10 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import com.kkc.sheettracker.data.ClockInState
+import com.kkc.sheettracker.data.cvjob.CvJobDoorPreviews
+import com.kkc.sheettracker.data.cvjob.loadCvJobDoorPreviews
+import com.kkc.sheettracker.ui.components.icons.SpecialtyDoorPanelsIcon
+import com.kkc.sheettracker.ui.doorpreview.DoorAssemblyList
 import com.kkc.sheettracker.ui.components.ClockInButton
 import com.kkc.sheettracker.ui.components.icons.HardwoodsBoardStockIcon
 import com.kkc.sheettracker.ui.components.icons.HardwoodsRipIcon
@@ -640,6 +644,8 @@ fun HardwoodsWorkspaceScreen(
     val rawRows = selectedDoc?.rows.orEmpty()
     val totals = selectedDoc?.totals.orEmpty()
     var showRipCutList by rememberSaveable(jobFolderName) { mutableStateOf(isRipCutEntry) }
+    // Door Assembly tab: doors drawn from CV Cutlist Query's job_data.json, with their parts.
+    var showDoorAssembly by rememberSaveable(jobFolderName) { mutableStateOf(false) }
     var selectedRipSource: BoardStockSource? by rememberSaveable(jobFolderName) { mutableStateOf(null) }
     // Specialty entries default to the plywood (sheet) door parts, hardwoods entries to the rest.
     val defaultDoorCutMaterialFilter = if (hiddenMaterialsMode == HiddenMaterialsMode.SPECIALTY) {
@@ -663,6 +669,20 @@ fun HardwoodsWorkspaceScreen(
         }
         rawCutlistIndexJson = json
     }
+    // Door drawings come from CV Cutlist Query's job_data.json; read-only, re-read on each rescan.
+    val doorPreviews by produceState<CvJobDoorPreviews?>(
+        initialValue = null,
+        scanState.snapshot.basePath,
+        jobFolderName,
+        scanState.snapshot.generation
+    ) {
+        value = withContext(Dispatchers.IO) {
+            loadCvJobDoorPreviews(scanState.snapshot.basePath, jobFolderName)
+        }
+    }
+    // The tab shows for any job with doors, so an older job_data.json explains itself there.
+    val hasDoorAssembly = (doorPreviews as? CvJobDoorPreviews.Loaded)?.doors?.isNotEmpty() == true ||
+        availableDocuments.any { it.doors.isNotEmpty() }
     val moldingLibraryRepository = remember(scanState.snapshot.basePath) {
         MoldingLibraryRepository(File(scanState.snapshot.basePath))
     }
@@ -692,11 +712,13 @@ fun HardwoodsWorkspaceScreen(
                 // Door Panels must always enter on DOOR_CUT_LIST.
                 selectedDocType = initialDocType
                 showRipCutList = false
+                showDoorAssembly = false
                 showChangedOnly = false
             }
             isSawRipEntry -> {
                 selectedDocType = initialDocType
                 showRipCutList = true
+                showDoorAssembly = false
                 // Specialty entry lands on the sheet stock items; other rip lists stay one tab away.
                 selectedRipSource = BoardStockSource.MANUAL
                 showChangedOnly = false
@@ -704,6 +726,7 @@ fun HardwoodsWorkspaceScreen(
             isRipCutEntry -> {
                 selectedDocType = initialDocType
                 showRipCutList = true
+                showDoorAssembly = false
                 showChangedOnly = false
             }
         }
@@ -1350,10 +1373,12 @@ fun HardwoodsWorkspaceScreen(
                         HardwoodDocType.entries.filter { it in availableDocTypes }
                     }
                     val docCount = availableTypes.size
-                    val selectedIndex = remember(showRipCutList, showChangedOnly, selectedDocType, availableTypes) {
+                    val doorAssemblyTabCount = if (hasDoorAssembly) 1 else 0
+                    val selectedIndex = remember(showRipCutList, showDoorAssembly, showChangedOnly, selectedDocType, availableTypes, doorAssemblyTabCount) {
                         when {
-                            showRipCutList -> docCount
-                            showChangedOnly -> docCount + 1
+                            showDoorAssembly && hasDoorAssembly -> docCount
+                            showRipCutList -> docCount + doorAssemblyTabCount
+                            showChangedOnly -> docCount + doorAssemblyTabCount + 1
                             else -> availableTypes.indexOf(selectedDocType).coerceAtLeast(0)
                         }
                     }
@@ -1376,6 +1401,22 @@ fun HardwoodsWorkspaceScreen(
                                             onClick = {
                                                 selectedDocType = docType
                                                 showRipCutList = false
+                                                showDoorAssembly = false
+                                                showChangedOnly = false
+                                                selectedRipSource = null
+                                            }
+                                        )
+                                    )
+                                }
+                                if (hasDoorAssembly) {
+                                    add(
+                                        KKCTabItem(
+                                            label = "Door Assembly",
+                                            icon = SpecialtyDoorPanelsIcon,
+                                            isSelected = selectedIndex == docCount,
+                                            onClick = {
+                                                showDoorAssembly = true
+                                                showRipCutList = false
                                                 showChangedOnly = false
                                                 selectedRipSource = null
                                             }
@@ -1386,9 +1427,10 @@ fun HardwoodsWorkspaceScreen(
                                     KKCTabItem(
                                         label = "Rip Cut List",
                                         icon = HardwoodsRipIcon,
-                                        isSelected = showRipCutList,
+                                        isSelected = showRipCutList && !showDoorAssembly,
                                         onClick = {
                                             showRipCutList = true
+                                            showDoorAssembly = false
                                             showChangedOnly = false
                                             selectedRipSource = null
                                         }
@@ -1398,11 +1440,12 @@ fun HardwoodsWorkspaceScreen(
                                     add(
                                         KKCTabItem(
                                             label = "CHANGED",
-                                            isSelected = !showRipCutList && showChangedOnly,
+                                            isSelected = !showRipCutList && !showDoorAssembly && showChangedOnly,
                                             accent = KKCPillAccent.ATTENTION,
                                             alwaysBold = true,
                                             onClick = {
                                                 showRipCutList = false
+                                                showDoorAssembly = false
                                                 showChangedOnly = true
                                                 selectedRipSource = null
                                                 if (selectedDocPendingChanged.isEmpty()) {
@@ -1503,17 +1546,15 @@ fun HardwoodsWorkspaceScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
                 val docsOfSelectedType = availableDocuments.filter { it.docType == selectedDocType }
-                if (!showRipCutList && docsOfSelectedType.size > 1) {
+                val doorAssemblyActive = showDoorAssembly && hasDoorAssembly
+                if (!showRipCutList && !doorAssemblyActive && docsOfSelectedType.size > 1) {
                     HardwoodsBatchChips(
                         docs = docsOfSelectedType,
                         selected = selectedDoc,
                         onSelect = { selectedBatchId = it.batchId }
                     )
                 }
-                if (!showRipCutList && selectedDoc != null && selectedDoc.doors.isNotEmpty()) {
-                    HardwoodsDoorAssembliesPanel(doors = selectedDoc.doors)
-                }
-                if (isDoorCutListView && !showRipCutList && selectedDoc != null) {
+                if (isDoorCutListView && !showRipCutList && !doorAssemblyActive && selectedDoc != null) {
                     Spacer(Modifier.height(2.dp))
                     Row(
                         modifier = Modifier
@@ -1557,7 +1598,7 @@ fun HardwoodsWorkspaceScreen(
                     }
                 }
                 AnimatedVisibility(
-                    visible = showRipCutList,
+                    visible = showRipCutList && !doorAssemblyActive,
                     enter = expandVertically() + fadeIn(),
                     exit = shrinkVertically() + fadeOut()
                 ) {
@@ -1581,7 +1622,14 @@ fun HardwoodsWorkspaceScreen(
                         )
                     }
                 }
-                if (showRipCutList) {
+                if (doorAssemblyActive) {
+                    DoorAssemblyList(
+                        previews = doorPreviews,
+                        stateKey = jobFolderName,
+                        bottomPadding = hardwoodsListBottomScrollPadding(),
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else if (showRipCutList) {
                     val allSections = buildBoardStockSourceSections(boardStockRows)
                     HardwoodsBoardStockList(
                         sections = allSections,
