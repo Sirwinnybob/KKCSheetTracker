@@ -68,6 +68,69 @@ class CvJobDoorGeometryTest {
     }
 
     @Test
+    fun hiddenDoorsAreSkippedEvenWhenTheyHaveGeometry() {
+        val previews = loaded("""
+            {"schemaVersion":2,
+             "doors":[
+               {"id":"visible","hidden":false,"hiddenBy":["filter"]},
+               {"id":"hidden","hidden":true}
+             ],
+             "doorGeometry":[
+               {"doorId":"visible","width":"10","height":"20"},
+               {"doorId":"hidden","width":"10","height":"20"}
+             ]}
+        """.trimIndent())
+
+        assertEquals(listOf("visible"), previews.doors.map { it.doorId })
+        assertNull(previews.forDoor("hidden"))
+    }
+
+    @Test
+    fun hiddenPartsAreSkippedFromDoorComponents() {
+        val previews = loaded("""
+            {"schemaVersion":2,
+             "doors":[{"id":"A","hidden":false}],
+             "parts":[
+               {"id":"visible","hidden":false,"description":"Visible panel","material":"Oak","width":"8","length":"18"},
+               {"id":"hidden","hidden":true,"description":"Hidden hinge"}
+             ],
+             "doorGeometry":[
+               {"doorId":"A","width":"10","height":"20","components":[
+                 {"part":"visible","role":"panel"},
+                 {"part":"hidden","role":"hinge","description":"Hidden component"},
+                 {"part":"missing","role":"hinge"}
+               ]}
+             ]}
+        """.trimIndent())
+
+        assertEquals(listOf("A"), previews.doors.map { it.doorId })
+        assertEquals(
+            listOf(
+                DoorPart("visible", "panel", "Visible panel", "Oak", "8", "18"),
+                DoorPart("missing", "hinge", "", "", "", "")
+            ),
+            previews.doors.single().parts
+        )
+    }
+
+    @Test
+    fun v1DoorsAndPartsWithoutHiddenFieldsRemainVisible() {
+        val previews = loaded("""
+            {"schemaVersion":1,
+             "doors":[{"id":"A","label":"1A"}],
+             "parts":[{"id":"panel","description":"Door panel","material":"Oak","width":"8","length":"18"}],
+             "doorGeometry":[
+               {"doorId":"A","width":"10","height":"20","components":[{"part":"panel","role":"panel"}]}
+             ]}
+        """.trimIndent())
+
+        assertEquals(listOf("A"), previews.doors.map { it.doorId })
+        val door = previews.doors.single()
+        assertEquals("1A", door.label)
+        assertEquals(listOf(DoorPart("panel", "panel", "Door panel", "Oak", "8", "18")), door.parts)
+    }
+
+    @Test
     fun olderJobDataWithoutDoorGeometryIsReportedNotFailed() {
         val json = """{"schemaVersion":1,"doors":[{"id":"1","label":"A"}],"parts":[]}"""
         assertEquals(CvJobDoorPreviews.NoDoorGeometry, parseCvJobDoorPreviews(json))

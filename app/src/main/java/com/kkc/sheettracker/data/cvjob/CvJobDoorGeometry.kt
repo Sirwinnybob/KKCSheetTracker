@@ -8,7 +8,7 @@ import java.io.File
 
 /*
  * Read-only view of `<job>/.metadata/cv_job/job_data.json` (CV Cutlist Query, contract
- * `docs/job-data-contract-v1.md` in that repo), limited to what door previews draw:
+ * `docs/job-data-contract-v2.md` in that repo; v1 remains supported), limited to what door previews draw:
  * `doorGeometry[]` joined with `doors[]` for label and style.
  *
  * CV Cutlist Query is the single writer of `.metadata/cv_job/`. The tablet only reads that one
@@ -147,6 +147,7 @@ fun parseCvJobDoorPreviews(json: String): CvJobDoorPreviews {
     val doors = geometry.objects().mapNotNull { entry ->
         val parsed = parseDoorGeometry(entry) ?: return@mapNotNull null
         val door = doorsById[parsed.doorId]
+        if (door?.text("hidden") == "true") return@mapNotNull null
         DoorPreviewData(
             geometry = parsed,
             label = door?.text("label").orEmpty(),
@@ -156,6 +157,7 @@ fun parseCvJobDoorPreviews(json: String): CvJobDoorPreviews {
             parts = entry.arrayOrNull("components").objects().mapNotNull { component ->
                 val partId = component.text("part")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
                 val part = partsById[partId]
+                if (part?.text("hidden") == "true") return@mapNotNull null
                 DoorPart(
                     partId = partId,
                     role = component.text("role").orEmpty(),
