@@ -656,6 +656,12 @@ internal fun ContinuousReferencePdfPane(
         onDispose { tinyPreviews.clear() }
     }
 
+    // Page shapes (width / height) by "file#sourcePage", shared by every page composable of this
+    // document so a page that re-enters composition lays out at its real shape on its first frame.
+    // Filled as pages resolve and by the whole-document prefetch below.
+    val aspectRatios = remember(documentIdentity) { mutableStateMapOf<String, Float>() }
+    var lastKnownAspect by remember(documentIdentity) { mutableStateOf<Float?>(null) }
+
     val listState = rememberLazyListState()
     val cropOverlays = remember(documentIdentity, docKey, preferDarkMode) {
         mutableStateMapOf<Int, ContinuousCropOverlay>()
@@ -820,6 +826,19 @@ internal fun ContinuousReferencePdfPane(
     val currentPdfFileForFilename by rememberUpdatedState(pdfFileForFilename)
     LaunchedEffect(documentIdentity, docKey, totalPages, preferDarkMode) {
         if (totalPages <= 0) return@LaunchedEffect
+        // First pass: every page's shape from the worker JXL header (a 4 KB read, no decode), so
+        // scrolling or zooming to any page cannot shift the layout when its shape arrives.
+        withContext(Dispatchers.IO) {
+            for (displayPage in tinyPreviewPrefetchOrder(listState.firstVisibleItemIndex + 1, totalPages)) {
+                val resolved = currentResolvePage(displayPage)
+                val file = currentPdfFileForFilename(resolved.pdfFilename) ?: continue
+                val shapeKey = "${file.absolutePath}#${resolved.sourcePage}"
+                if (shapeKey in aspectRatios) continue
+                val shape = pdfPagePreviewAspectRatio(file, (resolved.sourcePage - 1).coerceAtLeast(0)) ?: continue
+                aspectRatios[shapeKey] = shape
+                if (lastKnownAspect == null) lastKnownAspect = shape
+            }
+        }
         val bundlesTried = HashSet<String>()
         var startedJxlDecodes = false
         for (displayPage in tinyPreviewPrefetchOrder(listState.firstVisibleItemIndex + 1, totalPages)) {
@@ -951,7 +970,14 @@ internal fun ContinuousReferencePdfPane(
         val pageIsVisible = displayPage in visiblePages
         var baseBitmap by remember(renderIdentity, documentIdentity, docKey) { mutableStateOf<Bitmap?>(null) }
         var thumbnailBitmap by remember(renderIdentity, documentIdentity, docKey) { mutableStateOf<Bitmap?>(null) }
-        var aspectRatio by remember(renderIdentity, documentIdentity, docKey) { mutableStateOf<Float?>(null) }
+        // Page shape, read synchronously from the document-wide cache. LazyColumn drops an item's
+        // state when it scrolls out of composition, and starting each re-entry at null laid the
+        // page out at the portrait default for a frame, then snapped it to its real shape: a
+        // ~800 px list jump the moment a pinch or scroll brought the page back (the "zoom jump").
+        val aspectKey = "${renderIdentity.filePath ?: resolved.pdfFilename}#${resolved.sourcePage}"
+        var aspectRatio by remember(renderIdentity, documentIdentity, docKey) {
+            mutableStateOf<Float?>(aspectRatios[aspectKey])
+        }
         var sourceGeometryReady by remember(renderIdentity, documentIdentity, docKey) { mutableStateOf(false) }
         var baseRenderEligible by remember(renderIdentity, documentIdentity, docKey) { mutableStateOf(false) }
         var visibleSinceMillis by remember(renderIdentity, documentIdentity, docKey) { mutableStateOf<Long?>(null) }
@@ -985,10 +1011,15 @@ internal fun ContinuousReferencePdfPane(
         )
 
         LaunchedEffect(renderIdentity, documentIdentity, docKey) {
-            if (file == null) return@LaunchedEffect
-            aspectRatio = withContext(Dispatchers.IO) {
+            if (file == null || aspectRatio != null) return@LaunchedEffect
+            val loaded = withContext(Dispatchers.IO) {
                 engineCache.get(file).pageAspectRatio((resolved.sourcePage - 1).coerceAtLeast(0))
             }
+            if (loaded != null) {
+                aspectRatios[aspectKey] = loaded
+                lastKnownAspect = loaded
+            }
+            aspectRatio = loaded
         }
 
         // A source swap (light <-> dark PDF) can change the page aspect ratio. Do not crop from
@@ -1169,7 +1200,9 @@ internal fun ContinuousReferencePdfPane(
         // page fits; continuous mode needs the same guarantee at rest, or a page's edges bleed
         // under the divider controls / nav bar chrome above and below the pane.
         val density = LocalDensity.current
-        val ratio = aspectRatio ?: (8.5f / 11f)
+        // Until this page's own shape is known, assume the document's last known one: pages of a
+        // document almost always share it, so the real value rarely moves the layout.
+        val ratio = aspectRatio ?: lastKnownAspect ?: (8.5f / 11f)
         val topPadPx = with(density) { contentPadding.calculateTopPadding().roundToPx() }
         val bottomPadPx = with(density) { contentPadding.calculateBottomPadding().roundToPx() }
         val availW = paneSize.width
