@@ -65,6 +65,10 @@ import com.kkc.sheettracker.data.HardwoodsProgressStore
 import com.kkc.sheettracker.data.HardwoodsScanCoordinator
 import com.kkc.sheettracker.data.HiddenMaterialsRepository
 import com.kkc.sheettracker.data.JobRepository
+import com.kkc.sheettracker.data.cvjob.CvJobDoorPreviews
+import com.kkc.sheettracker.data.cvjob.loadCvJobDoorPreviews
+import com.kkc.sheettracker.ui.doorpreview.doorAssemblyDoors
+import com.kkc.sheettracker.ui.doorpreview.doorAssemblyDoneCounts
 import com.kkc.sheettracker.data.SpecialtyStateStore
 import com.kkc.sheettracker.data.isHiddenIn
 import com.kkc.sheettracker.data.models.HardwoodDocType
@@ -147,6 +151,7 @@ fun HardwoodsJobDetailScreen(
     jobFolderName: String,
     onOpenWorkspace: (HardwoodDocType) -> Unit,
     onOpenRipCutList: () -> Unit,
+    onOpenDoorAssembly: () -> Unit,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenJobPacketDocument: (JobPdfRef) -> Unit,
     onOpenThreeD: () -> Unit,
@@ -215,6 +220,15 @@ fun HardwoodsJobDetailScreen(
     var progressExpanded by rememberSaveable(jobFolderName) { mutableStateOf(true) }
     var expandedDocs by rememberSaveable(jobFolderName) { mutableStateOf(setOf<String>()) }
     val rowProgressMap = detailProgress.rowProgressMap
+    val doorPreviews by produceState<CvJobDoorPreviews?>(
+        initialValue = null, scanState.snapshot.basePath, jobFolderName, scanState.snapshot.generation
+    ) {
+        value = withContext(Dispatchers.IO) {
+            loadCvJobDoorPreviews(scanState.snapshot.basePath, jobFolderName)
+        }
+    }
+    val doors = remember(doorPreviews) { doorAssemblyDoors(doorPreviews) }
+    val (doorsDone, doorsTotal) = remember(doors, rowProgressMap) { doorAssemblyDoneCounts(doors, rowProgressMap) }
     val totalsDoneMap = detailProgress.totalsDoneMap
     val docsByType = remember(resolvedJob.index) {
         HardwoodDocuments.mergedByType(resolvedJob.index?.documents.orEmpty())
@@ -432,6 +446,26 @@ fun HardwoodsJobDetailScreen(
                     onOpenRipCutList()
                 }
             )
+
+            if (doors.isNotEmpty()) {
+                val doorCounts = HardwoodStatusCounts(
+                    totalPieces = doors.size, donePieces = doorsDone, skippedPieces = doors.size - doorsTotal
+                )
+                ProgressCard(
+                    title = "Door Assembly",
+                    subtitle = "$doorsDone/$doorsTotal doors done",
+                    fraction = doorCounts.completionFraction,
+                    headerLeading = { CardHeaderIcon(ReferenceAssemblyIcon) },
+                    expanded = false,
+                    segmentedStatusCounts = doorCounts.toStatusCounts(),
+                    showBottomProgressBar = true,
+                    onToggleExpanded = {},
+                    onClick = {
+                        suppressLeavePrompt = true
+                        onOpenDoorAssembly()
+                    }
+                )
+            }
 
             val visibleDocTypes = HardwoodDocType.entries.filter { it in availableDocsByType.keys }
             for (docType in visibleDocTypes) {

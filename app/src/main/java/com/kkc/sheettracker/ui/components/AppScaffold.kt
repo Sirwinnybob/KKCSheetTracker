@@ -41,6 +41,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -199,8 +200,8 @@ private fun NavEditBadge(onClick: () -> Unit, modifier: Modifier = Modifier) {
 // 44dp + padding 24x4dp, SpaceEvenly + weight(1f) slots, item padding 14x8dp, spacedBy 3dp,
 // icon 22dp, Calc slot before Hours, tints (bold: frosted content / @0.8; else primary /
 // onSurfaceVariant), selection bg (bold: gradient @0.55; else surfaceVariant; shape
-// shapes.medium), badges (Supply = supply count, Library = safety count), Surface color
-// (transparent under Haze, else frosted base @ alpha.coerceIn(0.5,0.95)), shadow 3dp (0 when
+// shapes.medium), badges (Supply = supply count, Library = safety count), glass fill
+// (Haze @ alpha.coerceIn(0.5,0.95), else solid frosted base), external shadow 3dp (0 when
 // shadows disabled or WebView blur suppressed), Haze style (blur coerceAtLeast 1dp), label
 // style Inter Medium 11sp/16sp/0.5sp (Bold when selected), label maxLines 1 + ellipsis only
 // when animations are on (none in low-end and for Calc), animation specs (NavSpringDp,
@@ -401,8 +402,8 @@ private fun MorphingNavIconRow(
 // 44dp + padding 24x4dp, SpaceEvenly + weight(1f) slots, item padding 14x8dp, spacedBy 3dp,
 // icon 22dp, Calc slot before Hours, tints (bold: frosted content / @0.8; else primary /
 // onSurfaceVariant), selection bg (bold: gradient @0.55; else surfaceVariant; shape
-// shapes.medium), badges (Supply = supply count, Library = safety count), Surface color
-// (transparent under Haze, else frosted base @ alpha.coerceIn(0.5,0.95)), shadow 3dp (0 when
+// shapes.medium), badges (Supply = supply count, Library = safety count), glass fill
+// (Haze @ alpha.coerceIn(0.5,0.95), else solid frosted base), external shadow 3dp (0 when
 // shadows disabled or WebView blur suppressed), Haze style (blur coerceAtLeast 1dp), label
 // style Inter Medium 11sp/16sp/0.5sp (Bold when selected), label maxLines 1 + ellipsis only
 // when animations are on (none in low-end and for Calc), animation specs (NavSpringDp,
@@ -486,27 +487,27 @@ private fun MorphingNavBar(
         val minNavShape = remember { RoundedCornerShape(cornerRadius) }
         val minHazeSurface = kkcFrostedBaseColor()
         val frostedTokens = LocalKKCThemeTokens.current.frosted
-        Surface(
-            modifier       = Modifier.fillMaxWidth(),
-            shape          = minNavShape,
-            color          = if (hazeState != null && !lowEnd.blurDisabled) Color.Transparent else minHazeSurface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)),
-            // The solid fallback used while a WebView is showing is semi-transparent, and a
-            // Surface shadow bleeds through a semi-transparent fill (see CLAUDE.md), so no shadow.
-            shadowElevation = if (lowEnd.shadowsDisabled || lowEnd.webViewBlurSuppressed) 0.dp else 3.dp,
-            tonalElevation = 0.dp
-        ) {
-            val minHazeModifier = remember(hazeState, minHazeSurface, frostedTokens, lowEnd.blurDisabled) {
-                if (hazeState != null && !lowEnd.blurDisabled)
-                    Modifier.hazeEffect(
-                        hazeState,
-                        style = HazeDefaults.style(
-                            backgroundColor = minHazeSurface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)),
-                            blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
-                        )
+        val minHazeModifier = remember(hazeState, minHazeSurface, frostedTokens, lowEnd.blurDisabled) {
+            if (hazeState != null && !lowEnd.blurDisabled)
+                Modifier.hazeEffect(
+                    hazeState,
+                    style = HazeDefaults.style(
+                        backgroundColor = minHazeSurface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)),
+                        blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
                     )
-                else Modifier
-            }
-            Box(modifier = Modifier.fillMaxWidth().then(minHazeModifier)) {
+                )
+            else Modifier.background(minHazeSurface)
+        }
+        // Keep the shadow outside the clipped Haze layer (AGENTS.md frosted-glass pattern).
+        // A transparent Surface with shadowElevation lets its shadow bleed into the glass.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(if (lowEnd.shadowsDisabled || lowEnd.webViewBlurSuppressed) 0.dp else 3.dp, minNavShape, clip = false)
+                .clip(minNavShape)
+                .then(minHazeModifier)
+        ) {
+            Box(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     // ── Extended controls (Hardwoods cut list, etc.) — full-bar path
                     if (!lowEnd.animationsDisabled) {

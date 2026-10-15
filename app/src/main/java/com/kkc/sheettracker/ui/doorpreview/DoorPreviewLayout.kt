@@ -41,7 +41,10 @@ data class DoorDrawing(
     /** Plain-language notes about what is not drawn. */
     val notes: List<String>,
     /** The publisher's `checks`, shown as a warning badge. */
-    val warnings: List<String>
+    val warnings: List<String>,
+    /** Direction for panel/slab faces; frame members retain their own lengthwise grain. */
+    val panelGrainVertical: Boolean = true,
+    val showFaceGrain: Boolean = true
 )
 
 const val OUTLINE_ONLY_NOTE = "Mid rails, mullions or several panels: outline only"
@@ -114,7 +117,9 @@ fun buildDoorDrawing(door: DoorGeometry): DoorDrawing {
         height = h,
         shapes = fills + members + hidden + hardware + outline,
         notes = notes,
-        warnings = door.checks
+        warnings = door.checks,
+        panelGrainVertical = !door.horizontalGrain,
+        showFaceGrain = door.showFaceGrain
     )
 }
 

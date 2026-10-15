@@ -34,6 +34,7 @@ import com.kkc.sheettracker.ui.hardwoods.HardwoodsJobDetailScreen
 import com.kkc.sheettracker.ui.hardwoods.HardwoodsWorkspaceScreen
 import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
 import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_RIP_CUT_LIST_ROW_ID
+import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_DOOR_ASSEMBLY_ROW_ID
 import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_SAW_RIP_LIST_ROW_ID
 import com.kkc.sheettracker.ui.specialty.SpecialtyJobDetailScreen
 import com.kkc.sheettracker.ui.viewer.ReferencePdfViewerScreen
@@ -391,6 +392,11 @@ private fun ArchiveHardwoodsDetail(
         onOpenRipCutList = {
             navController.navigate(
                 "hardwoods/workspace/${URLEncoder.encode(HardwoodDocType.FACE_FRAME_CUT_LIST.name, "UTF-8")}/$HARDWOODS_RIP_CUT_LIST_ROW_ID/${HiddenMaterialsMode.HARDWOODS.name}"
+            )
+        },
+        onOpenDoorAssembly = {
+            navController.navigate(
+                "hardwoods/workspace/${HardwoodDocType.DOOR_CUT_LIST.name}/$HARDWOODS_DOOR_ASSEMBLY_ROW_ID/${HiddenMaterialsMode.HARDWOODS.name}"
             )
         },
         onOpenReferenceDocument = { docType, startPage ->

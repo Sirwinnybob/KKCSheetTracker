@@ -16,6 +16,40 @@ class MetadataBatchRollupTest {
     private val folder = "686 - Example"
     private val tabletId = "tablet-test"
 
+    @Test
+    fun publishedCacheSkipsUnsupportedHardwareDocsBeforeCalculatingProgress() {
+        val baseDir = Files.createTempDirectory("cv-cache-progress-test").toFile()
+        val metadata = File(baseDir, "$folder/.metadata").apply { mkdirs() }
+        File(metadata, "deployment_gate.json").writeText("""{"deployed":true}""")
+        File(metadata, "cache_static.json").writeText("""
+            {
+              "jobInfo":{"folderName":"$folder","jobNumber":"686","jobName":"Example"},
+              "hardwoodJob":{
+                "folderName":"$folder","jobNumber":"686","jobName":"Example",
+                "index":{"documents":[
+                  {"docType":"DOOR_BUMPER_LIST","sourceKind":"CV_METADATA","rows":[{"rowId":"bumper","qty":100}]},
+                  {"docType":"FACE_FRAME_CUT_LIST","sourceKind":"CV_METADATA","rows":[{"rowId":"rail","qty":4,"cabinets":["1"]}]},
+                  {"docType":"SHELF_PIN_LIST","sourceKind":"CV_METADATA","rows":[{"rowId":"pin","qty":200}]},
+                  {"docType":"NAILER_CUT_LIST","sourceKind":"CV_METADATA","rows":[{"rowId":"nailer","qty":2,"cabinets":["1"]}]}
+                ]}
+              }
+            }
+        """.trimIndent())
+        val engine = FileBackedUnifiedMetadataEngine(baseDir.absolutePath, isDebugBuild = false)
+        val job = requireNotNull(engine.getHardwoodsSnapshot(folder)).job
+        val store = HardwoodsProgressStore(baseDir, tabletId, readOnly = true, unifiedEngine = engine)
+
+        // Reproduces the tablet's cache -> progress lookup -> job summary path.
+        val summary = store.summarizeJob(job)
+        assertEquals(6, summary.counts.totalPieces)
+        assertEquals(
+            listOf(HardwoodDocType.FACE_FRAME_CUT_LIST, HardwoodDocType.NAILER_CUT_LIST),
+            job.index!!.documents.map { it.docType }
+        )
+        assertEquals(listOf("rail", "nailer"), job.index.documents.flatMap { it.rows }.map { it.rowId })
+        assertEquals(listOf(4, 2), summary.documents.map { it.counts.totalPieces })
+    }
+
     private fun batchDoc(batchId: String, name: String, vararg rows: HardwoodCutlistRow) = HardwoodDocumentIndex(
         docType = HardwoodDocType.FACE_FRAME_CUT_LIST,
         sourceKind = HardwoodDocuments.SOURCE_KIND_CV_METADATA,

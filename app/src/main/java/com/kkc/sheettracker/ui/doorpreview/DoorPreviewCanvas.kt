@@ -116,7 +116,9 @@ private fun DrawScope.drawDoor(drawing: DoorDrawing, colors: DoorPreviewColors, 
     val shadowOffset = 2.dp.toPx().coerceAtMost(padding)
     drawRect(colors.shadow, doorTopLeft + Offset(shadowOffset, shadowOffset), doorSize)
     drawRect(colors.panel, doorTopLeft, doorSize)
-    drawGrain(doorTopLeft, doorSize, vertical = true, color = colors.panelGrain, spacing = fit.length(2.5), stroke = hairline)
+    if (drawing.showFaceGrain) {
+        drawGrain(doorTopLeft, doorSize, vertical = drawing.panelGrainVertical, color = colors.panelGrain, spacing = fit.length(2.5), stroke = hairline)
+    }
 
     for (shape in drawing.shapes) {
         when (shape) {
@@ -125,7 +127,9 @@ private fun DrawScope.drawDoor(drawing: DoorDrawing, colors: DoorPreviewColors, 
                 when (shape.role) {
                     DoorShapeRole.PANEL -> {
                         drawRect(colors.panel, topLeft, rectSize)
-                        drawGrain(topLeft, rectSize, vertical = true, color = colors.panelGrain, spacing = fit.length(2.0), stroke = hairline)
+                        if (drawing.showFaceGrain) {
+                            drawGrain(topLeft, rectSize, vertical = drawing.panelGrainVertical, color = colors.panelGrain, spacing = fit.length(2.0), stroke = hairline)
+                        }
                     }
                     DoorShapeRole.GLASS -> {
                         drawRect(

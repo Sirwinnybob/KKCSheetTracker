@@ -1413,7 +1413,8 @@ class FileBackedUnifiedMetadataEngine(
                 folderName = gsonNullable(hardwood.folderName) ?: "",
                 jobNumber = gsonNullable(hardwood.jobNumber) ?: "",
                 jobName = gsonNullable(hardwood.jobName) ?: "",
-                index = hardwood.index,
+                // Published cache JSON needs the same enum/null sanitization as the raw index.
+                index = hardwood.index?.let(::sanitizeHardwoodCutlistIndex),
                 hiddenFromProduction = hardwood.hiddenFromProduction,
                 lineupPosition = hardwood.lineupPosition,
                 labels = gsonNullable(hardwood.labels) ?: emptyList(),

@@ -3,6 +3,7 @@ package com.kkc.sheettracker.data
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.kkc.sheettracker.BuildConfig
+import com.kkc.sheettracker.data.cvjob.DOOR_ASSEMBLY_PROGRESS_DOC_TYPE
 import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodDocSummary
 import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
@@ -908,6 +909,9 @@ class HardwoodsProgressStore(
     }
 
     private fun compactAction(action: HardwoodTrackerAction, lookup: CutlistLookup?): HardwoodTrackerAction? {
+        // Door ids belong to CV job data, not cutlist rows. Preserve checks even while that
+        // read-only file is unavailable offline; the UI counts only currently visible doors.
+        if (action.docType == DOOR_ASSEMBLY_PROGRESS_DOC_TYPE) return action
         if (lookup == null) return action
         val isRowScoped = action.action == HardwoodTrackerActions.SET_DONE_COUNT ||
             action.action == HardwoodTrackerActions.SET_BAD_COUNT ||

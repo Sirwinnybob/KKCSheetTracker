@@ -16,6 +16,7 @@ import java.io.File
  */
 
 const val CV_JOB_DATA_RELATIVE_PATH = ".metadata/cv_job/job_data.json"
+const val DOOR_ASSEMBLY_PROGRESS_DOC_TYPE = "DOOR_ASSEMBLY"
 
 enum class DoorConstruction { FIVE_PIECE, SLAB, OTHER }
 
@@ -68,7 +69,11 @@ data class DoorGeometry(
     val frame: DoorFrame?,
     val panel: DoorPanel?,
     val hinges: DoorHinges,
-    val checks: List<String>
+    val checks: List<String>,
+    /** Component grain takes priority over `doors[].grain`: true = horizontal, false = vertical. */
+    val horizontalGrain: Boolean = false,
+    /** Visibility is independent of direction; vertical grain is still drawn. */
+    val showFaceGrain: Boolean = true
 )
 
 /**
@@ -82,7 +87,11 @@ data class DoorPart(
     val description: String,
     val material: String,
     val width: String,
-    val length: String
+    val length: String,
+    /** Published piece count after operator edits; older files default to one per row. */
+    val quantity: Int = 1,
+    /** Published component direction; null when older data has no component grain. */
+    val horizontalGrain: Boolean? = null
 )
 
 /** One door ready to show: its geometry plus the `doors[]` label, style and cabinet, and its parts. */
@@ -95,6 +104,7 @@ data class DoorPreviewData(
     val parts: List<DoorPart> = emptyList()
 ) {
     val doorId: String get() = geometry.doorId
+    val partCount: Int get() = parts.sumOf { it.quantity }
 }
 
 sealed interface CvJobDoorPreviews {
@@ -148,8 +158,21 @@ fun parseCvJobDoorPreviews(json: String): CvJobDoorPreviews {
         val parsed = parseDoorGeometry(entry) ?: return@mapNotNull null
         val door = doorsById[parsed.doorId]
         if (door?.text("hidden") == "true") return@mapNotNull null
+        // CROSS-PROGRAM: CV Cutlist Query owns this read-only source. Its grain
+        // booleans mean direction, never visibility; false means vertical.
+        val faceRole = if (parsed.construction == DoorConstruction.SLAB) "slab" else "panel"
+        val componentGrain = entry.arrayOrNull("components").objects()
+            .filter { it.text("role") == faceRole }
+            .firstNotNullOfOrNull { component ->
+                component.booleanOrNull("grain")
+                    ?: partsById[component.text("part")]?.booleanOrNull("grain")
+            }
+        val panelGrain = if (parsed.construction == DoorConstruction.SLAB) null
+            else entry.objectOrNull("panel")?.booleanOrNull("grain")
         DoorPreviewData(
-            geometry = parsed,
+            geometry = parsed.copy(
+                horizontalGrain = panelGrain ?: componentGrain ?: door?.booleanOrNull("grain") ?: false
+            ),
             label = door?.text("label").orEmpty(),
             style = door?.text("style").orEmpty(),
             cabinet = door?.text("cabinet").orEmpty(),
@@ -164,7 +187,9 @@ fun parseCvJobDoorPreviews(json: String): CvJobDoorPreviews {
                     description = component.text("description") ?: part?.text("description").orEmpty(),
                     material = part?.text("material").orEmpty(),
                     width = part?.text("width").orEmpty(),
-                    length = part?.text("length").orEmpty()
+                    length = part?.text("length").orEmpty(),
+                    quantity = part?.text("quantity")?.toIntOrNull() ?: 1,
+                    horizontalGrain = component.booleanOrNull("grain") ?: part?.booleanOrNull("grain")
                 )
             }
         )
@@ -262,6 +287,9 @@ private fun JsonArray?.strings(): List<String> =
 
 private fun JsonObject.text(key: String): String? =
     get(key)?.takeIf { it.isJsonPrimitive }?.asString
+
+private fun JsonObject.booleanOrNull(key: String): Boolean? =
+    text(key)?.toBooleanStrictOrNull()
 
 /** Decimal-inch string (numbers are accepted too); null for missing, null or non-numeric. */
 private fun JsonObject.inches(key: String): Double? = get(key)?.decimalOrNull()

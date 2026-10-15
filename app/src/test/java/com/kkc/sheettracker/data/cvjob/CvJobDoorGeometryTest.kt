@@ -15,6 +15,26 @@ class CvJobDoorGeometryTest {
     private fun fixture(): String =
         requireNotNull(javaClass.classLoader?.getResource("cvjob/job_data_688_doors.json")) { "fixture missing" }.readText()
 
+    @Test
+    fun v2VisibilityFixtureExcludesHiddenRowsAndKeepsManualPartsWithoutHiddenBy() {
+        val json = requireNotNull(javaClass.classLoader?.getResource("cvjob/job_data_v2_visibility.json")).readText()
+        val previews = loaded(json)
+
+        assertEquals(listOf("A"), previews.doors.map { it.doorId })
+        assertNull(previews.forDoor("B"))
+        val parts = previews.doors.single().parts
+        assertEquals(
+            listOf("panel", "manual:6f5f6404-8d4a-4fc1-b987-82df81abb404", "hinge1", "hinge2"),
+            parts.map { it.partId }
+        )
+        val manual = parts[1]
+        assertEquals(listOf(2, 3, 2, 1), parts.map { it.quantity })
+        assertEquals("Added panel", manual.description)
+        assertEquals("Maple", manual.material)
+        assertEquals("8", manual.width)
+        assertEquals("18", manual.length)
+    }
+
     private fun loaded(json: String): CvJobDoorPreviews.Loaded {
         val result = parseCvJobDoorPreviews(json)
         assertTrue("expected Loaded, got $result", result is CvJobDoorPreviews.Loaded)
@@ -128,6 +148,7 @@ class CvJobDoorGeometryTest {
         val door = previews.doors.single()
         assertEquals("1A", door.label)
         assertEquals(listOf(DoorPart("panel", "panel", "Door panel", "Oak", "8", "18")), door.parts)
+        assertEquals(1, door.partCount)
     }
 
     @Test

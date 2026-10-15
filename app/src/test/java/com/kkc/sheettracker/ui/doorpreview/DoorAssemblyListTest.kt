@@ -14,6 +14,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DoorAssemblyListTest {
+    @Test
+    fun v2PartCountsUseVisibleEditedQuantitiesIncludingManualParts() {
+        val json = requireNotNull(javaClass.classLoader?.getResource("cvjob/job_data_v2_visibility.json")).readText()
+        val doors = doorAssemblyDoors(parseCvJobDoorPreviews(json))
+        assertEquals(listOf("A"), doors.map { it.doorId })
+        assertEquals(8, doors.single().partCount)
+        val lines = groupDoorParts(doors.single().parts)
+
+        assertEquals(listOf("panel", "panel", "hinge"), lines.map { it.part.role })
+        assertEquals(listOf(2, 3, 3), lines.map { it.count })
+        assertEquals(8, lines.sumOf { it.count })
+    }
+
     private fun door(id: String, cabinet: String, label: String, hinges: DoorHinges = noHinges()) = DoorPreviewData(
         geometry = DoorGeometry(id, DoorConstruction.SLAB, 12.25, 30.0, 0.75, null, null, hinges, emptyList()),
         label = label,

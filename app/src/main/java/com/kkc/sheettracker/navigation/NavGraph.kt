@@ -162,6 +162,7 @@ import com.kkc.sheettracker.ui.hardwoods.HardwoodsSearchScreen
 import com.kkc.sheettracker.ui.hardwoods.HardwoodsWorkspaceScreen
 import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
 import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_RIP_CUT_LIST_ROW_ID
+import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_DOOR_ASSEMBLY_ROW_ID
 import com.kkc.sheettracker.ui.hardwoods.HARDWOODS_SAW_RIP_LIST_ROW_ID
 import com.kkc.sheettracker.ui.search.SearchScreen
 import com.kkc.sheettracker.ui.settings.SettingsScreen
@@ -2072,10 +2073,16 @@ private fun JobsTabHost(
                 },
                 onOpenRipCutList = {
                     navController.navigate(
+                        hardwoodsWorkspaceRoute(folderName, HardwoodDocType.FACE_FRAME_CUT_LIST,
+                            HARDWOODS_RIP_CUT_LIST_ROW_ID, com.kkc.sheettracker.data.models.HiddenMaterialsMode.HARDWOODS)
+                    ) { launchSingleTop = true }
+                },
+                onOpenDoorAssembly = {
+                    navController.navigate(
                         hardwoodsWorkspaceRoute(
                             folderName,
-                            HardwoodDocType.FACE_FRAME_CUT_LIST,
-                            HARDWOODS_RIP_CUT_LIST_ROW_ID,
+                            HardwoodDocType.DOOR_CUT_LIST,
+                            HARDWOODS_DOOR_ASSEMBLY_ROW_ID,
                             com.kkc.sheettracker.data.models.HiddenMaterialsMode.HARDWOODS
                         )
                     ) {
@@ -3627,10 +3634,16 @@ private fun LegacySingleStackNavigation(
                         },
                         onOpenRipCutList = {
                             navController.navigate(
+                                hardwoodsWorkspaceRoute(folderName, HardwoodDocType.FACE_FRAME_CUT_LIST,
+                                    HARDWOODS_RIP_CUT_LIST_ROW_ID, com.kkc.sheettracker.data.models.HiddenMaterialsMode.HARDWOODS)
+                            ) { launchSingleTop = true }
+                        },
+                        onOpenDoorAssembly = {
+                            navController.navigate(
                                 hardwoodsWorkspaceRoute(
                                     folderName,
-                                    HardwoodDocType.FACE_FRAME_CUT_LIST,
-                                    HARDWOODS_RIP_CUT_LIST_ROW_ID,
+                                    HardwoodDocType.DOOR_CUT_LIST,
+                                    HARDWOODS_DOOR_ASSEMBLY_ROW_ID,
                                     com.kkc.sheettracker.data.models.HiddenMaterialsMode.HARDWOODS
                                 )
                             ) {

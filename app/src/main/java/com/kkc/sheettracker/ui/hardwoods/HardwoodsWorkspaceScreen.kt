@@ -73,9 +73,17 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.data.cvjob.CvJobDoorPreviews
+import com.kkc.sheettracker.data.cvjob.DOOR_ASSEMBLY_PROGRESS_DOC_TYPE
 import com.kkc.sheettracker.data.cvjob.loadCvJobDoorPreviews
 import com.kkc.sheettracker.ui.components.icons.SpecialtyDoorPanelsIcon
 import com.kkc.sheettracker.ui.doorpreview.DoorAssemblyList
+import com.kkc.sheettracker.ui.doorpreview.doorAssemblyDoors
+import com.kkc.sheettracker.ui.doorpreview.doorAssemblyDoneCounts
+import com.kkc.sheettracker.ui.doorpreview.filterDoorAssemblyDoors
+import com.kkc.sheettracker.ui.components.NavBarSearchDecoration
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.text.input.TextFieldValue
 import com.kkc.sheettracker.ui.components.ClockInButton
 import com.kkc.sheettracker.ui.components.icons.HardwoodsBoardStockIcon
 import com.kkc.sheettracker.ui.components.icons.HardwoodsRipIcon
@@ -333,30 +341,7 @@ private enum class HardwoodsJumpTarget {
     THREE_D
 }
 
-internal enum class HardwoodsTallyHoldTarget {
-    NONE,
-    ZERO,
-    COMPLETE
-}
-
-internal fun hardwoodsTallyHoldTarget(
-    isSkipped: Boolean,
-    done: Int,
-    total: Int,
-    isIncrement: Boolean
-): HardwoodsTallyHoldTarget {
-    if (isSkipped || total <= 0) return HardwoodsTallyHoldTarget.NONE
-    val safeDone = done.coerceIn(0, total)
-    return if (isIncrement) {
-        if (safeDone < total) HardwoodsTallyHoldTarget.COMPLETE else HardwoodsTallyHoldTarget.NONE
-    } else {
-        if (safeDone > 0) HardwoodsTallyHoldTarget.ZERO else HardwoodsTallyHoldTarget.NONE
-    }
-}
-
 internal fun hardwoodsListBottomScrollPadding() = 200.dp
-
-internal fun hardwoodsTallyButtonSize() = 32.dp
 
 internal fun hardwoodsLazyRowEntries(
     docTypeName: String,
@@ -470,9 +455,11 @@ fun HardwoodsWorkspaceScreen(
     handoffEditable: Boolean = true
 ) {
     val navBarDeco = LocalNavBarDecoration.current
-    LaunchedEffect(Unit) {
-        navBarDeco.searchDecoration = null
-        navBarDeco.keepSearchDeco = false
+    DisposableEffect(navBarDeco) {
+        onDispose {
+            navBarDeco.searchDecoration = null
+            navBarDeco.keepSearchDeco = false
+        }
     }
 
     val context = LocalContext.current
@@ -626,6 +613,7 @@ fun HardwoodsWorkspaceScreen(
         availableDocuments = filtered
     }
     val isRipCutEntry = initialRowId == HARDWOODS_RIP_CUT_LIST_ROW_ID
+    val isDoorAssemblyEntry = initialRowId == HARDWOODS_DOOR_ASSEMBLY_ROW_ID
     val isDoorPanelsEntry = initialRowId == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID
     val isSawRipEntry = initialRowId == HARDWOODS_SAW_RIP_LIST_ROW_ID
     var selectedDocType by remember(jobFolderName) { mutableStateOf(initialDocType) }
@@ -646,6 +634,9 @@ fun HardwoodsWorkspaceScreen(
     var showRipCutList by rememberSaveable(jobFolderName) { mutableStateOf(isRipCutEntry) }
     // Door Assembly tab: doors drawn from CV Cutlist Query's job_data.json, with their parts.
     var showDoorAssembly by rememberSaveable(jobFolderName) { mutableStateOf(false) }
+    var doorAssemblySearch by rememberSaveable(jobFolderName, stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(""))
+    }
     var selectedRipSource: BoardStockSource? by rememberSaveable(jobFolderName) { mutableStateOf(null) }
     // Specialty entries default to the plywood (sheet) door parts, hardwoods entries to the rest.
     val defaultDoorCutMaterialFilter = if (hiddenMaterialsMode == HiddenMaterialsMode.SPECIALTY) {
@@ -708,6 +699,12 @@ fun HardwoodsWorkspaceScreen(
     // the operator's toggle survives returning from other screens.
     LaunchedEffect(jobFolderName, initialDocType, initialRowId) {
         when {
+            isDoorAssemblyEntry -> {
+                selectedDocType = initialDocType
+                showRipCutList = false
+                showDoorAssembly = true
+                showChangedOnly = false
+            }
             isDoorPanelsEntry -> {
                 // Door Panels must always enter on DOOR_CUT_LIST.
                 selectedDocType = initialDocType
@@ -760,7 +757,7 @@ fun HardwoodsWorkspaceScreen(
     var highlightedRowId by remember(jobFolderName, initialRowId) {
         mutableStateOf(
             initialRowId.takeUnless {
-                it == HARDWOODS_RIP_CUT_LIST_ROW_ID || it == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID || it == HARDWOODS_SAW_RIP_LIST_ROW_ID
+                it == HARDWOODS_RIP_CUT_LIST_ROW_ID || it == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID || it == HARDWOODS_SAW_RIP_LIST_ROW_ID || it == HARDWOODS_DOOR_ASSEMBLY_ROW_ID
             }
         )
     }
@@ -1009,7 +1006,7 @@ fun HardwoodsWorkspaceScreen(
     LaunchedEffect(initialRowId, selectedDocType, visiblePartSections, collapsedPartSections) {
         if (initialRowJumpHandled) return@LaunchedEffect
         val target = initialRowId
-            ?.takeUnless { it == HARDWOODS_RIP_CUT_LIST_ROW_ID || it == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID || it == HARDWOODS_SAW_RIP_LIST_ROW_ID }
+            ?.takeUnless { it == HARDWOODS_RIP_CUT_LIST_ROW_ID || it == HARDWOODS_DOOR_PANELS_SHEET_FILTER_ROW_ID || it == HARDWOODS_SAW_RIP_LIST_ROW_ID || it == HARDWOODS_DOOR_ASSEMBLY_ROW_ID }
             ?: return@LaunchedEffect
         val targetSection = visiblePartSections.firstOrNull { visible -> visible.rows.any { it.rowId == target } }
             ?: return@LaunchedEffect
@@ -1161,6 +1158,34 @@ fun HardwoodsWorkspaceScreen(
         } else {
             snackbar.showSnackbar("Not found in Assembly or Plans/Elevations for cabinet $normalizedCab")
         }
+    }
+
+    val doorAssemblySearchGo by rememberUpdatedState<() -> Unit> {
+        val query = doorAssemblySearch.text.trim()
+        if (query.isNotEmpty()) {
+            val cabinet = filterDoorAssemblyDoors(doorAssemblyDoors(doorPreviews), query)
+                .firstOrNull { it.cabinet.isNotBlank() }?.cabinet ?: query
+            referenceDocType = ReferenceDocType.ASSEMBLY
+            jumpTarget = HardwoodsJumpTarget.ASSEMBLY
+            scope.launch { jumpToCab(cabinet) }
+        }
+    }
+    val (assemblyDone, assemblyTotal) = doorAssemblyDoneCounts(doorAssemblyDoors(doorPreviews), rowProgressMap)
+    val doorSearchDecoration = remember(doorAssemblySearch, assemblyDone, assemblyTotal) {
+        NavBarSearchDecoration(
+            searchTextValue = doorAssemblySearch,
+            onSearchTextChange = { doorAssemblySearch = it },
+            onGo = { doorAssemblySearchGo() },
+            isPartsEnabled = false,
+            onParts = {},
+            contextLine = "$assemblyDone/$assemblyTotal doors done",
+            placeholder = "Cabinet, door or style",
+            showParts = false
+        )
+    }
+    SideEffect {
+        navBarDeco.searchDecoration = if (showDoorAssembly && hasDoorAssembly) doorSearchDecoration else null
+        navBarDeco.keepSearchDeco = false
     }
 
     LaunchedEffect(jumpTarget, referenceDocType, referencePage) {
@@ -1627,7 +1652,25 @@ fun HardwoodsWorkspaceScreen(
                         previews = doorPreviews,
                         stateKey = jobFolderName,
                         bottomPadding = hardwoodsListBottomScrollPadding(),
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        rowProgress = rowProgressMap,
+                        query = doorAssemblySearch.text,
+                        onToggleDone = { doorId, done ->
+                            hardwoodsProgressStore.setDoneCount(
+                                jobFolderName, DOOR_ASSEMBLY_PROGRESS_DOC_TYPE, doorId,
+                                qty = 1, doneCount = if (done) 1 else 0
+                            )
+                        },
+                        onViewInPdf = { cabinet ->
+                            referenceDocType = ReferenceDocType.ASSEMBLY
+                            jumpTarget = HardwoodsJumpTarget.ASSEMBLY
+                            scope.launch { jumpToCab(cabinet) }
+                        },
+                        onToggleSkip = { doorId, skipped ->
+                            hardwoodsProgressStore.setSkipped(
+                                jobFolderName, DOOR_ASSEMBLY_PROGRESS_DOC_TYPE, doorId, skipped
+                            )
+                        }
                     )
                 } else if (showRipCutList) {
                     val allSections = buildBoardStockSourceSections(boardStockRows)
@@ -2316,111 +2359,17 @@ private fun HardwoodsPartRow(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                TallyStepButton(
-                    icon = Icons.Default.Remove,
-                    contentDescription = "Done -",
-                    containerColor = statusColors.bad,
-                    enabled = true,
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onDecrement()
-                    },
-                    onLongClick = {
-                        when (hardwoodsTallyHoldTarget(visuals.skipOn, done, qty, isIncrement = false)) {
-                            HardwoodsTallyHoldTarget.ZERO -> {
-                                onZero()
-                                true
-                            }
-                            HardwoodsTallyHoldTarget.COMPLETE,
-                            HardwoodsTallyHoldTarget.NONE -> false
-                        }
-                    }
+                HardwoodsRowActions(
+                    qty = qty, done = done, rowState = rowState,
+                    isMultiCab = rowUi.isMultiCab, skippedCabCount = skippedCabCount,
+                    totalCabs = rowUi.normalizedCabs.size,
+                    onIncrement = onIncrement, onDecrement = onDecrement,
+                    onComplete = onComplete, onZero = onZero,
+                    onSkipToggle = onSkipToggle, onJump = onJump
                 )
-                ProgressPill(
-                    done = done,
-                    total = qty,
-                    state = rowState.asProgressState(),
-                    skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f),
-                    modifier = Modifier
-                )
-                TallyStepButton(
-                    icon = Icons.Default.Add,
-                    contentDescription = "Done +",
-                    containerColor = statusColors.completeBorder,
-                    enabled = true,
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onIncrement()
-                    },
-                    onLongClick = {
-                        when (hardwoodsTallyHoldTarget(visuals.skipOn, done, qty, isIncrement = true)) {
-                            HardwoodsTallyHoldTarget.COMPLETE -> {
-                                onComplete()
-                                true
-                            }
-                            HardwoodsTallyHoldTarget.ZERO,
-                            HardwoodsTallyHoldTarget.NONE -> false
-                        }
-                    }
-                )
-                Button(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onJump()
-                    },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    modifier = Modifier.heightIn(min = 32.dp)
-                ) { Text("View", style = MaterialTheme.typography.labelSmall) }
-                if (visuals.skipOn) {
-                    Button(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onSkipToggle()
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = statusColors.skipBorder,
-                            contentColor = Color.White
-                        ),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        modifier = Modifier.heightIn(min = 32.dp)
-                    ) {
-                        if (rowUi.isMultiCab) {
-                            Icon(Icons.Default.SkipNext, contentDescription = "Skip icon", modifier = Modifier.size(14.dp))
-                            Spacer(Modifier.width(2.dp))
-                            Text(
-                                "$skippedCabCount/${rowUi.normalizedCabs.size}",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        } else {
-                            Text("SKIPPED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                } else {
-                    OutlinedButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onSkipToggle()
-                        },
-                        border = BorderStroke(1.dp, statusColors.skipBorder.copy(alpha = 0.85f)),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = statusColors.skipBorder),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        modifier = Modifier.heightIn(min = 32.dp)
-                    ) {
-                        Text("Skip", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                    }
-                }
             }
         }
     }
-}
-
-private fun HardwoodsRowState.asProgressState(): ProgressState = when (this) {
-    HardwoodsRowState.NOT_STARTED -> ProgressState.NOT_STARTED
-    HardwoodsRowState.IN_PROGRESS -> ProgressState.IN_PROGRESS
-    HardwoodsRowState.COMPLETE -> ProgressState.COMPLETE
-    HardwoodsRowState.SKIPPED,
-    HardwoodsRowState.PARTIAL_SKIP -> ProgressState.SKIPPED
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -2738,40 +2687,6 @@ private fun MaterialSkipPill(
     }
 }
 
-@Composable
-@OptIn(ExperimentalFoundationApi::class)
-private fun TallyStepButton(
-    icon: ImageVector,
-    contentDescription: String,
-    containerColor: Color,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    onLongClick: () -> Boolean,
-    modifier: Modifier = Modifier
-) {
-    val haptic = LocalHapticFeedback.current
-    val backgroundColor = if (enabled) containerColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-    val iconTint = if (enabled) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-    Surface(
-        shape = CircleShape,
-        color = backgroundColor,
-        modifier = modifier
-            .size(hardwoodsTallyButtonSize())
-            .combinedClickable(
-                enabled = enabled,
-                onClick = onClick,
-                onLongClick = {
-                    if (onLongClick()) {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    }
-                }
-            )
-    ) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = contentDescription, tint = iconTint, modifier = Modifier.size(14.dp))
-        }
-    }
-}
 
 fun hardwoodsBoardStockRowBackgroundTint(
     materialSkipped: Boolean,

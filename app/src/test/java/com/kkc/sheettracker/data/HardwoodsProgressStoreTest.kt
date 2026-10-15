@@ -33,6 +33,41 @@ class HardwoodsProgressStoreTest {
     private val tabletId = "tablet-test"
 
     @Test
+    fun doorAssemblyChecksSurviveReloadAndPeerReadsWithoutChangingPieceTotals() {
+        val baseDir = createTempBaseDir()
+        val index = HardwoodCutlistIndex(documents = listOf(HardwoodDocumentIndex(
+            docType = HardwoodDocType.DOOR_CUT_LIST,
+            rows = listOf(HardwoodCutlistRow(rowId = "panel", qty = 6))
+        )))
+        writeCutlistIndex(baseDir, jobFolderName, index)
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        store.setDoneCount(jobFolderName, "DOOR_ASSEMBLY", "door-1", qty = 1, doneCount = 1)
+        store.awaitPendingWrites()
+
+        val peer = HardwoodsProgressStore(baseDir, "peer-tablet", readOnly = true)
+        assertEquals(1, peer.getRowProgressMap(jobFolderName)["DOOR_ASSEMBLY" to "door-1"]?.doneCount)
+        val job = com.kkc.sheettracker.data.models.HardwoodJob(jobFolderName, "1234", "Test Job", index)
+        assertEquals(6, peer.summarizeJob(job).counts.totalPieces)
+        assertEquals(0, peer.summarizeJob(job).counts.donePieces)
+
+        store.setDoneCount(jobFolderName, "DOOR_ASSEMBLY", "door-1", qty = 1, doneCount = 0)
+        store.awaitPendingWrites()
+        val reloaded = HardwoodsProgressStore(baseDir, tabletId, readOnly = true)
+        assertEquals(0, reloaded.getRowProgressMap(jobFolderName)["DOOR_ASSEMBLY" to "door-1"]?.doneCount)
+
+        store.setSkipped(jobFolderName, "DOOR_ASSEMBLY", "door-1", skipped = true)
+        store.awaitPendingWrites()
+        val skippedPeer = HardwoodsProgressStore(baseDir, "peer-tablet", readOnly = true)
+        assertTrue(skippedPeer.getRowProgressMap(jobFolderName).getValue("DOOR_ASSEMBLY" to "door-1").skipped)
+        assertEquals(0, skippedPeer.summarizeJob(job).counts.skippedPieces)
+
+        store.setSkipped(jobFolderName, "DOOR_ASSEMBLY", "door-1", skipped = false)
+        store.awaitPendingWrites()
+        val restored = HardwoodsProgressStore(baseDir, tabletId, readOnly = true)
+        assertFalse(restored.getRowProgressMap(jobFolderName).getValue("DOOR_ASSEMBLY" to "door-1").skipped)
+    }
+
+    @Test
     fun compactsStaleRowActionsFromInMemoryViewButKeepsRawHistoryOnDisk() {
         val baseDir = createTempBaseDir()
         writeCutlistIndex(

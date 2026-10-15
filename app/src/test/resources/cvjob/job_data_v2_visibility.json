@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 2,
+  "units": "in",
+  "doors": [
+    {"id": "A", "label": "1A", "cabinet": "1", "hidden": false},
+    {"id": "B", "label": "2A", "cabinet": "2", "hidden": true}
+  ],
+  "parts": [
+    {"id": "panel", "source": "cv", "doorId": "A", "category": "DOOR_CUT_LIST", "description": "Panel", "material": "Oak", "width": "8", "length": "18", "quantity": 2, "hidden": false},
+    {"id": "manual:6f5f6404-8d4a-4fc1-b987-82df81abb404", "source": "manual", "doorId": "A", "category": "DOOR_CUT_LIST", "partId": null, "code": null, "partClass": null, "subclass": null, "subclassName": null, "area": null, "description": "Added panel", "material": "Maple", "width": "8", "length": "18", "quantity": 3, "hidden": false},
+    {"id": "hinge1", "source": "cv", "doorId": "A", "description": "Hinge", "material": "Blum", "quantity": 2, "hidden": false, "hiddenBy": ["filter"]},
+    {"id": "hinge2", "source": "cv", "doorId": "A", "description": "Hinge", "material": "Blum", "quantity": 1, "hidden": false},
+    {"id": "hidden-hinge", "source": "cv", "doorId": "A", "description": "Hinge", "material": "Blum", "quantity": 40, "hidden": true},
+    {"id": "nailer", "source": "cv", "doorId": "A", "category": "NAILER_CUT_LIST", "description": "Nailer", "material": "Oak", "quantity": 17, "hidden": true},
+    {"id": "hidden-door-panel", "source": "cv", "doorId": "B", "category": "DOOR_CUT_LIST", "description": "Hidden door panel", "material": "Oak", "quantity": 12, "hidden": true, "hiddenBy": ["door"]}
+  ],
+  "doorGeometry": [
+    {"doorId": "A", "construction": "slab", "width": "10", "height": "20", "components": [
+      {"part": "panel", "role": "panel"},
+      {"part": "manual:6f5f6404-8d4a-4fc1-b987-82df81abb404", "role": "panel"},
+      {"part": "hinge1", "role": "hinge"},
+      {"part": "hinge2", "role": "hinge"},
+      {"part": "hidden-hinge", "role": "hinge"},
+      {"part": "nailer", "role": "member"}
+    ]},
+    {"doorId": "B", "construction": "slab", "width": "10", "height": "20", "components": [
+      {"part": "hidden-door-panel", "role": "panel"}
+    ]}
+  ],
+  "materialSummary": [{"material": "Oak", "unit": "Each", "pieces": 2}, {"material": "Maple", "unit": "Each", "pieces": 3}, {"material": "Blum", "unit": "Each", "pieces": 3}],
+  "fullMaterialSummary": [{"material": "Oak", "unit": "Each", "pieces": 31}, {"material": "Maple", "unit": "Each", "pieces": 3}, {"material": "Blum", "unit": "Each", "pieces": 43}],
+  "visibility": {"parts": 4, "hiddenParts": 3, "pieces": 8, "hiddenPieces": 69, "doors": 1, "hiddenDoors": 1},
+  "filters": {"search": "traceability only; do not reapply"},
+  "edits": [{"kind": "setQuantity", "partId": "panel", "quantity": 2}],
+  "futureField": {"ignored": true}
+}

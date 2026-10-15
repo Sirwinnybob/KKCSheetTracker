@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
@@ -50,9 +51,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.cvjob.CvJobDoorPreviews
+import com.kkc.sheettracker.data.cvjob.DOOR_ASSEMBLY_PROGRESS_DOC_TYPE
 import com.kkc.sheettracker.data.cvjob.DoorHingeSide
 import com.kkc.sheettracker.data.cvjob.DoorPart
 import com.kkc.sheettracker.data.cvjob.DoorPreviewData
+import com.kkc.sheettracker.data.models.HardwoodRowProgress
+import com.kkc.sheettracker.ui.hardwoods.HardwoodsRowActions
+import com.kkc.sheettracker.ui.hardwoods.deriveHardwoodsRowState
+import java.util.Locale
 import com.kkc.sheettracker.ui.theme.DimensionTextStyle
 import com.kkc.sheettracker.ui.theme.KKCShapeTokens
 import com.kkc.sheettracker.ui.theme.KKCSpacing
@@ -79,6 +85,34 @@ internal fun doorAssemblyDoors(previews: CvJobDoorPreviews?): List<DoorPreviewDa
     )
 }
 
+internal fun isDoorAssemblyDone(
+    rowProgress: Map<Pair<String, String>, HardwoodRowProgress>,
+    doorId: String
+): Boolean {
+    val progress = rowProgress[DOOR_ASSEMBLY_PROGRESS_DOC_TYPE to doorId] ?: return false
+    return !progress.skipped && progress.doneCount > 0
+}
+
+/** (done, total) over the doors that currently exist; checks for removed doors are ignored. */
+internal fun doorAssemblyDoneCounts(
+    doors: List<DoorPreviewData>,
+    rowProgress: Map<Pair<String, String>, HardwoodRowProgress>
+): Pair<Int, Int> {
+    val activeDoors = doors.filter { rowProgress[DOOR_ASSEMBLY_PROGRESS_DOC_TYPE to it.doorId]?.skipped != true }
+    return activeDoors.count { isDoorAssemblyDone(rowProgress, it.doorId) } to activeDoors.size
+}
+
+/** Cabinet number prefix, or label / style text; blank query keeps every door in order. */
+internal fun filterDoorAssemblyDoors(doors: List<DoorPreviewData>, query: String): List<DoorPreviewData> {
+    val q = query.trim().lowercase(Locale.US)
+    if (q.isEmpty()) return doors
+    return doors.filter { door ->
+        door.cabinet.trim().lowercase(Locale.US).startsWith(q) ||
+            door.label.lowercase(Locale.US).contains(q) ||
+            door.style.lowercase(Locale.US).contains(q)
+    }
+}
+
 /** Identical parts of one door shown once with a count (two hinges, two bumpers...). */
 data class DoorPartLine(val part: DoorPart, val count: Int)
 
@@ -96,7 +130,7 @@ internal fun groupDoorParts(parts: List<DoorPart>): List<DoorPartLine> =
     parts
         .groupBy { listOf(it.role, it.description, it.material, it.width, it.length) }
         .values
-        .map { same -> DoorPartLine(same.first(), same.size) }
+        .map { same -> DoorPartLine(same.first(), same.sumOf { it.quantity }) }
         .sortedBy { line -> DOOR_ROLE_ORDER.indexOf(line.part.role).let { if (it < 0) DOOR_ROLE_ORDER.size else it } }
 
 internal fun doorRoleLabel(role: String): String = when (role) {
@@ -144,10 +178,15 @@ fun DoorAssemblyList(
     previews: CvJobDoorPreviews?,
     stateKey: String,
     modifier: Modifier = Modifier,
-    bottomPadding: Dp = 0.dp
+    bottomPadding: Dp = 0.dp,
+    rowProgress: Map<Pair<String, String>, HardwoodRowProgress> = emptyMap(),
+    query: String = "",
+    onToggleDone: (doorId: String, done: Boolean) -> Unit = { _, _ -> },
+    onToggleSkip: (doorId: String, skipped: Boolean) -> Unit = { _, _ -> },
+    onViewInPdf: (cabinet: String) -> Unit = {}
 ) {
-    val doors = remember(previews) { doorAssemblyDoors(previews) }
-    val message = doorPreviewStatusMessage(previews, doors.size)
+    val allDoors = remember(previews) { doorAssemblyDoors(previews) }
+    val message = doorPreviewStatusMessage(previews, allDoors.size)
     if (message != null) {
         Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
             Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
@@ -155,24 +194,42 @@ fun DoorAssemblyList(
         return
     }
     var expandedIds by rememberSaveable(stateKey) { mutableStateOf(listOf<String>()) }
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 6.dp, bottom = bottomPadding)
-    ) {
-        doors.forEach { door ->
-            val expanded = door.doorId in expandedIds
-            stickyHeader(key = "door:${door.doorId}") {
-                DoorAssemblyHeader(
-                    door = door,
-                    expanded = expanded,
-                    onToggle = {
-                        expandedIds = if (expanded) expandedIds - door.doorId else expandedIds + door.doorId
-                    }
+    val doors = remember(allDoors, query) { filterDoorAssemblyDoors(allDoors, query) }
+    Column(modifier = modifier.fillMaxSize()) {
+        if (doors.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                Text(
+                    "No doors match \"${query.trim()}\".",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
                 )
             }
-            if (expanded) {
-                item(key = "door-body:${door.doorId}") {
-                    DoorAssemblyBody(door)
+            return@Column
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 6.dp, bottom = bottomPadding)
+        ) {
+            doors.forEach { door ->
+                val expanded = door.doorId in expandedIds
+                stickyHeader(key = "door:${door.doorId}") {
+                    val progress = rowProgress[DOOR_ASSEMBLY_PROGRESS_DOC_TYPE to door.doorId] ?: HardwoodRowProgress()
+                    DoorAssemblyHeader(
+                        door = door,
+                        expanded = expanded,
+                        progress = progress,
+                        onToggle = {
+                            expandedIds = if (expanded) expandedIds - door.doorId else expandedIds + door.doorId
+                        },
+                        onToggleDone = { done -> onToggleDone(door.doorId, done) },
+                        onToggleSkip = { onToggleSkip(door.doorId, !progress.skipped) },
+                        onViewInPdf = { onViewInPdf(door.cabinet) }
+                    )
+                }
+                if (expanded) {
+                    item(key = "door-body:${door.doorId}") {
+                        DoorAssemblyBody(door)
+                    }
                 }
             }
         }
@@ -180,9 +237,19 @@ fun DoorAssemblyList(
 }
 
 @Composable
-private fun DoorAssemblyHeader(door: DoorPreviewData, expanded: Boolean, onToggle: () -> Unit) {
+private fun DoorAssemblyHeader(
+    door: DoorPreviewData,
+    expanded: Boolean,
+    progress: HardwoodRowProgress,
+    onToggle: () -> Unit,
+    onToggleDone: (Boolean) -> Unit,
+    onToggleSkip: () -> Unit,
+    onViewInPdf: () -> Unit
+) {
+    val done = progress.doneCount.coerceIn(0, 1) > 0
+    val rowState = deriveHardwoodsRowState(progress, qty = 1, isMultiCab = false, skippedCabCount = 0, totalCabs = 1)
     val drawing = remember(door) { buildDoorDrawing(door.geometry) }
-    val partCount = remember(door) { door.parts.size }
+    val partCount = remember(door) { door.partCount }
     val scheme = MaterialTheme.colorScheme
     val chevronRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
@@ -194,11 +261,17 @@ private fun DoorAssemblyHeader(door: DoorPreviewData, expanded: Boolean, onToggl
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = if (expanded) 0.dp else 4.dp)
+            .alpha(if (done || progress.skipped) 0.78f else 1f)
             .clickable(onClick = onToggle),
         color = scheme.surface,
         shape = shape,
         shadowElevation = if (expanded) 0.dp else 2.dp,
-        border = BorderStroke(1.dp, if (expanded) scheme.primary.copy(alpha = 0.45f) else scheme.outlineVariant.copy(alpha = 0.55f))
+        border = BorderStroke(1.dp, when {
+            progress.skipped -> KKCThemeColors.statusColors.skipBorder
+            done -> KKCThemeColors.statusColors.completeBorder
+            expanded -> scheme.primary.copy(alpha = 0.45f)
+            else -> scheme.outlineVariant.copy(alpha = 0.55f)
+        })
     ) {
         Row(
             modifier = Modifier
@@ -254,6 +327,13 @@ private fun DoorAssemblyHeader(door: DoorPreviewData, expanded: Boolean, onToggl
                     )
                 }
                 if (drawing.warnings.isNotEmpty()) DoorWarningBadge(drawing.warnings.size)
+                HardwoodsRowActions(
+                    qty = 1, done = progress.doneCount.coerceIn(0, 1), rowState = rowState,
+                    onIncrement = { onToggleDone(true) }, onDecrement = { onToggleDone(false) },
+                    onComplete = { onToggleDone(true) }, onZero = { onToggleDone(false) },
+                    onSkipToggle = onToggleSkip, onJump = onViewInPdf,
+                    viewEnabled = door.cabinet.isNotBlank()
+                )
                 Surface(
                     shape = CircleShape,
                     color = scheme.surface.copy(alpha = 0.60f),

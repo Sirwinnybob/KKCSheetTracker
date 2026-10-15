@@ -8,6 +8,8 @@ import com.kkc.sheettracker.data.cvjob.DoorHinges
 import com.kkc.sheettracker.data.cvjob.DoorPanel
 import com.kkc.sheettracker.data.cvjob.DoorPoint
 import com.kkc.sheettracker.data.cvjob.DoorRect
+import com.kkc.sheettracker.data.cvjob.CvJobDoorPreviews
+import com.kkc.sheettracker.data.cvjob.parseCvJobDoorPreviews
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -15,6 +17,84 @@ import org.junit.Test
 
 class DoorPreviewLayoutTest {
     private val eps = 1e-9
+
+    @Test
+    fun publishedHorizontalGrainAppliesToPanelsAndSlabs() {
+        for (construction in listOf("fivePiece", "slab")) {
+            val previews = parseCvJobDoorPreviews("""
+                {"schemaVersion":2,
+                 "doors":[{"id":"A","grain":true}],
+                 "doorGeometry":[{"doorId":"A","construction":"$construction","width":"10","height":"20",
+                   "frame":{"leftStile":"2","rightStile":"2","topRail":"2","bottomRail":"2"},
+                   "panel":{"kind":"flat","opening":{"x":"2","y":"2","width":"6","height":"16"}}
+                 }]}
+            """.trimIndent()) as CvJobDoorPreviews.Loaded
+            val drawing = buildDoorDrawing(previews.doors.single().geometry)
+
+            assertTrue(drawing.showFaceGrain)
+            assertEquals("$construction should draw horizontal face grain", false, drawing.panelGrainVertical)
+            if (construction == "fivePiece") {
+                assertEquals(2, drawing.rects(DoorShapeRole.STILE).size)
+                assertEquals(2, drawing.rects(DoorShapeRole.RAIL).size)
+                assertEquals(1, drawing.rects(DoorShapeRole.PANEL).size)
+            }
+        }
+    }
+
+    @Test
+    fun falseGrainFlagDrawsVerticalPanelAndSlabFaceGrain() {
+        for (construction in listOf("fivePiece", "slab")) {
+            val previews = parseCvJobDoorPreviews("""
+                {"schemaVersion":2,
+                 "doors":[{"id":"A","grain":false}],
+                 "doorGeometry":[{"doorId":"A","construction":"$construction","width":"10","height":"20"}]}
+            """.trimIndent()) as CvJobDoorPreviews.Loaded
+
+            val drawing = buildDoorDrawing(previews.doors.single().geometry)
+            assertTrue("$construction should draw vertical grain", drawing.showFaceGrain)
+            assertTrue(drawing.panelGrainVertical)
+        }
+    }
+
+    @Test
+    fun componentGrainOverridesConflictingDoorFlag() {
+        for (construction in listOf("fivePiece", "slab")) {
+            for (horizontal in listOf(false, true)) {
+                val role = if (construction == "slab") "slab" else "panel"
+                for (source in listOf("component", "part", "panel")) {
+                    if (source == "panel" && construction == "slab") continue
+                    val componentFlag = if (source == "component") "\"grain\":$horizontal," else "\"grain\":null,"
+                    val partFlag = if (source == "part") "\"grain\":$horizontal," else ""
+                    val panel = if (source == "panel") ",\"panel\":{\"kind\":\"flat\",\"grain\":$horizontal}" else ""
+                    val previews = parseCvJobDoorPreviews("""
+                        {"schemaVersion":2,
+                         "doors":[{"id":"A","grain":${!horizontal}}],
+                         "parts":[{$partFlag"id":"p"}],
+                         "doorGeometry":[{"doorId":"A","construction":"$construction","width":"10","height":"20"$panel,
+                           "components":[{$componentFlag"part":"p","role":"$role"}]}]}
+                    """.trimIndent()) as CvJobDoorPreviews.Loaded
+                    val drawing = buildDoorDrawing(previews.doors.single().geometry)
+                    assertTrue(drawing.showFaceGrain)
+                    assertEquals("$construction/$source", !horizontal, drawing.panelGrainVertical)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun missingGrainFlagKeepsLegacyVerticalPanelAndSlabGrain() {
+        for (construction in listOf("fivePiece", "slab")) {
+            val previews = parseCvJobDoorPreviews("""
+                {"schemaVersion":1,
+                 "doors":[{"id":"A"}],
+                 "doorGeometry":[{"doorId":"A","construction":"$construction","width":"10","height":"20"}]}
+            """.trimIndent()) as CvJobDoorPreviews.Loaded
+
+            val drawing = buildDoorDrawing(previews.doors.single().geometry)
+            assertTrue(drawing.showFaceGrain)
+            assertTrue(drawing.panelGrainVertical)
+        }
+    }
 
     private fun hinges(
         side: DoorHingeSide,
