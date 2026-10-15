@@ -23,15 +23,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,19 +77,6 @@ import com.kkc.sheettracker.ui.theme.kkcZebraTint
  * label, cabinet, size, style, hinges) that opens to the full drawing and every part of the door.
  * Data comes only from CV Cutlist Query's job_data.json (read-only).
  */
-
-/** Doors in shop order: cabinet number, then label. */
-internal fun doorAssemblyDoors(previews: CvJobDoorPreviews?): List<DoorPreviewData> {
-    val loaded = previews as? CvJobDoorPreviews.Loaded ?: return emptyList()
-    return loaded.doors.sortedWith(
-        compareBy<DoorPreviewData>(
-            { it.cabinet.toIntOrNull() ?: Int.MAX_VALUE },
-            { it.cabinet },
-            { it.label },
-            { it.doorId.toLongOrNull() ?: Long.MAX_VALUE }
-        )
-    )
-}
 
 internal fun isDoorAssemblyDone(
     rowProgress: Map<Pair<String, String>, HardwoodRowProgress>,
@@ -157,7 +150,7 @@ internal fun doorPartSizeText(part: DoorPart): String {
     return if (width.isNotEmpty() && length.isNotEmpty()) "$width x $length" else ""
 }
 
-/** `16 5/8 × 31 1/2 · 2 1/4" Flat Panel · Hinged left`. */
+/** `16.625 × 31.5 · 2 1/4" Flat Panel · Hinged left`; style names stay as published. */
 internal fun doorHeaderSubtitle(door: DoorPreviewData): String {
     val g = door.geometry
     val hinged = hingeCups(g).isNotEmpty()
@@ -185,7 +178,10 @@ fun DoorAssemblyList(
     onToggleSkip: (doorId: String, skipped: Boolean) -> Unit = { _, _ -> },
     onViewInPdf: (cabinet: String) -> Unit = {}
 ) {
-    val allDoors = remember(previews) { doorAssemblyDoors(previews) }
+    var sort by rememberSaveable(stateKey) { mutableStateOf(DoorAssemblySort.CABINET) }
+    var sortMenuOpen by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val allDoors = remember(previews, sort) { doorAssemblyDoors(previews, sort) }
     val message = doorPreviewStatusMessage(previews, allDoors.size)
     if (message != null) {
         Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -195,7 +191,28 @@ fun DoorAssemblyList(
     }
     var expandedIds by rememberSaveable(stateKey) { mutableStateOf(listOf<String>()) }
     val doors = remember(allDoors, query) { filterDoorAssemblyDoors(allDoors, query) }
+    LaunchedEffect(sort, query) { listState.scrollToItem(0) }
     Column(modifier = modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+            TextButton(onClick = { sortMenuOpen = true }) {
+                Text("Sort: ${sort.label}")
+                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+            }
+            DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
+                DoorAssemblySort.entries.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option.label) },
+                        leadingIcon = if (sort == option) {
+                            { Icon(Icons.Default.Check, contentDescription = "Selected") }
+                        } else null,
+                        onClick = {
+                            sort = option
+                            sortMenuOpen = false
+                        }
+                    )
+                }
+            }
+        }
         if (doors.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                 Text(
@@ -207,7 +224,8 @@ fun DoorAssemblyList(
             return@Column
         }
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            state = listState,
             contentPadding = PaddingValues(top = 6.dp, bottom = bottomPadding)
         ) {
             doors.forEach { door ->
@@ -309,13 +327,20 @@ private fun DoorAssemblyHeader(
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = door.label.ifBlank { "Door" },
+                            text = door.cabinet.trim().let { if (it.isEmpty()) "No cabinet" else "Cab $it" },
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = scheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        if (door.cabinet.isNotBlank()) HeaderChip("Cab ${door.cabinet}")
+                        Text(
+                            text = door.label.ifBlank { "Door" },
+                            style = MaterialTheme.typography.titleSmall,
+                            color = scheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
                         HeaderChip("$partCount ${if (partCount == 1) "part" else "parts"}")
                     }
                     Text(

@@ -36,7 +36,7 @@ class DoorPreviewTextTest {
     }
 
     @Test
-    fun detailLinesUseShopFractions() {
+    fun detailLinesUseDecimalMeasurementsAndPreserveMaterialNames() {
         val geometry = DoorGeometry(
             doorId = "53753",
             construction = DoorConstruction.FIVE_PIECE,
@@ -54,14 +54,14 @@ class DoorPreviewTextTest {
         val preview = DoorPreviewData(geometry, "1B", "Square Glass 2 1/4\"")
         assertEquals(
             listOf(
-                "Size 31 3/8 × 18 × 3/4",
-                "Stiles 2 1/4 / 2 1/4, rails 2 1/4 top / 2 1/4 bottom",
-                "Tenons 1/2",
+                "Size 31.375 × 18 × 0.75",
+                "Stiles 2.25 / 2.25, rails 2.25 top / 2.25 bottom",
+                "Tenons 0.5",
                 "Frame: 3/4 Paint Grade Wood",
-                "Opening 26 7/8 × 13 1/2",
-                "Panel in groove 7/16 sides, 7/16 top/bottom",
+                "Opening 26.875 × 13.5",
+                "Panel in groove 0.4375 sides, 0.4375 top/bottom",
                 "Panel: glass, 1/8 Glass",
-                "Hinges on top at 3.1496, 28.2254 from left"
+                "Hinges on top at 3.1496 from left, 3.1496 from right"
             ),
             doorDetailLines(preview, buildDoorDrawing(geometry))
         )
@@ -69,5 +69,41 @@ class DoorPreviewTextTest {
         // Hinges listed in the notes but not drawable (no points) read as no hinges.
         val noPoints = geometry.copy(hinges = geometry.hinges.copy(points = emptyList()))
         assertEquals(true, "No hinges" in doorDetailLines(preview.copy(geometry = noPoints), buildDoorDrawing(noPoints)))
+    }
+
+    @Test
+    fun sideHingesReferenceTheNearestEndUsingFinishedDoorHeight() {
+        for (side in listOf(DoorHingeSide.LEFT, DoorHingeSide.RIGHT)) {
+            val positions = listOf(3.0, 20.0, 35.5)
+            val x = if (side == DoorHingeSide.LEFT) 0.8071 else 15.1929
+            val points = positions.map { DoorPoint(x, it) }
+            val geometry = DoorGeometry(
+                "door", DoorConstruction.SLAB, 16.0, 40.0, 0.75, null, null,
+                DoorHinges(side, side.name, 3, positions, 0.8071, points), emptyList()
+            )
+            val preview = DoorPreviewData(geometry, "1A", "Slab")
+            val drawing = buildDoorDrawing(geometry)
+            assertEquals(
+                "Hinges on ${side.name.lowercase()} at 3 from bottom, 20 from bottom, 4.5 from top",
+                doorDetailLines(preview, drawing).last()
+            )
+            // Display conversion must never change CV coordinates or the drawn cup centres.
+            assertEquals(positions, geometry.hinges.positions)
+            assertEquals(points, drawing.shapes.filterIsInstance<DoorShape.HingeCup>().map { it.center })
+        }
+    }
+
+    @Test
+    fun fourHingeDoorLabelsEveryDistanceWithItsOwnReferenceEnd() {
+        val positions = listOf(3.1496, 14.0, 26.0, 36.8504)
+        val geometry = DoorGeometry(
+            "door", DoorConstruction.SLAB, 16.0, 40.0, 0.75, null, null,
+            DoorHinges(DoorHingeSide.LEFT, "L", 4, positions, 0.8071, positions.map { DoorPoint(0.8071, it) }),
+            emptyList()
+        )
+        assertEquals(
+            "Hinges on left at 3.1496 from bottom, 14 from bottom, 14 from top, 3.1496 from top",
+            doorDetailLines(DoorPreviewData(geometry, "1A", "Slab"), buildDoorDrawing(geometry)).last()
+        )
     }
 }

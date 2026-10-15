@@ -283,13 +283,14 @@ class DoorPreviewLayoutTest {
     }
 
     @Test
-    fun inchesFormatAsShopFractions() {
-        assertEquals("16 5/8", formatDoorInches(16.625))
-        assertEquals("31 1/2", formatDoorInches(31.5))
+    fun inchesAlwaysFormatAsDecimalsWithUpToFourPlaces() {
+        assertEquals("16.625", formatDoorInches(16.625))
+        assertEquals("31.5", formatDoorInches(31.5))
         assertEquals("12", formatDoorInches(12.0))
-        assertEquals("2 9/32", formatDoorInches(2.28125))
-        assertEquals("15/32", formatDoorInches(0.46875))
+        assertEquals("2.2813", formatDoorInches(2.28125))
+        assertEquals("0.4688", formatDoorInches(0.46875))
         assertEquals("0.468", formatDoorInches(0.468))
         assertEquals("3.1496", formatDoorInches(3.1496))
+        assertEquals("0", formatDoorInches(-0.00000001))
     }
 }

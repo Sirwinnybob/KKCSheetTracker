@@ -50,6 +50,40 @@ class DoorAssemblyListTest {
     }
 
     @Test
+    fun defaultCabinetSortUsesNumericOrderIncludingSuffixesAndDoorNames() {
+        val loaded = CvJobDoorPreviews.Loaded(listOf(
+            door("5", "10", "1A"), door("4", "2A", "1A"),
+            door("3", "2", "10A-R"), door("2", "2", "2A-R"),
+            door("1", "1", "1A-R"), door("6", "", "Spare")
+        ))
+        assertEquals(listOf("1", "2", "3", "4", "5", "6"), doorAssemblyDoors(loaded).map { it.doorId })
+    }
+
+    @Test
+    fun doorNameSortUsesCabinetAsATieBreakerAndStillSupportsSearch() {
+        val loaded = CvJobDoorPreviews.Loaded(listOf(
+            door("4", "1", "10A-R"), door("3", "10", "2A-R"),
+            door("2", "2", "2A-R"), door("1", "3", "1A-L")
+        ))
+        val sorted = doorAssemblyDoors(loaded, DoorAssemblySort.DOOR_NAME)
+        assertEquals(listOf("1", "2", "3", "4"), sorted.map { it.doorId })
+        assertEquals(listOf("2", "3"), filterDoorAssemblyDoors(sorted, "2a-r").map { it.doorId })
+    }
+
+    @Test
+    fun sizeSortUsesWidthThenHeightWithCabinetOrderForEqualSizes() {
+        fun sized(id: String, cabinet: String, width: Double, height: Double) =
+            door(id, cabinet, "1A").let { it.copy(geometry = it.geometry.copy(width = width, height = height)) }
+        val loaded = CvJobDoorPreviews.Loaded(listOf(
+            sized("4", "10", 20.0, 30.0), sized("2", "2", 20.0, 30.0),
+            sized("3", "3", 20.0, 40.0), sized("1", "1", 9.5, 50.0)
+        ))
+        assertEquals(listOf("3", "2", "4", "1"), doorAssemblyDoors(loaded, DoorAssemblySort.LARGEST_FIRST).map { it.doorId })
+        assertEquals(listOf("1", "2", "4", "3"), doorAssemblyDoors(loaded, DoorAssemblySort.SMALLEST_FIRST).map { it.doorId })
+        assertTrue(doorAssemblyDoors(null, DoorAssemblySort.LARGEST_FIRST).isEmpty())
+    }
+
+    @Test
     fun partsAreFrameFirstThenPanelThenHardwareWithIdenticalPartsMerged() {
         val parts = listOf(
             part("pull", "Door Pull"),
@@ -93,10 +127,10 @@ class DoorAssemblyListTest {
     @Test
     fun headerSubtitleSaysHowTheDoorIsHung() {
         val hinged = DoorHinges(DoorHingeSide.RIGHT, "R", 2, listOf(3.1496, 26.85), 0.8071, listOf(DoorPoint(11.4429, 3.1496), DoorPoint(11.4429, 26.85)))
-        assertEquals("12 1/4 × 30 · Slab · Hinged right", doorHeaderSubtitle(door("1", "1", "1A", hinged)))
+        assertEquals("12.25 × 30 · Slab · Hinged right", doorHeaderSubtitle(door("1", "1", "1A", hinged)))
         // Hinge side without drawable cups (no points) reads as no hinges.
-        assertEquals("12 1/4 × 30 · Slab · No hinges", doorHeaderSubtitle(door("1", "1", "1A", hinged.copy(points = emptyList()))))
-        assertEquals("12 1/4 × 30 · Slab · No hinges", doorHeaderSubtitle(door("1", "1", "1A")))
+        assertEquals("12.25 × 30 · Slab · No hinges", doorHeaderSubtitle(door("1", "1", "1A", hinged.copy(points = emptyList()))))
+        assertEquals("12.25 × 30 · Slab · No hinges", doorHeaderSubtitle(door("1", "1", "1A")))
     }
 
     @Test
@@ -109,6 +143,6 @@ class DoorAssemblyListTest {
         val lines = groupDoorParts(first.parts)
         assertEquals("leftStile", lines.first().part.role)
         assertEquals(listOf(2, 2, 2), lines.filter { it.part.role in setOf("hinge", "hingePlate", "bumper") }.map { it.count })
-        assertEquals("16 5/8 × 31 1/2 · 2 1/4\" Flat Panel · Hinged left", doorHeaderSubtitle(first))
+        assertEquals("16.625 × 31.5 · 2 1/4\" Flat Panel · Hinged left", doorHeaderSubtitle(first))
     }
 }

@@ -165,19 +165,8 @@ data class DoorPreviewFit(val scale: Float, val offsetX: Float, val offsetY: Flo
     }
 }
 
-/** `16.625` → `16 5/8`; sizes off the 1/64" grid stay decimal (trimmed to 4 places). */
+/** Decimal inches, up to four places to match CV's published precision. */
 fun formatDoorInches(value: Double): String {
-    val sixtyFourths = Math.round(value * 64)
-    if (kotlin.math.abs(value * 64 - sixtyFourths) > 0.01) {
-        return "%.4f".format(java.util.Locale.US, value).trimEnd('0').trimEnd('.')
-    }
-    val whole = sixtyFourths / 64
-    var num = sixtyFourths % 64
-    if (num == 0L) return whole.toString()
-    var den = 64L
-    while (num % 2 == 0L) {
-        num /= 2
-        den /= 2
-    }
-    return if (whole == 0L) "$num/$den" else "$whole $num/$den"
+    val text = "%.4f".format(java.util.Locale.US, value).trimEnd('0').trimEnd('.')
+    return if (text == "-0") "0" else text
 }

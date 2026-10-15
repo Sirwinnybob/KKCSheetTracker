@@ -212,7 +212,7 @@ internal fun DoorWarningBadge(count: Int, modifier: Modifier = Modifier) {
     }
 }
 
-/** Plain-language sizes for the expanded door, shop fractions where the size is on the 1/64" grid. */
+/** Plain-language decimal sizes for the expanded door. */
 internal fun doorDetailLines(preview: DoorPreviewData, drawing: DoorDrawing): List<String> {
     val g = preview.geometry
     fun f(v: Double) = formatDoorInches(v)
@@ -235,10 +235,23 @@ internal fun doorDetailLines(preview: DoorPreviewData, drawing: DoorDrawing): Li
         when (hinges.side) {
             DoorHingeSide.LEFT, DoorHingeSide.RIGHT, DoorHingeSide.TOP -> if (!hasCups) add("No hinges") else {
                 val edge = hinges.side.name.lowercase()
-                val from = if (hinges.side == DoorHingeSide.TOP) "from left" else "from bottom"
+                val alongTop = hinges.side == DoorHingeSide.TOP
+                val span = if (alongTop) g.width else g.height
+                // CV positions start at bottom/left. Convert only the displayed distance;
+                // drawing cup centres must keep the original bottom-left coordinates.
+                val locations = hinges.positions.joinToString(", ") { position ->
+                    val fromStart = position <= span / 2
+                    val distance = if (fromStart) position else span - position
+                    val reference = if (alongTop) {
+                        if (fromStart) "left" else "right"
+                    } else {
+                        if (fromStart) "bottom" else "top"
+                    }
+                    "${f(distance)} from $reference"
+                }
                 add(
                     if (hinges.positions.isEmpty()) "Hinges on $edge, positions unknown"
-                    else "Hinges on $edge at ${hinges.positions.joinToString(", ") { f(it) }} $from"
+                    else "Hinges on $edge at $locations"
                 )
             }
             DoorHingeSide.NONE -> add("No hinges")
