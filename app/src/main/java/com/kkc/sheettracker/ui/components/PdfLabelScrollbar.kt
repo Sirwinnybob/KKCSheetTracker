@@ -66,7 +66,9 @@ import dev.chrisbanes.haze.HazeDefaults
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import kotlinx.coroutines.CoroutineScope
+import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.isActive
@@ -374,7 +376,10 @@ internal fun PdfLabelScrollbar(
     // whole document like the old full-dock design did.
     LaunchedEffect(carouselSlots, defaultPdfFilename, isDragging, effectiveLabelOnly, preferDarkMode) {
         if (!isDragging || effectiveLabelOnly) return@LaunchedEffect
-        for ((_, entry) in carouselSlots) {
+        // Debounce: this effect restarts on every focus change, so a fast drag cancels here
+        // before any native JXL decode starts. Decode the focused slot first, then outward.
+        delay(70L)
+        for ((_, entry) in carouselSlots.sortedBy { (distance, _) -> kotlin.math.abs(distance) }) {
             if (!isActive) break
             val rowIndex = entry.rowIndex
             if (thumbCache.containsKey(rowIndex)) continue
@@ -387,7 +392,8 @@ internal fun PdfLabelScrollbar(
                     engineCache.get(file).renderThumbnail(
                         sourcePage - 1,
                         maxWidth = 200,
-                        matteColorArgb = referencePdfThumbnailMatteColorArgb(preferDarkMode)
+                        matteColorArgb = referencePdfThumbnailMatteColorArgb(preferDarkMode),
+                        background = true
                     )
                 }
             } else {
@@ -562,8 +568,22 @@ internal fun PdfLabelScrollbar(
             )
         }
 
+        // Big label for the page under the finger, fixed at the upper middle of the pane so it
+        // stays readable at a glance while scrolling fast. Shown in both preview modes; the
+        // thumbnail carousel below no longer repeats the focused page's label.
         AnimatedVisibility(
             visible = isDragging,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
+            enter = fadeIn(tween(120)),
+            exit = fadeOut(tween(160))
+        ) {
+            entries.getOrNull(focusIndex)?.let { entry ->
+                ScrollLabelHeadline(entry = entry, hazeState = hazeState)
+            }
+        }
+
+        AnimatedVisibility(
+            visible = isDragging && !effectiveLabelOnly,
             modifier = Modifier.align(Alignment.TopEnd),
             enter = slideInHorizontally(
                 animationSpec = tween(200, easing = FastOutSlowInEasing)
@@ -572,19 +592,7 @@ internal fun PdfLabelScrollbar(
                 animationSpec = tween(200, easing = FastOutSlowInEasing)
             ) { fullWidth -> fullWidth } + fadeOut(tween(200))
         ) {
-          if (effectiveLabelOnly) {
-            entries.getOrNull(focusIndex)?.let { entry ->
-                ScrollLabelBubble(
-                    entry = entry,
-                    touchYPx = touchYPx,
-                    trackHeightPx = trackHeightPx,
-                    carouselWidth = carouselWidth,
-                    carouselPadding = carouselPadding,
-                    carouselEndPadding = carouselEndPadding,
-                    hazeState = hazeState
-                )
-            }
-          } else {
+          run {
             // Fixed size tiers, not a continuous falloff — the carousel only ever shows exactly
             // these 5 roles (main/±1/±2), so there's no "many more neighbors fading to zero" case
             // to model the way the old whole-document dock needed to.
@@ -599,7 +607,7 @@ internal fun PdfLabelScrollbar(
             // per-row cumulative-height estimate this whole redesign replaced), just the known
             // sum of fixed constants below, so there's no real-vs-estimate drift possible here.
             fun footprintForDistance(distance: Int): Dp = when (kotlin.math.abs(distance)) {
-                0 -> 222.dp // 160 thumbnail + 18 chip chrome + ~44 two-line caption + range label
+                0 -> 178.dp // 160 thumbnail + 18 chip chrome, no caption (label is in ScrollLabelHeadline)
                 1 -> 138.dp // 100 thumbnail + 18 chip chrome + ~20 one-line caption
                 else -> 78.dp // 60 thumbnail + 18 chip chrome, no caption
             }
@@ -736,27 +744,17 @@ internal fun PdfLabelScrollbar(
                                         )
                                     }
                                 }
-                                if (showLabel) {
+                                // The focused page's label (and range) lives in ScrollLabelHeadline.
+                                if (showLabel && !isMain) {
                                     Text(
                                         text = entry.label,
                                         modifier = Modifier.widthIn(max = maxThumbWidth + 20.dp).padding(top = 2.dp),
-                                        style = if (isMain) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelSmall,
+                                        style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurface,
                                         textAlign = TextAlign.Center,
-                                        maxLines = if (isMain) 2 else 1,
+                                        maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (isMain && entry.rangeLabel != null) {
-                                        Text(
-                                            text = entry.rangeLabel,
-                                            modifier = Modifier.widthIn(max = maxThumbWidth + 20.dp),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            textAlign = TextAlign.Center,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
                                 }
                             }
                         }
@@ -770,92 +768,70 @@ internal fun PdfLabelScrollbar(
 }
 
 /**
- * Single floating label pill shown while dragging when the label-only scroll preview mode is
- * active (user setting, or forced by [isSplitPaneActive] on PdfLabelScrollbar) — the Contacts-
- * style alternative to the thumbnail carousel above. Shows only [entry]'s own label/range text,
- * no thumbnail decode, no neighbor slots.
+ * Large label (cabinet number(s) / real content label, plus the range for a bucketed entry) for
+ * the page under the finger while dragging the scrollbar. Placed by the caller at the upper middle
+ * of the pane so it can be read at a glance during fast scrolling; shown in both the thumbnail and
+ * label-only preview modes.
  */
 @Composable
-private fun ScrollLabelBubble(
+private fun ScrollLabelHeadline(
     entry: ScrollbarEntry,
-    touchYPx: Float,
-    trackHeightPx: Float,
-    carouselWidth: Dp,
-    carouselPadding: Dp,
-    carouselEndPadding: Dp,
     hazeState: HazeState?
 ) {
-    val density = LocalDensity.current
     val lowEnd = LocalLowEndMode.current
     val frostedTokens = LocalKKCThemeTokens.current.frosted
     val frostedAlpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.95f)
     val surfaceColor = kkcFrostedBaseColor()
     val hazeAvailable = hazeState != null && !lowEnd.blurDisabled
-    val pillShape = RoundedCornerShape(10.dp)
-    val pillElevation = if (lowEnd.shadowsDisabled) 0.dp else 2.dp
-    val maxContentWidth = carouselWidth - carouselPadding - carouselEndPadding
-
-    // Fixed height estimate (two text lines + padding), not a real measurement — matches this
-    // file's footprintForDistance convention above: a known constant avoids any real-vs-estimate
-    // drift in the position math, at the cost of the bubble not perfectly hugging taller/shorter
-    // text (acceptable; label text is capped at one line and rarely needs more than this).
-    val bubbleHeight = 64.dp
-    val bubbleHeightPx = with(density) { bubbleHeight.toPx() }
-    val bubbleTopPx = (touchYPx - bubbleHeightPx / 2f)
-        .coerceIn(0f, (trackHeightPx - bubbleHeightPx).coerceAtLeast(0f))
+    val pillShape = RoundedCornerShape(18.dp)
+    val pillElevation = if (lowEnd.shadowsDisabled) 0.dp else 4.dp
 
     Box(
         modifier = Modifier
-            .offset(y = with(density) { bubbleTopPx.toDp() })
-            .width(carouselWidth),
-        contentAlignment = Alignment.TopEnd
-    ) {
-        Box(
-            modifier = Modifier
-                .padding(end = carouselEndPadding, start = carouselPadding)
-                .widthIn(max = maxContentWidth)
-                .shadow(pillElevation, pillShape, clip = false)
-                .clip(pillShape)
-                .then(
-                    if (hazeAvailable) {
-                        Modifier.hazeEffect(
-                            hazeState,
-                            style = HazeDefaults.style(
-                                backgroundColor = surfaceColor.copy(alpha = frostedAlpha),
-                                blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
-                            )
+            .padding(horizontal = 24.dp)
+            .widthIn(max = 560.dp)
+            .shadow(pillElevation, pillShape, clip = false)
+            .clip(pillShape)
+            .then(
+                if (hazeAvailable) {
+                    Modifier.hazeEffect(
+                        hazeState,
+                        style = HazeDefaults.style(
+                            backgroundColor = surfaceColor.copy(alpha = frostedAlpha),
+                            blurRadius = frostedTokens.blurDp.coerceAtLeast(1f).dp
                         )
-                    } else {
-                        // Fully opaque, not a semi-transparent copy — combining shadow() with a
-                        // semi-transparent fill is exactly the shadow-bleed bug documented in
-                        // CLAUDE.md's "Frosted Glass Buttons" section; this fallback (no haze
-                        // available) sidesteps it entirely rather than risking it.
-                        Modifier.background(surfaceColor)
-                    }
-                )
+                    )
+                } else {
+                    // Fully opaque, not a semi-transparent copy — combining shadow() with a
+                    // semi-transparent fill is exactly the shadow-bleed bug documented in
+                    // CLAUDE.md's "Frosted Glass Buttons" section; this fallback (no haze
+                    // available) sidesteps it entirely rather than risking it.
+                    Modifier.background(surfaceColor)
+                }
+            )
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 28.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = entry.label,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = entry.rangeLabel ?: "Sheet ${entry.page}",
-                    modifier = Modifier.padding(top = 2.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            Text(
+                text = entry.label,
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = entry.rangeLabel ?: "Sheet ${entry.page}",
+                modifier = Modifier.padding(top = 2.dp),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

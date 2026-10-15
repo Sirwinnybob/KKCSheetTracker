@@ -88,6 +88,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -509,6 +510,9 @@ internal fun splitScrollDelta(
     else -> ScrollSplitResult(realScrollDelta = requestedDelta, overscrollDelta = 0f)
 }
 
+/** Page requests closer together than this are a drag, not separate jumps. See the scrollToPage effect. */
+private const val EXTERNAL_SCROLL_SNAP_WINDOW_MS = 400L
+
 /**
  * Keeps at most [maxOpen] [PdfRenderEngine]s open at once, keyed by absolute file path.
  * Continuous-mode pages usually share one file; this only matters for Assembly's
@@ -637,10 +641,19 @@ internal fun ContinuousReferencePdfPane(
 
     // Cheap low-res placeholder cache, keyed by "filename#page" (a plain Int page number isn't
     // enough — this pane can stream pages from multiple source PDFs). Shown immediately on page
-    // entry while the full-res base render waits for a page-local visibility dwell.
+    // entry while the full-res base render waits for a page-local visibility dwell. Both use
+    // worker JXLs through PdfRenderEngine, with PDF rendering as the fallback.
     val thumbnailCache = remember(documentIdentity) { LruCache<String, Bitmap>(30) }
     DisposableEffect(thumbnailCache) {
         onDispose { thumbnailCache.evictAll() }
+    }
+
+    // Tiny previews of EVERY page, prefetched in the background after open (see the prefetch
+    // effect below). A page that scrolls into view during a fast fling shows its tiny preview
+    // instead of a blank slot while its sharper thumbnail and base render catch up.
+    val tinyPreviews = remember(documentIdentity) { TinyPdfPreviewCache() }
+    DisposableEffect(tinyPreviews) {
+        onDispose { tinyPreviews.clear() }
     }
 
     val listState = rememberLazyListState()
@@ -798,6 +811,47 @@ internal fun ContinuousReferencePdfPane(
         }
     }
 
+    val lastExternalScrollRequestMs = remember { longArrayOf(0L) }
+    // Prefetch a tiny preview of every page, nearest the opening position first. Runs only while
+    // the list is settled so it never competes with a scroll in progress, and only uses worker
+    // JXLs (renderPrefetchPreview never falls back to PdfRenderer), so a document without a
+    // preview cache just skips through.
+    val currentResolvePage by rememberUpdatedState(resolvePage)
+    val currentPdfFileForFilename by rememberUpdatedState(pdfFileForFilename)
+    LaunchedEffect(documentIdentity, docKey, totalPages, preferDarkMode) {
+        if (totalPages <= 0) return@LaunchedEffect
+        val bundlesTried = HashSet<String>()
+        var startedJxlDecodes = false
+        for (displayPage in tinyPreviewPrefetchOrder(listState.firstVisibleItemIndex + 1, totalPages)) {
+            val resolved = currentResolvePage(displayPage)
+            val file = currentPdfFileForFilename(resolved.pdfFilename) ?: continue
+            // Fast path: the worker's per-PDF zip of 200px WebPs covers the whole file in one
+            // read (~ms per page) instead of a native JXL decode per page, so it needs neither
+            // the start delay nor the settled wait.
+            if (bundlesTried.add(file.absolutePath)) {
+                val bundle = withContext(Dispatchers.IO) { loadPdfThumbBundleBitmaps(file) }
+                bundle?.forEach { (pageIndex, bitmap) ->
+                    tinyPreviews.put(tinyPreviewKey(file.absolutePath, file.name, pageIndex + 1, preferDarkMode), bitmap)
+                }
+            }
+            val key = tinyPreviewKey(file.absolutePath, resolved.pdfFilename, resolved.sourcePage, preferDarkMode)
+            if (tinyPreviews.contains(key)) continue
+            // No zip (or it lacks this page): decode the page's full-size JXL instead.
+            if (!startedJxlDecodes) {
+                startedJxlDecodes = true
+                delay(TINY_PREVIEW_PREFETCH_START_DELAY_MS)
+            }
+            snapshotFlow { settled && !isInteracting }.first { it }
+            val preview = withContext(Dispatchers.IO) {
+                engineCache.get(file).renderPrefetchPreview(
+                    pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0),
+                    maxWidth = TINY_PREVIEW_WIDTH_PX
+                )
+            }
+            if (preview != null) tinyPreviews.put(key, preview)
+        }
+    }
+
     LaunchedEffect(scrollToPage, totalPages) {
         // Only jump for an EXTERNAL request (initial open, scrollbar drag, resume-to-page).
         if (totalPages <= 0 || scrollToPage !in 1..totalPages) return@LaunchedEffect
@@ -821,7 +875,15 @@ internal fun ContinuousReferencePdfPane(
         val scrollToken = programmaticScrollGuard.begin()
         try {
             lastReportedPage = scrollToPage
-            listState.animateScrollToItem((scrollToPage - 1).coerceIn(0, totalPages - 1))
+            val target = (scrollToPage - 1).coerceIn(0, totalPages - 1)
+            // A scrollbar drag issues a new target every few ms. Each request cancels the previous
+            // animation before it has moved, so animating would restart from rest every time and
+            // the list would not move until the finger stopped. Back-to-back requests snap so the
+            // list tracks the finger; a lone jump (tap, resume-to-page) still animates.
+            val nowMs = SystemClock.uptimeMillis()
+            val backToBack = nowMs - lastExternalScrollRequestMs[0] < EXTERNAL_SCROLL_SNAP_WINDOW_MS
+            lastExternalScrollRequestMs[0] = nowMs
+            if (backToBack) listState.scrollToItem(target) else listState.animateScrollToItem(target)
         } finally {
             programmaticScrollGuard.release(scrollToken)
         }
@@ -983,6 +1045,10 @@ internal fun ContinuousReferencePdfPane(
                 thumbnailBitmap = cachedThumb
                 return@LaunchedEffect
             }
+            // Debounce: a page flung past leaves the window and cancels this effect before any
+            // decode starts. A JXL thumbnail is a full native decode, not the cheap PdfRenderer
+            // render it replaced, so it must not run for every page crossed during a fling.
+            delay(90L)
             val thumb = withContext(Dispatchers.IO) {
                 engineCache.get(file).renderThumbnail(
                     pageIndex = (resolved.sourcePage - 1).coerceAtLeast(0),
@@ -1141,9 +1207,12 @@ internal fun ContinuousReferencePdfPane(
                         pageCoordinatesByDisplayPage[displayPage] = it
                     }
             ) {
+                val tinyPreview = if (file == null) null else tinyPreviews[
+                    tinyPreviewKey(renderIdentity.filePath, resolved.pdfFilename, resolved.sourcePage, renderIdentity.preferDarkMode)
+                ]
                 PageBitmapLayers(
                     baseBitmap = baseBitmap,
-                    thumbnailBitmap = thumbnailBitmap,
+                    thumbnailBitmap = thumbnailBitmap ?: tinyPreview,
                     emptyCanvasColor = emptyCanvasColor,
                     contentDescription = "Page $displayPage"
                 )

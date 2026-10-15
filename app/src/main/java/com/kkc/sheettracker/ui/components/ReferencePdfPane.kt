@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.models.PdfInkStroke
+import com.kkc.sheettracker.data.pdfPagePreviewCount
 import com.kkc.sheettracker.ui.markup.PdfMarkupOverlay
 import com.kkc.sheettracker.ui.markup.PdfMarkupToolState
 import kotlinx.coroutines.CoroutineScope
@@ -85,13 +86,16 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import java.io.File
@@ -142,6 +146,17 @@ sealed interface PdfRenderUiState {
     data class Error(val message: String) : PdfRenderUiState
 }
 
+// Process-wide cap on concurrent native JXL decodes. Each holds a full-size raster plus codec
+// scratch (tens of MB), so unbounded parallel decodes during a fling cause GC/low-memory stalls.
+private val pdfPreviewDecodePermits = Semaphore(2)
+
+// Separate lane for scrollbar-drag preview thumbnails: they are speculative and churn on every
+// finger move, so they must never take a permit the visible page's decode is waiting for.
+private val pdfPreviewBackgroundPermits = Semaphore(1)
+
+// Whole-document placeholder prefetch lane. The pane only feeds it while scrolling is settled.
+private val pdfPreviewPrefetchPermits = Semaphore(1)
+
 class PdfRenderEngine(private val pdfFile: File) {
     private val mutex = Mutex()
     private var fd: ParcelFileDescriptor? = null
@@ -156,7 +171,25 @@ class PdfRenderEngine(private val pdfFile: File) {
         return openedRenderer
     }
 
-    suspend fun pageCount(): Int = mutex.withLock {
+    // Worker JXL previews never touch PdfRenderer, so they run outside [mutex]: a native decode
+    // cannot be cancelled, and holding the lock for it made every other page (aspect ratio,
+    // base, thumbnail, PDF fallback) queue behind decodes for pages already scrolled past.
+    // The permit wait is cancellable, so a page that left the window never starts its decode.
+    private suspend fun <T : Any> previewOrNull(
+        permits: Semaphore = pdfPreviewDecodePermits,
+        block: () -> T?
+    ): T? =
+        permits.withPermit {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            block()
+        }
+
+    suspend fun pageCount(): Int {
+        pdfPagePreviewCount(pdfFile)?.let { return it }
+        return pageCountFromPdf()
+    }
+
+    private suspend fun pageCountFromPdf(): Int = mutex.withLock {
         if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock 0
         return if (!pdfFile.exists()) 0 else {
             try {
@@ -247,7 +280,12 @@ class PdfRenderEngine(private val pdfFile: File) {
         }
     }
 
-    suspend fun pageAspectRatio(pageIndex: Int): Float? = mutex.withLock {
+    suspend fun pageAspectRatio(pageIndex: Int): Float? {
+        pdfPagePreviewAspectRatio(pdfFile, pageIndex)?.let { return it }
+        return pageAspectRatioFromPdf(pageIndex)
+    }
+
+    private suspend fun pageAspectRatioFromPdf(pageIndex: Int): Float? = mutex.withLock {
         if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock null
         if (!pdfFile.exists()) return null
         val localRenderer = ensureRendererLocked()
@@ -270,9 +308,19 @@ class PdfRenderEngine(private val pdfFile: File) {
         viewSize: IntSize,
         qualityScale: Float = 1.1f,
         matteColorArgb: Int = android.graphics.Color.WHITE
+    ): Bitmap? {
+        if (!pdfFile.exists() || viewSize == IntSize.Zero) return null
+        previewOrNull { loadPdfPagePreviewBitmap(pdfFile, pageIndex, viewSize, qualityScale) }?.let { return it }
+        return renderBasePageFromPdf(pageIndex, viewSize, qualityScale, matteColorArgb)
+    }
+
+    private suspend fun renderBasePageFromPdf(
+        pageIndex: Int,
+        viewSize: IntSize,
+        qualityScale: Float,
+        matteColorArgb: Int
     ): Bitmap? = mutex.withLock {
         if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock null
-        if (!pdfFile.exists() || viewSize == IntSize.Zero) return null
         val localRenderer = ensureRendererLocked()
         if (pageIndex !in 0 until localRenderer.pageCount) return null
         var page: PdfRenderer.Page? = null
@@ -367,10 +415,37 @@ class PdfRenderEngine(private val pdfFile: File) {
     suspend fun renderThumbnail(
         pageIndex: Int,
         maxWidth: Int = 340,
-        matteColorArgb: Int = android.graphics.Color.WHITE
+        matteColorArgb: Int = android.graphics.Color.WHITE,
+        background: Boolean = false
+    ): Bitmap? {
+        if (!pdfFile.exists()) return null
+        val permits = if (background) pdfPreviewBackgroundPermits else pdfPreviewDecodePermits
+        previewOrNull(permits) { loadPdfPagePreviewBitmap(pdfFile, pageIndex, IntSize(maxWidth, Int.MAX_VALUE)) }
+            ?.let { return it }
+        return renderThumbnailFromPdf(pageIndex, maxWidth, matteColorArgb)
+    }
+
+    /**
+     * Tiny RGB_565 copy of a worker JXL for the whole-document placeholder cache. JXL only: a
+     * missing/stale preview returns null instead of falling back to PdfRenderer, because this runs
+     * for every page of the document and must never queue PDF renders behind the visible pages.
+     */
+    suspend fun renderPrefetchPreview(pageIndex: Int, maxWidth: Int): Bitmap? {
+        if (!pdfFile.exists()) return null
+        return previewOrNull(pdfPreviewPrefetchPermits) {
+            loadPdfPagePreviewBitmap(
+                pdfFile, pageIndex, IntSize(maxWidth, Int.MAX_VALUE),
+                colorConfig = com.awxkee.jxlcoder.PreferredColorConfig.RGB_565
+            )
+        }
+    }
+
+    private suspend fun renderThumbnailFromPdf(
+        pageIndex: Int,
+        maxWidth: Int,
+        matteColorArgb: Int
     ): Bitmap? = mutex.withLock {
         if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@withLock null
-        if (!pdfFile.exists()) return null
         val localRenderer = ensureRendererLocked()
         if (pageIndex !in 0 until localRenderer.pageCount) return null
         var page: PdfRenderer.Page? = null
@@ -463,7 +538,8 @@ fun ReferencePdfPane(
     val basePageCache = remember(pdfIdentityKey) { LruCache<Int, Bitmap>(6) }
     // Cheap low-res placeholder cache, keyed the same way as basePageCache. Shown immediately
     // on page entry while the full-res base render is debounced (see below) — avoids firing a
-    // full PdfRenderer decode for every page landed on during a fast tap-through.
+    // full-size decode for every page landed on during a fast tap-through. The shared engine
+    // samples worker JXLs first and renders the PDF only when no usable preview is available.
     val thumbnailCache = remember(pdfIdentityKey, matteColorArgb) { LruCache<Int, Bitmap>(20) }
     DisposableEffect(engine) {
         onDispose {
