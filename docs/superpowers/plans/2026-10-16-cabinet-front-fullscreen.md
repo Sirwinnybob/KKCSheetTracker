@@ -4,7 +4,9 @@
 
 **Execution record (2026-10-16):** Implementation and automated checks complete, including the amendment. See `docs/superpowers/verification/2026-10-16-cabinet-front-fullscreen.md` for evidence, corrections and outstanding field checks. Checked steps record the work performed; they do not claim that every field-check result passed.
 
-**Goal:** Tapping a door in Door Assembly shows its whole cabinet front (frame, other fronts greyed, selected door solid), built only from positions CV itself reports.
+**Follow-up (2026-10-16):** The user superseded the original plain-grey front rendering below: other proven doors now retain their full textures/construction at 72% whole-door opacity. The selected door's parts are inspectable directly in cabinet view. Tapping another door selects it; the next tap inspects a part. Frame members retain their existing grey context styling.
+
+**Goal:** Tapping a door in Door Assembly shows its whole cabinet front (frame, other fronts translucent, selected door solid), built only from positions CV itself reports.
 
 **Architecture:** A CV UCS script writes two notes per front. CV Cutlist Query (Rust) parses and strictly validates them, publishing an additive `cabinetLayouts[]` array in `job_data.json` only for cabinets that pass every rule. KKCSheetTracker parses that array and draws the cabinet view; a cabinet without a layout keeps today's door-only view.
 

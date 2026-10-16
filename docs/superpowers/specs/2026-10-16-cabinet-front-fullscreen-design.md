@@ -8,7 +8,7 @@ Spans three programs: CV (a UCS script), CV Cutlist Query (Rust), KKCSheetTracke
 
 Tapping a door in Door Assembly opens the full-screen preview. Today it shows that one door. The
 new default view shows the whole cabinet front: the face frame, the cabinet's other doors, drawer
-fronts and false fronts, all greyed and slightly see-through, with the selected door solid and in
+fronts and false fronts, retaining their textures and detail with slight transparency, with the selected door solid and in
 full colour. A "Cabinet / Door only" toggle returns to today's view.
 
 Frameless cabinets show the same view without a frame: the face outline and their fronts.
@@ -136,14 +136,20 @@ cannot be selected. An empty `frameMembers` array means a frameless cabinet.
 - View: `DoorPreviewFullscreen` gains a "Cabinet / Door only" toggle beside "Hidden lines",
   shown only when a layout exists. Default is Cabinet. A new cabinet canvas fits the bounding box of
   the face and every front to the viewport (a front with a large overlay can pass the face edge),
-  then draws, back to front: face outline (hairline), frame members and other fronts
-  (neutral grey, about 45% alpha, no inner detail), then the selected door using the existing
+  then draws, back to front: face outline (hairline), frame members (neutral grey, about 45% alpha),
+  other proven doors using the full door renderer at 72% whole-door opacity (grain, construction,
+  hinges and hidden lines retained), then the selected door using the existing
   `buildDoorDrawing` at full colour at its front rectangle. Empty areas are not painted. Pinch,
   pan and double-tap reset behave as today.
 - Tapping: a frame member opens the same panel as a door part, showing its cut-list row (cut size
   and final size via `doorPartSizeLines`, quantity, material). Tapping another front that has a
-  `doorId` switches the preview to that door; one without is inert.
-- Hidden doors are still real fronts of the cabinet and are drawn grey like the others.
+  `doorId` switches the preview to that door; one without is inert. The selected door's own parts
+  can be inspected directly in cabinet mode, with translated rectangle/polygon highlights and the
+  same cut/final-size panel as door-only mode. Tapping another door selects it; the next tap inspects
+  its parts. Zoom and pan are reversed before both cabinet and door-part hit testing.
+- Hidden doors are still real fronts of the cabinet and retain their proven drawing detail at the
+  same partial opacity; they remain unavailable for selection. A front without usable door data
+  keeps its previous inert outline/fill fallback, and an unproved shape stays blank.
 - No change to the navbar, haze or theme code.
 
 ## Related change already made (separate, uncommitted)

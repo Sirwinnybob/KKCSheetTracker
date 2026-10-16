@@ -53,6 +53,22 @@ Implementation is committed on `codex/cabinet-front-fullscreen` in both KKCSheet
 
 No deferred minor code findings. The remaining work is the field checklist above and normal release integration/publication.
 
+## Follow-up: cabinet part inspection and full door textures
+
+The user's subsequent refinement supersedes the original plain-grey front styling. The selected
+door's parts are now hit-tested and highlighted in cabinet coordinates, reusing the same cut/final
+size inspector as door-only mode. As chosen in chat, tapping another door selects it; the next tap
+inspects its parts. Other proven doors retain their complete renderer (grain, construction, hinges
+and hidden lines), composited together at 72% opacity. The selected door stays opaque and frame
+members keep their existing grey styling. Unproved shapes remain blank.
+
+Verification: **2,093 unit tests passed**; **10 release tablet UI tests passed**. The new part tests
+cover overlay priority, sloped polygons, cut-only sloped sizes, zoom/pan inversion and refusal.
+The pixel test was observed failing with the old flat-grey rendering and passes with visible grain
+and measured whole-door alpha; its final blue-channel assertion distinguishes 45%, 72% and opaque
+rendering. Screenshots `cabinet15-parts-textures.png` and `cabinet9-textures.png` were inspected in
+the conversation visualization directory. This follow-up changes only KKCSheetTracker, still 8.9.2.
+
 ## Repeating the release UI tests
 
 The normal test configuration targets debug. To test without replacing a shop tablet's release signing key, save this temporary Gradle init script outside the repository:

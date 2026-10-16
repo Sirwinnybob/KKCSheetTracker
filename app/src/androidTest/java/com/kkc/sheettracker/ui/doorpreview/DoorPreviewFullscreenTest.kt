@@ -52,6 +52,9 @@ class DoorPreviewFullscreenTest {
         canvas.performTouchInput { click(Offset(width * 0.5f,height * 0.5f)) }
         compose.waitUntil(2_000) { selected=="53738" }
         compose.runOnIdle { org.junit.Assert.assertEquals("53738",selected) }
+        canvas.performTouchInput { click(Offset(width * 0.5f,height * 0.5f)) }
+        compose.waitUntil(2_000) { compose.onAllNodesWithText("Slab").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Cut size 18.375 × 36.125 in").assertIsDisplayed()
     }
     private fun saveCabinetScreen(name:String) {
         compose.waitForIdle()
@@ -59,6 +62,19 @@ class DoorPreviewFullscreenTest {
         val image=instrumentation.uiAutomation.takeScreenshot()
         File(instrumentation.targetContext.getExternalFilesDir(null),name).outputStream().use { image.compress(Bitmap.CompressFormat.PNG,100,it) }
         image.recycle()
+    }
+    @Test fun selectedDoorPartsAreInspectableWithinTheSlopedCabinet() {
+        val loaded=cabinetDoors(15);val door=loaded.forDoor("53751")!!;val l=door.cabinetLayout!!
+        compose.setContent { MaterialTheme { DoorPreviewFullscreen(door,{},doorsById=loaded.allDoors.associateBy { it.doorId }) } }
+        val canvas=compose.onNodeWithContentDescription("Full screen cabinet drawing")
+        val density=InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.density
+        val b=canvas.fetchSemanticsNode().boundsInRoot
+        val fit=cabinetFit(l,b.width,b.height,24*density)
+        canvas.performTouchInput { click(Offset(fit.x(1.3),fit.y(42.0))) }
+        compose.waitUntil(2_000) { compose.onAllNodesWithText("Door Left Stile").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Cut size 2.2813 × 24.6314 in").assertIsDisplayed()
+        compose.onNodeWithText("Final size",substring=true).assertDoesNotExist()
+        saveCabinetScreen("cabinet15-parts-textures.png")
     }
     @Test fun cabinetMemberTapShowsCutAndFinalSizes() {
         val loaded=cabinetDoors();val door=loaded.forDoor("53737")!!;val l=door.cabinetLayout!!

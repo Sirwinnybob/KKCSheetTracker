@@ -64,9 +64,17 @@ internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit,
     val cabinetMode = showCabinet && layout != null
     var selectedMemberId by remember(door.doorId) { mutableStateOf<String?>(null) }
     val selectedMember = layout?.frameMembers?.firstOrNull { it.part.partId == selectedMemberId }
-    val selected = if (cabinetMode) selectedMember?.let(::frameMemberRegion) else regions.firstOrNull { it.part.partId == selectedPartId }
     val shape: (CabinetFront) -> FrontShape = { frontShape(checkNotNull(layout), it, doorsById) }
     val front = layout?.fronts?.singleOrNull { it.doorId == door.doorId }
+    val cabinetRegions = remember(door, drawing, front) {
+        front?.let { cabinetDoorPartRegions(it, door, drawing) }.orEmpty()
+    }
+    val cabinetDrawings = remember(doorsById) {
+        doorsById.mapValues { (_, preview) -> buildDoorDrawing(preview.geometry) }
+    }
+    val selected = if (cabinetMode) selectedMember?.let(::frameMemberRegion)
+        ?: cabinetRegions.firstOrNull { it.part.partId == selectedPartId }
+        else regions.firstOrNull { it.part.partId == selectedPartId }
     val measureLines = if (cabinetMode && front != null) {
         val measures = frontMeasures(checkNotNull(layout), front, shape(front))
         // The pure helper explains unmeasured shapes; the operator panel shows measured numbers only.
@@ -145,13 +153,21 @@ internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit,
                                     val cabinet = checkNotNull(layout)
                                     val fit = cabinetFit(cabinet, viewport.width.toFloat(), viewport.height.toFloat(), paddingPx, shape)
                                     when (val target = hitCabinetTarget(cabinet, fit, viewport.width.toFloat(), viewport.height.toFloat(),
-                                        point.x, point.y, scale, offset.x, offset.y, shape)) {
-                                        is CabinetTarget.Member -> selectedMemberId = target.member.part.partId
+                                        point.x, point.y, scale, offset.x, offset.y, shape, cabinetRegions)) {
+                                        is CabinetTarget.Part -> {
+                                            selectedMemberId = null
+                                            selectedPartId = target.region.part.partId
+                                        }
+                                        is CabinetTarget.Member -> {
+                                            selectedPartId = null
+                                            selectedMemberId = target.member.part.partId
+                                        }
                                         is CabinetTarget.Front -> {
+                                            selectedPartId = null
                                             selectedMemberId = null
                                             target.front.doorId?.takeIf { it != door.doorId }?.let { onSelectDoor(it) }
                                         }
-                                        null -> selectedMemberId = null
+                                        null -> { selectedMemberId = null; selectedPartId = null }
                                     }
                                 } else {
                                     val fit = DoorPreviewFit.of(drawing.width, drawing.height,
@@ -178,7 +194,8 @@ internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit,
                         translationY = offset.y
                     }
                 if (cabinetMode) CabinetFrontCanvas(checkNotNull(layout), door.doorId, drawing, selectedMember,
-                    modifier = drawingModifier, showHiddenLines = showHiddenLines, frontShape = shape)
+                    modifier = drawingModifier, showHiddenLines = showHiddenLines, frontShape = shape,
+                    doorDrawings = cabinetDrawings, selectedPart = selected.takeIf { selectedMember == null })
                 else DoorPreviewCanvas(
                     drawing = drawing,
                     modifier = drawingModifier,
