@@ -5,6 +5,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DoorPartInspectionTest {
+    @Test fun frameMemberShowsCutThenFinalSize() {
+        val member=CabinetFrameMember("LS",DoorRect(0.0,0.0,1.0,84.0),DoorPart("ls","frame","Left Stile","Oak","1.0625","84"))
+        assertEquals(listOf("Cut size 1.0625 × 84 in","Final size 1 × 84 in"),doorPartSizeLines(frameMemberRegion(member)))
+    }
+    @Test fun railMemberLengthAxisIsHorizontal() {
+        val member=CabinetFrameMember("TR",DoorRect(1.5,30.5,60.75,1.25),DoorPart("tr","frame","Top Rail","Oak","1.25","60.75"))
+        assertEquals("Final size 1.25 × 60.75 in",doorPartSizeLines(frameMemberRegion(member))[1])
+    }
+    @Test fun slopedFrameMemberShowsOnlyItsCutSize() {
+        val member=CabinetFrameMember("TR",DoorRect(0.0,0.0,10.0,5.0),DoorPart("tr","frame","Top Rail","Oak","1.5","12"),
+            listOf(DoorPoint(0.0,3.0),DoorPoint(10.0,0.0),DoorPoint(10.0,2.0),DoorPoint(0.0,5.0)))
+        assertEquals(listOf("Cut size 1.5 × 12 in"),doorPartSizeLines(frameMemberRegion(member)))
+    }
     private fun simpleDoor(): DoorPreviewData {
         val geometry = DoorGeometry(
             "simple", DoorConstruction.FIVE_PIECE, 20.0, 30.0, 0.75,

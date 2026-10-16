@@ -93,7 +93,8 @@ private fun parseLayout(entry: JsonObject, parts: Map<String, JsonObject>): Cabi
     return CabinetFrontLayout(width, height, openings, fronts, members, slope)
 }
 
-/** Malformed layout entries are omitted atomically; the exporter remains the geometry authority. */
+/** CROSS-PROGRAM: CV Cutlist Query owns cabinetLayouts in cv_job/job_data.json; read-only here.
+ * Malformed layout entries are omitted atomically; the exporter remains the geometry authority. */
 internal fun parseCabinetLayouts(root: JsonObject, partsById: Map<String, JsonObject>): Map<String, CabinetFrontLayout> {
     val entries = root.objects("cabinetLayouts") ?: return emptyMap()
     val counts = entries.mapNotNull { it.text("cabinet") }.groupingBy { it }.eachCount()

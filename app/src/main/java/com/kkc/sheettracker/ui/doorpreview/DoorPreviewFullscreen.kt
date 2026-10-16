@@ -23,11 +23,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.FilterChip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,16 +49,29 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.kkc.sheettracker.data.cvjob.DoorPreviewData
+import com.kkc.sheettracker.data.cvjob.*
 import kotlin.math.roundToInt
 
 /** In-memory, full-screen inspection of the same generated drawing shown in the parts list. */
 @Composable
-internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit) {
+internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit,
+    onSelectDoor: (String) -> Boolean = { false }, doorsById: Map<String, DoorPreviewData> = mapOf(door.doorId to door)) {
     val drawing = remember(door) { buildDoorDrawing(door.geometry) }
     val regions = remember(door, drawing) { buildDoorPartRegions(door, drawing) }
     var selectedPartId by remember(door.doorId) { mutableStateOf<String?>(null) }
-    val selected = regions.firstOrNull { it.part.partId == selectedPartId }
+    val layout = door.cabinetLayout.takeUnless { drawing.refused }
+    var showCabinet by rememberSaveable(door.doorId) { mutableStateOf(layout != null) }
+    val cabinetMode = showCabinet && layout != null
+    var selectedMemberId by remember(door.doorId) { mutableStateOf<String?>(null) }
+    val selectedMember = layout?.frameMembers?.firstOrNull { it.part.partId == selectedMemberId }
+    val selected = if (cabinetMode) selectedMember?.let(::frameMemberRegion) else regions.firstOrNull { it.part.partId == selectedPartId }
+    val shape: (CabinetFront) -> FrontShape = { frontShape(checkNotNull(layout), it, doorsById) }
+    val front = layout?.fronts?.singleOrNull { it.doorId == door.doorId }
+    val measureLines = if (cabinetMode && front != null) {
+        val measures = frontMeasures(checkNotNull(layout), front, shape(front))
+        // The pure helper explains unmeasured shapes; the operator panel shows measured numbers only.
+        if (measures.left != null) frontMeasureLines(measures) else emptyList()
+    } else emptyList()
     val paddingPx = with(LocalDensity.current) { 24.dp.toPx() }
     var showHiddenLines by remember(door.doorId) { mutableStateOf(true) }
     var scale by remember(door.doorId) { mutableFloatStateOf(1f) }
@@ -108,37 +123,65 @@ internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit)
                     Icon(Icons.Default.Close, contentDescription = "Close door preview")
                 }
             }
+            if (layout != null) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FilterChip(selected = cabinetMode, onClick = {
+                        showCabinet = true; selectedPartId = null; selectedMemberId = null; scale = 1f; offset = Offset.Zero
+                    }, label = { Text("Cabinet") })
+                    FilterChip(selected = !cabinetMode, onClick = {
+                        showCabinet = false; selectedPartId = null; selectedMemberId = null; scale = 1f; offset = Offset.Zero
+                    }, label = { Text("Door only") })
+                }
+            }
             Box(
                 modifier = Modifier.weight(1f).fillMaxWidth()
                     .clipToBounds()
                     .onSizeChanged { viewport = it }
-                    .pointerInput(door, paddingPx) {
+                    .pointerInput(door, paddingPx, cabinetMode, doorsById) {
                         detectTapGestures(
                             onTap = { point ->
-                                val fit = DoorPreviewFit.of(drawing.width, drawing.height,
-                                    viewport.width.toFloat(), viewport.height.toFloat(), paddingPx)
-                                selectedPartId = hitDoorPart(
-                                    regions, fit, viewport.width.toFloat(), viewport.height.toFloat(),
-                                    point.x, point.y, zoom = scale, panX = offset.x, panY = offset.y
-                                )?.part?.partId
+                                if (cabinetMode) {
+                                    val cabinet = checkNotNull(layout)
+                                    val fit = cabinetFit(cabinet, viewport.width.toFloat(), viewport.height.toFloat(), paddingPx, shape)
+                                    when (val target = hitCabinetTarget(cabinet, fit, viewport.width.toFloat(), viewport.height.toFloat(),
+                                        point.x, point.y, scale, offset.x, offset.y, shape)) {
+                                        is CabinetTarget.Member -> selectedMemberId = target.member.part.partId
+                                        is CabinetTarget.Front -> {
+                                            selectedMemberId = null
+                                            target.front.doorId?.takeIf { it != door.doorId }?.let { onSelectDoor(it) }
+                                        }
+                                        null -> selectedMemberId = null
+                                    }
+                                } else {
+                                    val fit = DoorPreviewFit.of(drawing.width, drawing.height,
+                                        viewport.width.toFloat(), viewport.height.toFloat(), paddingPx)
+                                    selectedPartId = hitDoorPart(
+                                        regions, fit, viewport.width.toFloat(), viewport.height.toFloat(),
+                                        point.x, point.y, zoom = scale, panX = offset.x, panY = offset.y
+                                    )?.part?.partId
+                                }
                             },
                             onDoubleTap = { scale = 1f; offset = Offset.Zero }
                         )
                     }
                     .transformable(transform)
                     .semantics {
-                        contentDescription = "Full screen door drawing"
+                        contentDescription = if (cabinetMode) "Full screen cabinet drawing" else "Full screen door drawing"
                         stateDescription = "${(scale * 100).roundToInt()}% zoom"
                     }
             ) {
-                DoorPreviewCanvas(
-                    drawing = drawing,
-                    modifier = Modifier.fillMaxSize().graphicsLayer {
+                val drawingModifier = Modifier.fillMaxSize().graphicsLayer {
                         scaleX = scale
                         scaleY = scale
                         translationX = offset.x
                         translationY = offset.y
-                    },
+                    }
+                if (cabinetMode) CabinetFrontCanvas(checkNotNull(layout), door.doorId, drawing, selectedMember,
+                    modifier = drawingModifier, showHiddenLines = showHiddenLines, frontShape = shape)
+                else DoorPreviewCanvas(
+                    drawing = drawing,
+                    modifier = drawingModifier,
                     padding = 24.dp,
                     showHiddenLines = showHiddenLines,
                     selectedPartRect = selected?.rect,
@@ -151,7 +194,12 @@ internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit)
                         .semantics { liveRegion = LiveRegionMode.Polite },
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    if (selected == null) {
+                    if (selected == null && cabinetMode) {
+                        Text(door.label.ifBlank { "Door" }, style = MaterialTheme.typography.titleSmall)
+                        Text("${formatDoorInches(drawing.width)} × ${formatDoorInches(drawing.height)} in",
+                            style = MaterialTheme.typography.bodyMedium)
+                        if (measureLines.isNotEmpty()) Text(measureLines.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+                    } else if (selected == null) {
                         Text(
                             if (regions.isEmpty()) "Part positions unavailable" else "Tap a part to inspect it",
                             style = MaterialTheme.typography.titleSmall

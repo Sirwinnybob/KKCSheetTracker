@@ -14,9 +14,80 @@ import com.kkc.sheettracker.data.cvjob.parseCvJobDoorPreviews
 import java.io.File
 import org.junit.Rule
 import org.junit.Test
+import androidx.compose.runtime.*
 
 class DoorPreviewFullscreenTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+
+    private fun cabinetDoors(cabinet: Int = 9): CvJobDoorPreviews.Loaded {
+        val json = InstrumentationRegistry.getInstrumentation().context.assets
+            .open("job_data_690_cabinet${cabinet}_layout.json").bufferedReader().use { it.readText() }
+        return parseCvJobDoorPreviews(json) as CvJobDoorPreviews.Loaded
+    }
+    @Test fun cabinetToggleShownOnlyWithALayout() {
+        val doors=cabinetDoors(); val door=doors.forDoor("53737")!!
+        var withLayout by mutableStateOf(true)
+        compose.setContent { MaterialTheme { DoorPreviewFullscreen(if (withLayout) door else door.copy(cabinetLayout=null), {}) } }
+        compose.onNodeWithText("Cabinet",useUnmergedTree=true).assertIsDisplayed()
+        compose.onNodeWithText("Door only",useUnmergedTree=true).assertIsDisplayed()
+        compose.runOnIdle { withLayout=false }
+        compose.onNodeWithText("Cabinet",useUnmergedTree=true).assertDoesNotExist()
+        compose.onNodeWithText("Door only",useUnmergedTree=true).assertDoesNotExist()
+    }
+    @Test fun doorOnlyReturnsToTheDoorHint() {
+        val door=cabinetDoors().forDoor("53737")!!
+        compose.setContent { MaterialTheme { DoorPreviewFullscreen(door,{}) } }
+        compose.onNodeWithText("Bottom overlay 1.9375",substring=true).assertIsDisplayed()
+        compose.onNodeWithText("Door only").performClick()
+        compose.onNodeWithText("Tap a part to inspect it").assertIsDisplayed()
+        compose.onNodeWithText("Pinch to zoom · Double-tap to reset").assertIsDisplayed()
+    }
+    @Test fun frontTapSwitchesTheSelectedDoor() {
+        val loaded=cabinetDoors()
+        var selected by mutableStateOf("53737")
+        compose.setContent {
+            MaterialTheme { DoorPreviewFullscreen(loaded.forDoor(selected)!!,{},onSelectDoor={selected=it;true},doorsById=loaded.allDoors.associateBy { it.doorId }) }
+        }
+        val canvas=compose.onNodeWithContentDescription("Full screen cabinet drawing")
+        canvas.performTouchInput { click(Offset(width * 0.5f,height * 0.5f)) }
+        compose.waitUntil(2_000) { selected=="53738" }
+        compose.runOnIdle { org.junit.Assert.assertEquals("53738",selected) }
+    }
+    private fun saveCabinetScreen(name:String) {
+        compose.waitForIdle()
+        val instrumentation=InstrumentationRegistry.getInstrumentation()
+        val image=instrumentation.uiAutomation.takeScreenshot()
+        File(instrumentation.targetContext.getExternalFilesDir(null),name).outputStream().use { image.compress(Bitmap.CompressFormat.PNG,100,it) }
+        image.recycle()
+    }
+    @Test fun cabinetMemberTapShowsCutAndFinalSizes() {
+        val loaded=cabinetDoors();val door=loaded.forDoor("53737")!!;val l=door.cabinetLayout!!
+        compose.setContent { MaterialTheme { DoorPreviewFullscreen(door,{},doorsById=loaded.allDoors.associateBy { it.doorId }) } }
+        val canvas=compose.onNodeWithContentDescription("Full screen cabinet drawing")
+        val density=InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.density
+        val b=canvas.fetchSemanticsNode().boundsInRoot
+        val fit=cabinetFit(l,b.width,b.height,24*density)
+        canvas.performTouchInput { click(Offset(fit.x(0.25),fit.y(20.0))) }
+        compose.waitUntil(2_000) { compose.onAllNodesWithText("Left Stile").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Cut size 1.5625 × 38.75 in").assertIsDisplayed()
+        compose.onNodeWithText("Final size 1.5 × 38.75 in").assertIsDisplayed()
+        saveCabinetScreen("cabinet9-preview.png")
+    }
+    @Test fun slopedCabinetKeepsItsShapeAndCutOffStileIsNotTappable() {
+        val loaded=cabinetDoors(15);val door=loaded.forDoor("53751")!!;val l=door.cabinetLayout!!
+        compose.setContent { MaterialTheme { DoorPreviewFullscreen(door,{},doorsById=loaded.allDoors.associateBy { it.doorId }) } }
+        val canvas=compose.onNodeWithContentDescription("Full screen cabinet drawing")
+        val density=InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.density
+        val b=canvas.fetchSemanticsNode().boundsInRoot
+        val fit=cabinetFit(l,b.width,b.height,24*density)
+        canvas.performTouchInput { click(Offset(fit.x(24.1),fit.y(39.9))) }
+        compose.waitUntil(2_000) { compose.onAllNodesWithText("Right Stile").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Final size",substring=true).assertDoesNotExist()
+        canvas.performTouchInput { click(Offset(fit.x(25.4),fit.y(40.0))) }
+        compose.waitUntil(2_000) { compose.onAllNodesWithText("Right Stile").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithText("1A").assertIsDisplayed()
+        saveCabinetScreen("cabinet15-preview.png")
+    }
 
     private fun showDoors() {
         val json = InstrumentationRegistry.getInstrumentation().context.assets

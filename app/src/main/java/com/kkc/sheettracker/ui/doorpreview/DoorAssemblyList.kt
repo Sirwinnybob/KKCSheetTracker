@@ -257,7 +257,9 @@ fun DoorAssemblyList(
         }
     }
     allDoors.firstOrNull { it.doorId == fullscreenDoorId }?.let { door ->
-        DoorPreviewFullscreen(door = door, onDismiss = { fullscreenDoorId = null })
+        DoorPreviewFullscreen(door = door, onDismiss = { fullscreenDoorId = null },
+            onSelectDoor = { id -> (allDoors.any { it.doorId == id }).also { if (it) fullscreenDoorId = id } },
+            doorsById = (previews as? CvJobDoorPreviews.Loaded)?.allDoors.orEmpty().associateBy { it.doorId })
     }
 }
 

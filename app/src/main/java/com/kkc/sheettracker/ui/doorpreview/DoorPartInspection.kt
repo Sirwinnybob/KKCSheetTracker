@@ -6,6 +6,12 @@ import com.kkc.sheettracker.data.cvjob.DoorPoint
 import com.kkc.sheettracker.data.cvjob.DoorPreviewData
 import com.kkc.sheettracker.data.cvjob.DoorRect
 import com.kkc.sheettracker.data.cvjob.DoorSlope
+import com.kkc.sheettracker.data.cvjob.CabinetFrameMember
+
+internal fun frameMemberRegion(member: CabinetFrameMember) = DoorPartRegion(
+    member.part, member.rect, verticalLength = member.code in setOf("LS", "RS", "MS"),
+    tenon = 0.0, polygon = member.polygon
+)
 
 /**
  * A visible face linked to its original cut-list row, including allowances and quantity.
