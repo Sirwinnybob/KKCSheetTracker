@@ -111,7 +111,8 @@ data class DoorPreviewData(
     val style: String,
     val cabinet: String = "",
     val room: String = "",
-    val parts: List<DoorPart> = emptyList()
+    val parts: List<DoorPart> = emptyList(),
+    val cabinetLayout: CabinetFrontLayout? = null
 ) {
     val doorId: String get() = geometry.doorId
     /** Manufacturing components only; hardware remains in [parts] with its quantities. */
@@ -128,7 +129,7 @@ sealed interface CvJobDoorPreviews {
     /** The file could not be read or is not a JSON object. */
     data class Unreadable(val reason: String) : CvJobDoorPreviews
 
-    data class Loaded(val doors: List<DoorPreviewData>) : CvJobDoorPreviews {
+    data class Loaded(val doors: List<DoorPreviewData>, val allDoors: List<DoorPreviewData> = doors) : CvJobDoorPreviews {
         private val byId = doors.associateBy { it.doorId }
         fun forDoor(doorId: String): DoorPreviewData? = byId[doorId]
     }
@@ -165,10 +166,10 @@ fun parseCvJobDoorPreviews(json: String): CvJobDoorPreviews {
     val partsById = obj.arrayOrNull("parts").objects()
         .mapNotNull { part -> part.text("id")?.let { it to part } }
         .toMap()
+    val layouts = parseCabinetLayouts(obj, partsById)
     val doors = geometry.objects().mapNotNull { entry ->
         val parsed = parseDoorGeometry(entry) ?: return@mapNotNull null
         val door = doorsById[parsed.doorId]
-        if (door?.text("hidden") == "true") return@mapNotNull null
         // CROSS-PROGRAM: CV Cutlist Query owns this read-only source. Its grain
         // booleans mean direction, never visibility; false means vertical.
         val faceRole = if (parsed.construction == DoorConstruction.SLAB) "slab" else "panel"
@@ -183,7 +184,6 @@ fun parseCvJobDoorPreviews(json: String): CvJobDoorPreviews {
         val parts = entry.arrayOrNull("components").objects().mapNotNull { component ->
             val partId = component.text("part")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val part = partsById[partId]
-            if (part?.text("hidden") == "true") return@mapNotNull null
             DoorPart(
                 partId = partId,
                 role = component.text("role").orEmpty(),
@@ -204,10 +204,13 @@ fun parseCvJobDoorPreviews(json: String): CvJobDoorPreviews {
             style = door?.text("style").orEmpty(),
             cabinet = door?.text("cabinet").orEmpty(),
             room = door?.text("room").orEmpty(),
-            parts = parts
+            parts = parts.filter { partsById[it.partId]?.text("hidden") != "true" },
+            cabinetLayout = layouts[door?.text("cabinet")]?.takeIf { layout ->
+                layout.fronts.any { it.doorId == parsed.doorId }
+            }
         )
     }
-    return CvJobDoorPreviews.Loaded(doors)
+    return CvJobDoorPreviews.Loaded(doors.filter { doorsById[it.doorId]?.text("hidden") != "true" }, allDoors = doors)
 }
 
 /**

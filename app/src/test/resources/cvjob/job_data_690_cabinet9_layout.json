@@ -1,0 +1,383 @@
+{
+  "schemaVersion": 2,
+  "doors": [
+    {
+      "cabinet": "9",
+      "doorType": "DF",
+      "grain": false,
+      "height": "36.125",
+      "hidden": false,
+      "hinge": "N",
+      "id": "53737",
+      "label": "1A",
+      "notes": "",
+      "number": "149",
+      "profiles": [
+        "",
+        "",
+        "",
+        ""
+      ],
+      "room": "1",
+      "schedule": "Paint Grade MDF",
+      "style": "2 1/4 Flat Panel",
+      "width": "18.375"
+    },
+    {
+      "cabinet": "9",
+      "doorType": "DF",
+      "grain": false,
+      "height": "36.125",
+      "hidden": false,
+      "hinge": "N",
+      "id": "53738",
+      "label": "2A-L",
+      "notes": "",
+      "number": "149",
+      "profiles": [
+        "",
+        "",
+        "",
+        ""
+      ],
+      "room": "1",
+      "schedule": "Paint Grade MDF",
+      "style": "2 1/4 Flat Panel",
+      "width": "18.375"
+    },
+    {
+      "cabinet": "9",
+      "doorType": "DF",
+      "grain": false,
+      "height": "36.125",
+      "hidden": false,
+      "hinge": "N",
+      "id": "53739",
+      "label": "2A-R",
+      "notes": "",
+      "number": "149",
+      "profiles": [
+        "",
+        "",
+        "",
+        ""
+      ],
+      "room": "1",
+      "schedule": "Paint Grade MDF",
+      "style": "2 1/4 Flat Panel",
+      "width": "18.375"
+    }
+  ],
+  "doorGeometry": [
+    {
+      "doorId": "53737",
+      "construction": "slab",
+      "width": "18.375",
+      "height": "36.125",
+      "components": [
+        {
+          "role": "slab",
+          "part": "slab-53737"
+        }
+      ]
+    },
+    {
+      "doorId": "53738",
+      "construction": "slab",
+      "width": "18.375",
+      "height": "36.125",
+      "components": [
+        {
+          "role": "slab",
+          "part": "slab-53738"
+        }
+      ]
+    },
+    {
+      "doorId": "53739",
+      "construction": "slab",
+      "width": "18.375",
+      "height": "36.125",
+      "components": [
+        {
+          "role": "slab",
+          "part": "slab-53739"
+        }
+      ]
+    }
+  ],
+  "parts": [
+    {
+      "area": null,
+      "buyout": false,
+      "cabinet": "9",
+      "category": null,
+      "code": null,
+      "description": "Right Stile",
+      "doorId": null,
+      "grain": null,
+      "hidden": false,
+      "id": "frame-68",
+      "length": "38.75",
+      "material": "Wood",
+      "materialId": "",
+      "partClass": null,
+      "partId": "1",
+      "quantity": 1,
+      "room": "1",
+      "sizeProtected": false,
+      "source": "cv",
+      "subclass": 1,
+      "subclassName": null,
+      "unitType": "",
+      "width": "1.5625"
+    },
+    {
+      "area": null,
+      "buyout": false,
+      "cabinet": "9",
+      "category": null,
+      "code": null,
+      "description": "Left Stile",
+      "doorId": null,
+      "grain": null,
+      "hidden": false,
+      "id": "frame-69",
+      "length": "38.75",
+      "material": "Wood",
+      "materialId": "",
+      "partClass": null,
+      "partId": "2",
+      "quantity": 1,
+      "room": "1",
+      "sizeProtected": false,
+      "source": "cv",
+      "subclass": 1,
+      "subclassName": null,
+      "unitType": "",
+      "width": "1.5625"
+    },
+    {
+      "area": null,
+      "buyout": false,
+      "cabinet": "9",
+      "category": null,
+      "code": null,
+      "description": "Top Rail",
+      "doorId": null,
+      "grain": null,
+      "hidden": false,
+      "id": "frame-70",
+      "length": "54.0",
+      "material": "Wood",
+      "materialId": "",
+      "partClass": null,
+      "partId": "3",
+      "quantity": 1,
+      "room": "1",
+      "sizeProtected": false,
+      "source": "cv",
+      "subclass": 1,
+      "subclassName": null,
+      "unitType": "",
+      "width": "3.0"
+    },
+    {
+      "area": null,
+      "buyout": false,
+      "cabinet": "9",
+      "category": null,
+      "code": null,
+      "description": "Bottom Rail",
+      "doorId": null,
+      "grain": null,
+      "hidden": false,
+      "id": "frame-71",
+      "length": "54.0",
+      "material": "Wood",
+      "materialId": "",
+      "partClass": null,
+      "partId": "4",
+      "quantity": 1,
+      "room": "1",
+      "sizeProtected": false,
+      "source": "cv",
+      "subclass": 1,
+      "subclassName": null,
+      "unitType": "",
+      "width": "2.25"
+    },
+    {
+      "area": null,
+      "buyout": false,
+      "cabinet": "9",
+      "category": null,
+      "code": null,
+      "description": "Mid Stile",
+      "doorId": null,
+      "grain": null,
+      "hidden": false,
+      "id": "frame-72",
+      "length": "33.5",
+      "material": "Wood",
+      "materialId": "",
+      "partClass": null,
+      "partId": "5",
+      "quantity": 1,
+      "room": "1",
+      "sizeProtected": false,
+      "source": "cv",
+      "subclass": 1,
+      "subclassName": null,
+      "unitType": "",
+      "width": "1.5"
+    },
+    {
+      "id": "slab-53737",
+      "description": "Slab",
+      "material": "Maple",
+      "width": "18.375",
+      "length": "36.125",
+      "quantity": 1
+    },
+    {
+      "id": "slab-53738",
+      "description": "Slab",
+      "material": "Maple",
+      "width": "18.375",
+      "length": "36.125",
+      "quantity": 1
+    },
+    {
+      "id": "slab-53739",
+      "description": "Slab",
+      "material": "Maple",
+      "width": "18.375",
+      "length": "36.125",
+      "quantity": 1
+    }
+  ],
+  "cabinetLayouts": [
+    {
+      "cabinet": "9",
+      "face": {
+        "height": "38.75",
+        "width": "57"
+      },
+      "frameMembers": [
+        {
+          "code": "LS",
+          "part": "frame-69",
+          "rect": {
+            "height": "38.75",
+            "width": "1.5",
+            "x": "0",
+            "y": "0"
+          }
+        },
+        {
+          "code": "RS",
+          "part": "frame-68",
+          "rect": {
+            "height": "38.75",
+            "width": "1.5",
+            "x": "55.5",
+            "y": "0"
+          }
+        },
+        {
+          "code": "TR",
+          "part": "frame-70",
+          "rect": {
+            "height": "3",
+            "width": "54",
+            "x": "1.5",
+            "y": "35.75"
+          }
+        },
+        {
+          "code": "BR",
+          "part": "frame-71",
+          "rect": {
+            "height": "2.25",
+            "width": "54",
+            "x": "1.5",
+            "y": "0"
+          }
+        },
+        {
+          "code": "MS",
+          "part": "frame-72",
+          "rect": {
+            "height": "33.5",
+            "width": "1.5",
+            "x": "18.5",
+            "y": "2.25"
+          }
+        }
+      ],
+      "fronts": [
+        {
+          "doorId": "53737",
+          "opening": "DOR_OPEN@1",
+          "rect": {
+            "height": "36.125",
+            "width": "18.375",
+            "x": "0.8125",
+            "y": "0.3125"
+          }
+        },
+        {
+          "doorId": "53738",
+          "opening": "DOR_OPEN@2",
+          "rect": {
+            "height": "36.125",
+            "width": "18.375",
+            "x": "19.3125",
+            "y": "0.3125"
+          }
+        },
+        {
+          "doorId": "53739",
+          "opening": "DOR_OPEN@3",
+          "rect": {
+            "height": "36.125",
+            "width": "18.375",
+            "x": "37.8125",
+            "y": "0.3125"
+          }
+        }
+      ],
+      "openings": [
+        {
+          "id": "DOR_OPEN@1",
+          "rect": {
+            "height": "33.5",
+            "width": "17",
+            "x": "1.5",
+            "y": "2.25"
+          }
+        },
+        {
+          "id": "DOR_OPEN@2",
+          "rect": {
+            "height": "33.5",
+            "width": "17.75",
+            "x": "20",
+            "y": "2.25"
+          }
+        },
+        {
+          "id": "DOR_OPEN@3",
+          "rect": {
+            "height": "33.5",
+            "width": "17.75",
+            "x": "37.75",
+            "y": "2.25"
+          }
+        }
+      ],
+      "room": "1"
+    }
+  ]
+}
