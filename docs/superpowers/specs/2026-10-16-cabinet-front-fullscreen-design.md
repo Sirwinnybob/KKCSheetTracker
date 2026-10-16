@@ -1,6 +1,7 @@
 # Cabinet front in the full-screen door preview — design
 
-Date: 2026-10-16. Status: written for review, not implemented.
+Date: 2026-10-16. Status: implemented and automatically verified; field rollout checks remain in
+`docs/superpowers/verification/2026-10-16-cabinet-front-fullscreen.md`.
 Spans three programs: CV (a UCS script), CV Cutlist Query (Rust), KKCSheetTracker (Kotlin).
 
 ## Goal
@@ -99,7 +100,10 @@ Reads the two notes per door and publishes an additive top-level array `cabinetL
    `2026-10-16-sloped-door-drawing-design.md`. Job 690 cabinet 15 is the test case.
 5. Frame members match the report's face frame parts one to one by type, width less `EDX` and
    length less `EDY` (stiles `LS RS MS`, rails `TR BR MR`).
-6. No frame member or opening overlaps another, and each lies inside the face.
+6. No frame member or opening overlaps another, and each lies inside the cabinet outline: inside the
+   face, or for a stile running down through the toe, no lower than the toe height (the face's own
+   y). Job 592 cabinets 3 and 15 need this (stiles of 119.5 in and 35.25 in over toes of 73 in and
+   3.5 in); their stile lengths equal the report's part lengths.
 7. No two fronts overlap.
 8. Any rule failing, or any note missing or malformed, publishes nothing for that cabinet.
 
@@ -174,9 +178,8 @@ panel for frame members.
 - Roll-out fronts (`ROF`) and drawer boxes other than `DBOX` were not seen on job 688. Any such
   cabinet fails rule 2 and is rejected, so this fails safe.
 - Cabinet 2 is rejected because its stile lies outside its face; clipping would be a guess.
-- Sloped cabinets (job 690 cabinet 15) are rejected in v1 because frame members at an angle other
-  than 0 or -90 degrees are not drawn. A later version could accept an arbitrary rotation once the
-  slope geometry is verified against CV's reported sizes, as the angled-door work is doing.
+- Sloped cabinets now accept the single proved top-rail construction from Task 3b (job 690 cabinet
+  15). Other rotations or unproved shapes still omit the cabinet; arbitrary rotations are not inferred.
 - Reveal and overlay values are never read; positions already include them.
 - Notes stay under 800 characters on this job. A cabinet with very many openings could exceed what
   CV stores in one note; the script then errors and the cabinet gets no view.
