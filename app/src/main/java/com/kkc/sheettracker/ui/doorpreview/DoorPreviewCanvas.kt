@@ -148,7 +148,7 @@ private fun DrawScope.drawGrainAlong(path: Path, direction: Offset, color: Color
     }
 }
 
-private fun DrawScope.drawDoor(drawing: DoorDrawing, colors: DoorPreviewColors, padding: Float, showHiddenLines: Boolean) {
+internal fun DrawScope.drawDoor(drawing: DoorDrawing, colors: DoorPreviewColors, padding: Float, showHiddenLines: Boolean) {
     // An angled door whose outline could not be proven is not painted at all.
     if (drawing.refused) return
     val fit = DoorPreviewFit.of(drawing.width, drawing.height, size.width, size.height, padding)

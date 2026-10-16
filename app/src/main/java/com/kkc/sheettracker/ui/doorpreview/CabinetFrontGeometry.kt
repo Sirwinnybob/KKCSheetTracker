@@ -9,7 +9,7 @@ import com.kkc.sheettracker.data.cvjob.FrontShape
 
 /** Include reported placement bounds and actual outlines; an overlay can pass any face edge. */
 internal fun cabinetBounds(layout: CabinetFrontLayout, frontShape: (CabinetFront) -> FrontShape = { FrontShape.Rect(it.rect) }): DoorRect {
-    val rects = listOf(DoorRect(0.0, 0.0, layout.faceWidth, layout.faceHeight)) + layout.fronts.flatMap { front ->
+    val rects = listOf(DoorRect(0.0, 0.0, layout.faceWidth, layout.faceHeight)) + layout.frameMembers.map { it.rect } + layout.fronts.flatMap { front ->
         val shape = frontShape(front)
         listOf(front.rect) + if (shape is FrontShape.Outline && shape.points.isNotEmpty()) listOf(boundsOf(shape.points)) else emptyList()
     }

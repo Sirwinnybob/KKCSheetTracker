@@ -3,8 +3,27 @@ package com.kkc.sheettracker.ui.doorpreview
 import com.kkc.sheettracker.data.cvjob.*
 import org.junit.Assert.*
 import org.junit.Test
+import androidx.compose.ui.graphics.Color
 
 class CabinetFrontGeometryTest {
+    @Test fun boundsIncludeStilesExtendingThroughTheToe() {
+        val l=layout(); val member=l.frameMembers.first { it.code=="LS" }
+        val extended=l.copy(frameMembers=listOf(member.copy(rect=DoorRect(0.0,-73.0,1.5,119.5))))
+        assertEquals(-73.0,cabinetBounds(extended).y,0.0)
+        assertEquals(119.5,cabinetBounds(extended).height,0.0)
+    }
+    @Test fun ghostColorKeepsHueAndSetsAlpha() {
+        val base=Color(0xFF808080); val ghost=ghostColor(base)
+        assertEquals(0.45f,ghost.alpha,0.001f)
+        assertEquals(base.red,ghost.red,0.0f);assertEquals(base.green,ghost.green,0.0f);assertEquals(base.blue,ghost.blue,0.0f)
+    }
+    @Test fun faceOutlineUsesTheProvenSlopedOuterCorners() {
+        val l=data(15).doors.first().cabinetLayout!!
+        val outline=cabinetFaceOutline(l)
+        assertEquals(DoorPoint(0.0,58.0),outline.last())
+        assertEquals(38.9999,outline[2].y,0.002)
+        assertEquals(25.5,outline[2].x,0.0)
+    }
     private fun data(cab: Int = 9) = parseCvJobDoorPreviews(javaClass.getResource("/cvjob/job_data_690_cabinet${cab}_layout.json")!!.readText()) as CvJobDoorPreviews.Loaded
     private fun layout() = data().doors.first().cabinetLayout!!
     @Test fun boundsIncludeAnOverhangingFront() {
