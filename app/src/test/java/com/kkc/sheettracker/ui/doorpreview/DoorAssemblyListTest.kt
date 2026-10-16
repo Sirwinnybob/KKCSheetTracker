@@ -15,11 +15,11 @@ import org.junit.Test
 
 class DoorAssemblyListTest {
     @Test
-    fun v2PartCountsUseVisibleEditedQuantitiesIncludingManualParts() {
+    fun v2PartCountsUseVisibleEditedQuantitiesAndExcludeHardware() {
         val json = requireNotNull(javaClass.classLoader?.getResource("cvjob/job_data_v2_visibility.json")).readText()
         val doors = doorAssemblyDoors(parseCvJobDoorPreviews(json))
         assertEquals(listOf("A"), doors.map { it.doorId })
-        assertEquals(8, doors.single().partCount)
+        assertEquals(5, doors.single().partCount)
         val lines = groupDoorParts(doors.single().parts)
 
         assertEquals(listOf("panel", "panel", "hinge"), lines.map { it.part.role })
@@ -140,6 +140,7 @@ class DoorAssemblyListTest {
         assertEquals(5, doors.size)
         val first = doors.first { it.doorId == "53723" }
         assertEquals("1A-L", first.label)
+        assertEquals(5, first.partCount)
         val lines = groupDoorParts(first.parts)
         assertEquals("leftStile", lines.first().part.role)
         assertEquals(listOf(2, 2, 2), lines.filter { it.part.role in setOf("hinge", "hingePlate", "bumper") }.map { it.count })

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 2,
+  "units": "in",
+  "doors": [
+    {"id": "53751", "cabinet": "15", "room": "1", "label": "1A", "style": "2 1/4\" Flat Panel", "width": "23.875", "height": "24.5689", "hinge": "L", "doorType": "S", "grain": false, "hidden": false}
+  ],
+  "parts": [
+    {"id": "s-ls", "source": "cv", "doorId": "53751", "description": "Door Left Stile", "material": "3/4 Birch", "width": "2.2813", "length": "24.6314", "quantity": 1, "hidden": false},
+    {"id": "s-rs", "source": "cv", "doorId": "53751", "description": "Door Right Stile", "material": "3/4 Birch", "width": "2.2813", "length": "8.5186", "quantity": 1, "hidden": false},
+    {"id": "s-tr", "source": "cv", "doorId": "53751", "description": "Door Top Rail", "material": "3/4 Birch", "width": "2.2813", "length": "26.8384", "quantity": 1, "hidden": false},
+    {"id": "s-br", "source": "cv", "doorId": "53751", "description": "Door Bottom Rail", "material": "3/4 Birch", "width": "2.2813", "length": "20.375", "quantity": 1, "hidden": false},
+    {"id": "s-panel", "source": "cv", "doorId": "53751", "description": "Door Flat Panel 1A", "material": "3/4 Birch Ply", "width": "20.311", "length": "19.2368", "quantity": 1, "hidden": false}
+  ],
+  "doorGeometry": [
+    {
+      "doorId": "53751",
+      "construction": "fivePiece",
+      "width": "23.875",
+      "height": "24.5689",
+      "thickness": "0.75",
+      "frame": {
+        "leftStile": "2.25", "rightStile": "2.25", "topRail": "2.25", "bottomRail": "2.25",
+        "tenon": "0.5", "widthAllowance": "0.03125", "stileLengthAllowance": "0.0625",
+        "material": "3/4 Birch"
+      },
+      "panel": {
+        "kind": "flat", "grain": false, "width": "20.311", "height": "19.2368",
+        "insetX": "0.468", "insetY": "0.468",
+        "opening": {"x": "2.25", "y": "2.25", "width": "19.375", "height": "20.0689"},
+        "material": "3/4 Birch Ply", "thickness": "0.75"
+      },
+      "hinges": {"side": "left", "code": "L", "count": 0, "positions": [], "edgeOffset": null, "points": [], "source": null},
+      "pulls": [],
+      "components": [
+        {"part": "s-ls", "role": "leftStile", "description": "Door Left Stile", "grain": null},
+        {"part": "s-rs", "role": "rightStile", "description": "Door Right Stile", "grain": null},
+        {"part": "s-tr", "role": "topRail", "description": "Door Top Rail", "grain": null},
+        {"part": "s-br", "role": "bottomRail", "description": "Door Bottom Rail", "grain": null},
+        {"part": "s-panel", "role": "panel", "description": "Door Flat Panel 1A", "grain": false}
+      ],
+      "checks": [
+        "Rail length does not match the door width; check the frame data",
+        "Panel size does not fit the frame opening; check the panel data"
+      ]
+    }
+  ]
+}

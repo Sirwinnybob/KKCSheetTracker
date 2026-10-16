@@ -49,6 +49,9 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -61,6 +64,7 @@ import com.kkc.sheettracker.data.cvjob.DOOR_ASSEMBLY_PROGRESS_DOC_TYPE
 import com.kkc.sheettracker.data.cvjob.DoorHingeSide
 import com.kkc.sheettracker.data.cvjob.DoorPart
 import com.kkc.sheettracker.data.cvjob.DoorPreviewData
+import com.kkc.sheettracker.data.cvjob.isDoorHardwareRole
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
 import com.kkc.sheettracker.ui.hardwoods.HardwoodsRowActions
 import com.kkc.sheettracker.ui.hardwoods.deriveHardwoodsRowState
@@ -114,9 +118,7 @@ private val DOOR_ROLE_ORDER = listOf(
     "hinge", "hingePlate", "pull", "bumper"
 )
 
-private val DOOR_HARDWARE_ROLES = setOf("hinge", "hingePlate", "pull", "bumper")
-
-internal fun isDoorHardware(role: String): Boolean = role in DOOR_HARDWARE_ROLES
+internal fun isDoorHardware(role: String): Boolean = isDoorHardwareRole(role)
 
 /** Frame members first, then panel/slab, then hardware; identical parts merged. */
 internal fun groupDoorParts(parts: List<DoorPart>): List<DoorPartLine> =
@@ -190,6 +192,7 @@ fun DoorAssemblyList(
         return
     }
     var expandedIds by rememberSaveable(stateKey) { mutableStateOf(listOf<String>()) }
+    var fullscreenDoorId by rememberSaveable(stateKey) { mutableStateOf<String?>(null) }
     val doors = remember(allDoors, query) { filterDoorAssemblyDoors(allDoors, query) }
     LaunchedEffect(sort, query) { listState.scrollToItem(0) }
     Column(modifier = modifier.fillMaxSize()) {
@@ -241,16 +244,20 @@ fun DoorAssemblyList(
                         },
                         onToggleDone = { done -> onToggleDone(door.doorId, done) },
                         onToggleSkip = { onToggleSkip(door.doorId, !progress.skipped) },
-                        onViewInPdf = { onViewInPdf(door.cabinet) }
+                        onViewInPdf = { onViewInPdf(door.cabinet) },
+                        onPreview = { fullscreenDoorId = door.doorId }
                     )
                 }
                 if (expanded) {
                     item(key = "door-body:${door.doorId}") {
-                        DoorAssemblyBody(door)
+                        DoorAssemblyBody(door, onPreview = { fullscreenDoorId = door.doorId })
                     }
                 }
             }
         }
+    }
+    allDoors.firstOrNull { it.doorId == fullscreenDoorId }?.let { door ->
+        DoorPreviewFullscreen(door = door, onDismiss = { fullscreenDoorId = null })
     }
 }
 
@@ -262,7 +269,8 @@ private fun DoorAssemblyHeader(
     onToggle: () -> Unit,
     onToggleDone: (Boolean) -> Unit,
     onToggleSkip: () -> Unit,
-    onViewInPdf: () -> Unit
+    onViewInPdf: () -> Unit,
+    onPreview: () -> Unit
 ) {
     val done = progress.doneCount.coerceIn(0, 1) > 0
     val rowState = deriveHardwoodsRowState(progress, qty = 1, isMultiCab = false, skippedCabCount = 0, totalCabs = 1)
@@ -320,7 +328,10 @@ private fun DoorAssemblyHeader(
             ) {
                 DoorPreviewCanvas(
                     drawing = drawing,
-                    modifier = Modifier.size(width = 36.dp, height = 46.dp),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clickable(role = Role.Button, onClick = onPreview)
+                        .semantics { contentDescription = "Open door thumbnail full screen" },
                     padding = 2.dp,
                     showHiddenLines = false
                 )
@@ -396,7 +407,7 @@ private fun HeaderChip(text: String) {
 }
 
 @Composable
-private fun DoorAssemblyBody(door: DoorPreviewData) {
+private fun DoorAssemblyBody(door: DoorPreviewData, onPreview: () -> Unit) {
     val drawing = remember(door) { buildDoorDrawing(door.geometry) }
     val lines = remember(door) { groupDoorParts(door.parts) }
     val scheme = MaterialTheme.colorScheme
@@ -412,12 +423,12 @@ private fun DoorAssemblyBody(door: DoorPreviewData) {
         BoxWithConstraints(modifier = Modifier.padding(12.dp)) {
             if (maxWidth >= 560.dp) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    DoorDrawingPanel(door, drawing, Modifier.width(250.dp))
+                    DoorDrawingPanel(door, drawing, Modifier.width(250.dp), onPreview)
                     DoorPartsColumn(lines, Modifier.weight(1f))
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    DoorDrawingPanel(door, drawing, Modifier.fillMaxWidth())
+                    DoorDrawingPanel(door, drawing, Modifier.fillMaxWidth(), onPreview)
                     DoorPartsColumn(lines, Modifier.fillMaxWidth())
                 }
             }
@@ -426,7 +437,7 @@ private fun DoorAssemblyBody(door: DoorPreviewData) {
 }
 
 @Composable
-private fun DoorDrawingPanel(door: DoorPreviewData, drawing: DoorDrawing, modifier: Modifier) {
+private fun DoorDrawingPanel(door: DoorPreviewData, drawing: DoorDrawing, modifier: Modifier, onPreview: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val details = remember(door, drawing) { doorDetailLines(door, drawing).drop(1) }
     val ratio = (drawing.width / drawing.height).toFloat().coerceIn(0.75f, 2.2f)
@@ -435,7 +446,10 @@ private fun DoorDrawingPanel(door: DoorPreviewData, drawing: DoorDrawing, modifi
             shape = RoundedCornerShape(8.dp),
             color = scheme.surfaceContainerLow,
             border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.4f)),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(role = Role.Button, onClick = onPreview)
+                .semantics { contentDescription = "Open door drawing full screen" }
         ) {
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 DoorPreviewCanvas(

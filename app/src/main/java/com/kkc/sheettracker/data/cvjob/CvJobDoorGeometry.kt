@@ -29,7 +29,9 @@ data class DoorFrame(
     val topRail: Double,
     val bottomRail: Double,
     val tenon: Double?,
-    val material: String
+    val material: String,
+    /** Length CV adds to each stile's cut length (`EDY`); null in files that do not publish it. */
+    val stileLengthAllowance: Double? = null
 )
 
 data class DoorRect(val x: Double, val y: Double, val width: Double, val height: Double)
@@ -73,7 +75,11 @@ data class DoorGeometry(
     /** Component grain takes priority over `doors[].grain`: true = horizontal, false = vertical. */
     val horizontalGrain: Boolean = false,
     /** Visibility is independent of direction; vertical grain is still drawn. */
-    val showFaceGrain: Boolean = true
+    val showFaceGrain: Boolean = true,
+    val layout: DoorLayout? = null,
+    val hasInvalidLayout: Boolean = false,
+    /** Set once the door's parts are joined: a verified or refused angled top, or [DoorSlope.None]. */
+    val slope: DoorSlope = DoorSlope.None
 )
 
 /**
@@ -94,6 +100,10 @@ data class DoorPart(
     val horizontalGrain: Boolean? = null
 )
 
+private val DOOR_HARDWARE_ROLES = setOf("hinge", "hingePlate", "pull", "bumper")
+
+fun isDoorHardwareRole(role: String): Boolean = role in DOOR_HARDWARE_ROLES
+
 /** One door ready to show: its geometry plus the `doors[]` label, style and cabinet, and its parts. */
 data class DoorPreviewData(
     val geometry: DoorGeometry,
@@ -104,7 +114,8 @@ data class DoorPreviewData(
     val parts: List<DoorPart> = emptyList()
 ) {
     val doorId: String get() = geometry.doorId
-    val partCount: Int get() = parts.sumOf { it.quantity }
+    /** Manufacturing components only; hardware remains in [parts] with its quantities. */
+    val partCount: Int get() = parts.filterNot { isDoorHardwareRole(it.role) }.sumOf { it.quantity }
 }
 
 sealed interface CvJobDoorPreviews {
@@ -169,29 +180,31 @@ fun parseCvJobDoorPreviews(json: String): CvJobDoorPreviews {
             }
         val panelGrain = if (parsed.construction == DoorConstruction.SLAB) null
             else entry.objectOrNull("panel")?.booleanOrNull("grain")
+        val parts = entry.arrayOrNull("components").objects().mapNotNull { component ->
+            val partId = component.text("part")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val part = partsById[partId]
+            if (part?.text("hidden") == "true") return@mapNotNull null
+            DoorPart(
+                partId = partId,
+                role = component.text("role").orEmpty(),
+                description = component.text("description") ?: part?.text("description").orEmpty(),
+                material = part?.text("material").orEmpty(),
+                width = part?.text("width").orEmpty(),
+                length = part?.text("length").orEmpty(),
+                quantity = part?.text("quantity")?.toIntOrNull() ?: 1,
+                horizontalGrain = component.booleanOrNull("grain") ?: part?.booleanOrNull("grain")
+            )
+        }
+        val withGrain = parsed.copy(
+            horizontalGrain = panelGrain ?: componentGrain ?: door?.booleanOrNull("grain") ?: false
+        )
         DoorPreviewData(
-            geometry = parsed.copy(
-                horizontalGrain = panelGrain ?: componentGrain ?: door?.booleanOrNull("grain") ?: false
-            ),
+            geometry = withGrain.copy(slope = deriveDoorSlope(withGrain, parts)),
             label = door?.text("label").orEmpty(),
             style = door?.text("style").orEmpty(),
             cabinet = door?.text("cabinet").orEmpty(),
             room = door?.text("room").orEmpty(),
-            parts = entry.arrayOrNull("components").objects().mapNotNull { component ->
-                val partId = component.text("part")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                val part = partsById[partId]
-                if (part?.text("hidden") == "true") return@mapNotNull null
-                DoorPart(
-                    partId = partId,
-                    role = component.text("role").orEmpty(),
-                    description = component.text("description") ?: part?.text("description").orEmpty(),
-                    material = part?.text("material").orEmpty(),
-                    width = part?.text("width").orEmpty(),
-                    length = part?.text("length").orEmpty(),
-                    quantity = part?.text("quantity")?.toIntOrNull() ?: 1,
-                    horizontalGrain = component.booleanOrNull("grain") ?: part?.booleanOrNull("grain")
-                )
-            }
+            parts = parts
         )
     }
     return CvJobDoorPreviews.Loaded(doors)
@@ -210,6 +223,8 @@ internal fun parseDoorGeometry(entry: JsonObject): DoorGeometry? {
         "slab" -> DoorConstruction.SLAB
         else -> DoorConstruction.OTHER
     }
+    val layoutEntry = entry.get("layout")?.takeUnless { it.isJsonNull }
+    val layout = layoutEntry?.let { parseDoorLayout(it, entry, width, height) }
     return DoorGeometry(
         doorId = doorId,
         construction = construction,
@@ -219,7 +234,9 @@ internal fun parseDoorGeometry(entry: JsonObject): DoorGeometry? {
         frame = entry.objectOrNull("frame")?.let(::parseFrame),
         panel = entry.objectOrNull("panel")?.let(::parsePanel),
         hinges = parseHinges(entry.objectOrNull("hinges")),
-        checks = entry.arrayOrNull("checks").strings()
+        checks = entry.arrayOrNull("checks").strings(),
+        layout = layout,
+        hasInvalidLayout = layoutEntry != null && layout == null
     )
 }
 
@@ -231,7 +248,8 @@ private fun parseFrame(frame: JsonObject): DoorFrame? {
         topRail = frame.inches("topRail") ?: return null,
         bottomRail = frame.inches("bottomRail") ?: return null,
         tenon = frame.inches("tenon"),
-        material = frame.text("material").orEmpty()
+        material = frame.text("material").orEmpty(),
+        stileLengthAllowance = frame.inches("stileLengthAllowance")
     )
 }
 

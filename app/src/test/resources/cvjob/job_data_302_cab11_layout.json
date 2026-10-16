@@ -1,0 +1,616 @@
+{
+  "doors": [
+    {
+      "id": "53753",
+      "cabinet": "11",
+      "room": "1",
+      "number": "10501",
+      "label": "1A",
+      "style": "INSET - ISLAND BACK 4 PNL 4 1/2 Stiles",
+      "schedule": "Paint Grade Veneer",
+      "width": "116.018",
+      "height": "35.268",
+      "hinge": "N",
+      "doorType": "S",
+      "notes": "",
+      "grain": false,
+      "profiles": [
+        "",
+        "",
+        "",
+        ""
+      ],
+      "hidden": false
+    }
+  ],
+  "doorGeometry": [
+    {
+      "doorId": "53753",
+      "construction": "other",
+      "width": "116.018",
+      "height": "35.268",
+      "thickness": "0.75",
+      "frame": {
+        "leftStile": "4.5",
+        "rightStile": "4.5",
+        "topRail": "4.25",
+        "bottomRail": "7.0625",
+        "tenon": "0.5",
+        "widthAllowance": "0.03125",
+        "stileLengthAllowance": "0.0625",
+        "material": "3/4 Paint Grade Wood"
+      },
+      "panel": null,
+      "hinges": {
+        "side": "none",
+        "code": "N",
+        "count": 0,
+        "positions": [],
+        "edgeOffset": null,
+        "points": [],
+        "source": null
+      },
+      "pulls": [],
+      "components": [
+        {
+          "part": "489260",
+          "role": "member",
+          "description": "Door Mid Stile",
+          "grain": null
+        },
+        {
+          "part": "489254",
+          "role": "bumper",
+          "description": "Door Bumpers",
+          "grain": null
+        },
+        {
+          "part": "489255",
+          "role": "bumper",
+          "description": "Door Bumpers",
+          "grain": null
+        },
+        {
+          "part": "489256",
+          "role": "leftStile",
+          "description": "Door Left Stile",
+          "grain": null
+        },
+        {
+          "part": "489257",
+          "role": "rightStile",
+          "description": "Door Right Stile",
+          "grain": null
+        },
+        {
+          "part": "489258",
+          "role": "topRail",
+          "description": "Door Top Rail",
+          "grain": null
+        },
+        {
+          "part": "489259",
+          "role": "bottomRail",
+          "description": "Door Bottom Rail",
+          "grain": null
+        },
+        {
+          "part": "489261",
+          "role": "member",
+          "description": "Door Mid Stile",
+          "grain": null
+        },
+        {
+          "part": "489262",
+          "role": "member",
+          "description": "Door Mid Stile",
+          "grain": null
+        },
+        {
+          "part": "489263",
+          "role": "panel",
+          "description": "Door Flat Panel 1A",
+          "grain": false
+        },
+        {
+          "part": "489264",
+          "role": "panel",
+          "description": "Door Flat Panel 1A",
+          "grain": false
+        },
+        {
+          "part": "489265",
+          "role": "panel",
+          "description": "Door Flat Panel 1A",
+          "grain": false
+        },
+        {
+          "part": "489266",
+          "role": "panel",
+          "description": "Door Flat Panel 1A",
+          "grain": false
+        }
+      ],
+      "checks": [],
+      "layout": {
+        "source": "verifiedEqualPanels",
+        "members": [
+          {
+            "part": "489256",
+            "role": "stile",
+            "rect": {
+              "x": "0",
+              "y": "0",
+              "width": "4.5",
+              "height": "35.268"
+            },
+            "tenon": "0"
+          },
+          {
+            "part": "489257",
+            "role": "stile",
+            "rect": {
+              "x": "111.518",
+              "y": "0",
+              "width": "4.5",
+              "height": "35.268"
+            },
+            "tenon": "0"
+          },
+          {
+            "part": "489258",
+            "role": "rail",
+            "rect": {
+              "x": "4.5",
+              "y": "31.018",
+              "width": "107.018",
+              "height": "4.25"
+            },
+            "tenon": "0.5"
+          },
+          {
+            "part": "489259",
+            "role": "rail",
+            "rect": {
+              "x": "4.5",
+              "y": "0",
+              "width": "107.018",
+              "height": "7.0625"
+            },
+            "tenon": "0.5"
+          },
+          {
+            "part": "489260",
+            "role": "stile",
+            "rect": {
+              "x": "29.0045",
+              "y": "7.0625",
+              "width": "3",
+              "height": "23.9555"
+            },
+            "tenon": "0.5"
+          },
+          {
+            "part": "489261",
+            "role": "stile",
+            "rect": {
+              "x": "56.509",
+              "y": "7.0625",
+              "width": "3",
+              "height": "23.9555"
+            },
+            "tenon": "0.5"
+          },
+          {
+            "part": "489262",
+            "role": "stile",
+            "rect": {
+              "x": "84.0135",
+              "y": "7.0625",
+              "width": "3",
+              "height": "23.9555"
+            },
+            "tenon": "0.5"
+          }
+        ],
+        "panels": [
+          {
+            "kind": "flat",
+            "grain": false,
+            "width": "25.4445",
+            "height": "24.8955",
+            "insetX": "0.47",
+            "insetY": "0.47",
+            "opening": {
+              "x": "4.5",
+              "y": "7.0625",
+              "width": "24.5045",
+              "height": "23.9555"
+            },
+            "material": "1/4 2s Paint Grade Ply",
+            "thickness": null,
+            "part": "489263"
+          },
+          {
+            "kind": "flat",
+            "grain": false,
+            "width": "25.4445",
+            "height": "24.8955",
+            "insetX": "0.47",
+            "insetY": "0.47",
+            "opening": {
+              "x": "32.0045",
+              "y": "7.0625",
+              "width": "24.5045",
+              "height": "23.9555"
+            },
+            "material": "1/4 2s Paint Grade Ply",
+            "thickness": null,
+            "part": "489264"
+          },
+          {
+            "kind": "flat",
+            "grain": false,
+            "width": "25.4445",
+            "height": "24.8955",
+            "insetX": "0.47",
+            "insetY": "0.47",
+            "opening": {
+              "x": "59.509",
+              "y": "7.0625",
+              "width": "24.5045",
+              "height": "23.9555"
+            },
+            "material": "1/4 2s Paint Grade Ply",
+            "thickness": null,
+            "part": "489265"
+          },
+          {
+            "kind": "flat",
+            "grain": false,
+            "width": "25.4445",
+            "height": "24.8955",
+            "insetX": "0.47",
+            "insetY": "0.47",
+            "opening": {
+              "x": "87.0135",
+              "y": "7.0625",
+              "width": "24.5045",
+              "height": "23.9555"
+            },
+            "material": "1/4 2s Paint Grade Ply",
+            "thickness": null,
+            "part": "489266"
+          }
+        ]
+      }
+    }
+  ],
+  "parts": [
+    {
+      "id": "489260",
+      "source": "cv",
+      "cabinet": "11",
+      "room": "1",
+      "doorId": "53753",
+      "partId": "41",
+      "code": "DMS",
+      "partClass": "Door",
+      "subclass": 12,
+      "subclassName": "Door Frame",
+      "category": "DOOR_CUT_LIST",
+      "description": "Door Mid Stile",
+      "grain": null,
+      "materialId": "196",
+      "material": "3/4 Paint Grade Wood",
+      "unitType": "BD FT",
+      "width": "3",
+      "length": "24.9555",
+      "area": "71.8665",
+      "quantity": 1,
+      "buyout": false,
+      "sizeProtected": false,
+      "hidden": false
+    },
+    {
+      "id": "489254",
+      "source": "cv",
+      "cabinet": "11",
+      "room": "1",
+      "doorId": "53753",
+      "partId": "200",
+      "code": "DBUMP",
+      "partClass": "Pull",
+      "subclass": 0,
+      "subclassName": null,
+      "category": "DOOR_BUMPER_LIST",
+      "description": "Door Bumpers",
+      "grain": null,
+      "materialId": "1243",
+      "material": "Door Bumper",
+      "unitType": "Each",
+      "width": "0.125",
+      "length": "0.125",
+      "area": "0.015625",
+      "quantity": 1,
+      "buyout": false,
+      "sizeProtected": false,
+      "hidden": false
+    },
+    {
+      "id": "489255",
+      "source": "cv",
+      "cabinet": "11",
+      "room": "1",
+      "doorId": "53753",
+      "partId": "200",
+      "code": "DBUMP",
+      "partClass": "Pull",
+      "subclass": 0,
+      "subclassName": null,
+      "category": "DOOR_BUMPER_LIST",
+      "description": "Door Bumpers",
+      "grain": null,
+      "materialId": "1243",
+      "material": "Door Bumper",
+      "unitType": "Each",
+      "width": "0.125",
+      "length": "0.125",
+      "area": "0.015625",
+      "quantity": 1,
+      "buyout": false,
+      "sizeProtected": false,
+      "hidden": false
+    },
+    {
+      "id": "489256",
+      "source": "cv",
+      "cabinet": "11",
+      "room": "1",
+      "doorId": "53753",
+      "partId": "38",
+      "code": "DLS",
+      "partClass": "Door",
+      "subclass": 12,
+      "subclassName": "Door Frame",
+      "category": "DOOR_CUT_LIST",
+      "description": "Door Left Stile",
+      "grain": null,
+      "materialId": "196",
+      "material": "3/4 Paint Grade Wood",
+      "unitType": "BD FT",
+      "width": "4.5313",
+      "length": "35.3305",
+      "area": "158.706",
+      "quantity": 1,
+      "buyout": false,
+      "sizeProtected": false,
+      "hidden": false
+    },
+    {
+      "id": "489257",
+      "source": "cv",
+      "cabinet": "11",
+      "room": "1",
+      "doorId": "53753",
+      "partId": "37",
+      "code": "DRS",
+      "partClass": "Door",
+      "subclass": 12,
+      "subclassName": "Door Frame",
+      "category": "DOOR_CUT_LIST",
+      "description": "Door Right Stile",
+      "grain": null,
+      "materialId": "196",
+      "material": "3/4 Paint Grade Wood",
+      "unitType": "BD FT",
+      "width": "4.5313",
+      "length": "35.3305",
+      "area": "158.706",
+      "quantity": 1,
+      "buyout": false,
+      "sizeProtected": false,
+      "hidden": false
+    },
+    {
+      "id": "489258",
+      "source": "cv",
+      "cabinet": "11",
+      "room": "1",
+      "doorId": "53753",
+      "partId": "39",
+      "code": "DTR",
+      "partClass": "Door",
+      "subclass": 12,
+      "subclassName": "Door Frame",
+      "category": "DOOR_CUT_LIST",
+      "description": "Door Top Rail",
+      "grain": null,
+      "materialId": "196",
+      "material": "3/4 Paint Grade Wood",
+      "unitType": "BD FT",
+      "width": "4.2813",
+      "length": "108.018",
+      "area": "454.8265",
+      "quantity": 1,
+      "buyout": false,
+      "sizeProtected": false,
+      "hidden": false
+    },
+    {
+      "id": "489259",
+      "source": "cv",
+      "cabinet": "11",
+      "room": "1",
+      "doorId": "53753",
+      "partId": "40",
+      "code": "DBR",
+      "partClass": "Door",
+      "subclass": 12,
+      "subclassName": "Door Frame",
+      "category": "DOOR_CUT_LIST",
+      "description": "Door Bottom Rail",
+      "grain": null,
+      "materialId": "196",
+      "material": "3/4 Paint Grade Wood",
+      "unitType": "BD FT",
+      "width": "7.0938",
+      "length": "108.018",
+      "area": "755.814625",
+      "quantity": 1,
+      "buyout": false,
+      "sizeProtected": false,
+      "hidden": false
+    },
+    {
+      "id": "489261",
+      "source": "cv",
+      "cabinet": "11",
+      "room": "1",
+      "doorId": "53753",
+      "partId": "41",
+      "code": "DMS",
+      "partClass": "Door",
+      "subclass": 12,
+      "subclassName": "Door Frame",
+      "category": "DOOR_CUT_LIST",
+      "description": "Door Mid Stile",
+      "grain": null,
+      "materialId": "196",
+      "material": "3/4 Paint Grade Wood",
+      "unitType": "BD FT",
+      "width": "3",
+      "length": "24.9555",
+      "area": "71.8665",
+      "quantity": 1,
+      "buyout": false,
+      "sizeProtected": false,
+      "hidden": false
+    },
+    {
+      "id": "489262",
+      "source": "cv",
+      "cabinet": "11",
+      "room": "1",
+      "doorId": "53753",
+      "partId": "41",
+      "code": "DMS",
+      "partClass": "Door",
+      "subclass": 12,
+      "subclassName": "Door Frame",
+      "category": "DOOR_CUT_LIST",
+      "description": "Door Mid Stile",
+      "grain": null,
+      "materialId": "196",
+      "material": "3/4 Paint Grade Wood",
+      "unitType": "BD FT",
+      "width": "3",
+      "length": "24.9555",
+      "area": "71.8665",
+      "quantity": 1,
+      "buyout": false,
+      "sizeProtected": false,
+      "hidden": false
+    },
+    {
+      "id": "489263",
+      "source": "cv",
+      "cabinet": "11",
+      "room": "1",
+      "doorId": "53753",
+      "partId": "44",
+      "code": "DFP",
+      "partClass": "Door",
+      "subclass": 13,
+      "subclassName": "Door Panel",
+      "category": "DOOR_CUT_LIST",
+      "description": "Door Flat Panel 1A",
+      "grain": false,
+      "materialId": "1258",
+      "material": "1/4 2s Paint Grade Ply",
+      "unitType": "Sheet",
+      "width": "25.4445",
+      "length": "24.8955",
+      "area": "633.45354975",
+      "quantity": 1,
+      "buyout": false,
+      "sizeProtected": false,
+      "hidden": false
+    },
+    {
+      "id": "489264",
+      "source": "cv",
+      "cabinet": "11",
+      "room": "1",
+      "doorId": "53753",
+      "partId": "44",
+      "code": "DFP",
+      "partClass": "Door",
+      "subclass": 13,
+      "subclassName": "Door Panel",
+      "category": "DOOR_CUT_LIST",
+      "description": "Door Flat Panel 1A",
+      "grain": false,
+      "materialId": "1258",
+      "material": "1/4 2s Paint Grade Ply",
+      "unitType": "Sheet",
+      "width": "25.4445",
+      "length": "24.8955",
+      "area": "633.45354975",
+      "quantity": 1,
+      "buyout": false,
+      "sizeProtected": false,
+      "hidden": false
+    },
+    {
+      "id": "489265",
+      "source": "cv",
+      "cabinet": "11",
+      "room": "1",
+      "doorId": "53753",
+      "partId": "44",
+      "code": "DFP",
+      "partClass": "Door",
+      "subclass": 13,
+      "subclassName": "Door Panel",
+      "category": "DOOR_CUT_LIST",
+      "description": "Door Flat Panel 1A",
+      "grain": false,
+      "materialId": "1258",
+      "material": "1/4 2s Paint Grade Ply",
+      "unitType": "Sheet",
+      "width": "25.4445",
+      "length": "24.8955",
+      "area": "633.45354975",
+      "quantity": 1,
+      "buyout": false,
+      "sizeProtected": false,
+      "hidden": false
+    },
+    {
+      "id": "489266",
+      "source": "cv",
+      "cabinet": "11",
+      "room": "1",
+      "doorId": "53753",
+      "partId": "44",
+      "code": "DFP",
+      "partClass": "Door",
+      "subclass": 13,
+      "subclassName": "Door Panel",
+      "category": "DOOR_CUT_LIST",
+      "description": "Door Flat Panel 1A",
+      "grain": false,
+      "materialId": "1258",
+      "material": "1/4 2s Paint Grade Ply",
+      "unitType": "Sheet",
+      "width": "25.4445",
+      "length": "24.8955",
+      "area": "633.45354975",
+      "quantity": 1,
+      "buyout": false,
+      "sizeProtected": false,
+      "hidden": false
+    }
+  ]
+}

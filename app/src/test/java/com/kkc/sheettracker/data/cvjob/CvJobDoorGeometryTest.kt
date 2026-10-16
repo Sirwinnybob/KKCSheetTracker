@@ -54,7 +54,7 @@ class CvJobDoorGeometryTest {
         assertEquals(16.625, g.width, 0.0)
         assertEquals(31.5, g.height, 0.0)
         assertEquals(0.75, g.thickness!!, 0.0)
-        assertEquals(DoorFrame(2.25, 2.25, 2.25, 2.25, 0.5, "3/4 White Oak"), g.frame)
+        assertEquals(DoorFrame(2.25, 2.25, 2.25, 2.25, 0.5, "3/4 White Oak", 0.0625), g.frame)
         val panel = g.panel!!
         assertEquals("flat", panel.kind)
         assertEquals(DoorRect(2.25, 2.25, 12.125, 27.0), panel.opening)

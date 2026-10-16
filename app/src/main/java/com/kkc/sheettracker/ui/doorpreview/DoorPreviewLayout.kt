@@ -5,6 +5,7 @@ import com.kkc.sheettracker.data.cvjob.DoorGeometry
 import com.kkc.sheettracker.data.cvjob.DoorHingeSide
 import com.kkc.sheettracker.data.cvjob.DoorPoint
 import com.kkc.sheettracker.data.cvjob.DoorRect
+import com.kkc.sheettracker.data.cvjob.DoorSlope
 import kotlin.math.min
 
 /*
@@ -29,7 +30,9 @@ enum class DoorShapeRole {
 }
 
 sealed interface DoorShape {
-    data class Rect(val rect: DoorRect, val role: DoorShapeRole) : DoorShape
+    data class Rect(val rect: DoorRect, val role: DoorShapeRole, val horizontalGrain: Boolean? = null) : DoorShape
+    /** A piece that is not a rectangle (an angled door), corners in door inches. */
+    data class Poly(val points: List<DoorPoint>, val role: DoorShapeRole) : DoorShape
     data class HingeCup(val center: DoorPoint, val radius: Double) : DoorShape
 }
 
@@ -44,22 +47,44 @@ data class DoorDrawing(
     val warnings: List<String>,
     /** Direction for panel/slab faces; frame members retain their own lengthwise grain. */
     val panelGrainVertical: Boolean = true,
-    val showFaceGrain: Boolean = true
+    val showFaceGrain: Boolean = true,
+    /** The door's face when it is not a rectangle (a verified angled door); null means the width x height box. */
+    val outline: List<DoorPoint>? = null,
+    /** A door that is clearly not rectangular but whose outline could not be proven: nothing is painted. */
+    val refused: Boolean = false
 )
 
 const val OUTLINE_ONLY_NOTE = "Mid rails, mullions or several panels: outline only"
+const val INVALID_LAYOUT_NOTE = "Door layout incomplete or invalid: outline only"
 const val FRAME_MISSING_NOTE = "Frame sizes missing: outline only"
 
 fun buildDoorDrawing(door: DoorGeometry): DoorDrawing {
     val w = door.width
     val h = door.height
+    when (val slope = door.slope) {
+        is DoorSlope.Verified -> return slopedDoorDrawing(door, slope)
+        is DoorSlope.Refused -> return DoorDrawing(
+            width = w,
+            height = h,
+            shapes = emptyList(),
+            notes = listOf("$ANGLED_NOT_DRAWN_NOTE (${slope.reason})"),
+            warnings = door.checks,
+            panelGrainVertical = !door.horizontalGrain,
+            showFaceGrain = door.showFaceGrain,
+            refused = true
+        )
+        DoorSlope.None -> Unit
+    }
     val notes = mutableListOf<String>()
     val fills = mutableListOf<DoorShape>()
     val members = mutableListOf<DoorShape>()
     val hidden = mutableListOf<DoorShape>()
     val hardware = mutableListOf<DoorShape>()
 
-    when (door.construction) {
+    val layoutShapes = door.layout?.let(::buildMultiPanelShapes).orEmpty()
+    if (door.hasInvalidLayout) {
+        notes += INVALID_LAYOUT_NOTE
+    } else if (door.layout == null) when (door.construction) {
         DoorConstruction.FIVE_PIECE -> {
             val frame = door.frame
             if (frame == null) {
@@ -104,7 +129,7 @@ fun buildDoorDrawing(door: DoorGeometry): DoorDrawing {
         DoorConstruction.OTHER -> notes += OUTLINE_ONLY_NOTE
     }
 
-    if (door.construction != DoorConstruction.OTHER) {
+    if (!door.hasInvalidLayout && (door.layout != null || door.construction != DoorConstruction.OTHER)) {
         hardware += hingeCups(door)
         if (door.hinges.side == DoorHingeSide.OTHER) {
             notes += "Hinge code ${door.hinges.code.ifBlank { "?" }}: side not confirmed, no hinges drawn"
@@ -115,11 +140,50 @@ fun buildDoorDrawing(door: DoorGeometry): DoorDrawing {
     return DoorDrawing(
         width = w,
         height = h,
-        shapes = fills + members + hidden + hardware + outline,
+        shapes = layoutShapes + fills + members + hidden + hardware + outline,
         notes = notes,
         warnings = door.checks,
         panelGrainVertical = !door.horizontalGrain,
         showFaceGrain = door.showFaceGrain
+    )
+}
+
+const val ANGLED_NOT_DRAWN_NOTE = "Angled door: not drawn"
+
+/** The exporter measures an angled door as if it were square, so it flags these two sizes. */
+private val SLOPE_FALSE_WARNINGS = setOf(
+    "Rail length does not match the door width; check the frame data",
+    "Panel size does not fit the frame opening; check the panel data"
+)
+
+/** Pieces and outline of a verified angled door; hinge cups use CV's door coordinates as they are. */
+private fun slopedDoorDrawing(door: DoorGeometry, slope: DoorSlope.Verified): DoorDrawing {
+    val fills = mutableListOf<DoorShape>()
+    val members = mutableListOf<DoorShape>()
+    for (member in slope.members) {
+        when (member.role) {
+            "panel" -> fills += DoorShape.Poly(member.polygon, DoorShapeRole.PANEL)
+            "leftStile", "rightStile" -> members += DoorShape.Poly(member.polygon, DoorShapeRole.STILE)
+            else -> members += DoorShape.Poly(member.polygon, DoorShapeRole.RAIL)
+        }
+    }
+    val notes = mutableListOf(
+        "Angled door: top slopes ${"%.2f".format(java.util.Locale.US, slope.slopeDegrees)}° " +
+            "(high side ${if (slope.highOnLeft) "left" else "right"}); outline built from the cut sizes " +
+            "and checked against the rails and panel"
+    )
+    if (door.hinges.side == DoorHingeSide.OTHER) {
+        notes += "Hinge code ${door.hinges.code.ifBlank { "?" }}: side not confirmed, no hinges drawn"
+    }
+    return DoorDrawing(
+        width = door.width,
+        height = door.height,
+        shapes = fills + members + hingeCups(door) + DoorShape.Poly(slope.outline, DoorShapeRole.OUTLINE),
+        notes = notes,
+        warnings = door.checks.filterNot { it in SLOPE_FALSE_WARNINGS },
+        panelGrainVertical = !door.horizontalGrain,
+        showFaceGrain = door.showFaceGrain,
+        outline = slope.outline
     )
 }
 
