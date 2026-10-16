@@ -3,8 +3,10 @@
 Door thumbnails, expanded previews, and fullscreen cabinet/door views read the shared library at
 `<Ready Jobs>/.metadata/material_textures/manifest.json` (schema version 1). This is a global
 library, independent of each job's `.metadata/cv_job/job_data.json`. The Android app only reads it.
-The initial library was exported from CVData and the Cabinet Vision Graphics folder on 2026-10-16;
-no recurring catalog exporter is configured.
+The initial library was exported from CVData and the Cabinet Vision Graphics folder on 2026-10-16.
+CV Cutlist Query now owns automatic updates on Load / Refresh and Export: new material references,
+new/changed image conversion, physical sizes, mapping and finish data. Unchanged verified JXLs are
+reused; no scheduled service is required. See that repository's `docs/material-textures.md`.
 
 Published `parts[].materialId` joins a door component to `materials[].id`, then its face layer
 (`typeId: 1`) to `textures[].id`. Legacy exports without an ID may use a unique exact material
