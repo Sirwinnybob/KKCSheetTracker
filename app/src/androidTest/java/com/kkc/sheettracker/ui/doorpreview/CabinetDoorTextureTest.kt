@@ -22,8 +22,18 @@ class CabinetDoorTextureTest {
         val loaded = parseCvJobDoorPreviews(json) as CvJobDoorPreviews.Loaded
         val door = loaded.forDoor("53737")!!
         val layout = door.cabinetLayout!!
-        compose.setContent { MaterialTheme { DoorPreviewFullscreen(door, {}, doorsById = loaded.allDoors.associateBy { it.doorId }) } }
+        val root = doorTextureTestRoot()
+        compose.setContent { MaterialTheme { DoorMaterialTextureProvider(root.absolutePath) {
+            DoorPreviewFullscreen(door, {}, doorsById = loaded.allDoors.associateBy { it.doorId })
+        } } }
         val canvas = compose.onNodeWithContentDescription("Full screen cabinet drawing")
+        compose.waitUntil(15_000) {
+            val image = canvas.captureToImage()
+            val density = InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.density
+            val fit = cabinetFit(layout, image.width.toFloat(), image.height.toFloat(), 24 * density)
+            val color = image.toPixelMap()[fit.x(10.0).toInt(), fit.y(20.0).toInt()]
+            color.red - color.blue > 0.12f
+        }
         val image = canvas.captureToImage()
         val pixels = image.toPixelMap()
         val density = InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.density

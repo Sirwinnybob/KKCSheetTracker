@@ -97,7 +97,8 @@ data class DoorPart(
     /** Published piece count after operator edits; older files default to one per row. */
     val quantity: Int = 1,
     /** Published component direction; null when older data has no component grain. */
-    val horizontalGrain: Boolean? = null
+    val horizontalGrain: Boolean? = null,
+    val materialId: String? = null
 )
 
 private val DOOR_HARDWARE_ROLES = setOf("hinge", "hingePlate", "pull", "bumper")
@@ -192,7 +193,8 @@ fun parseCvJobDoorPreviews(json: String): CvJobDoorPreviews {
                 width = part?.text("width").orEmpty(),
                 length = part?.text("length").orEmpty(),
                 quantity = part?.text("quantity")?.toIntOrNull() ?: 1,
-                horizontalGrain = component.booleanOrNull("grain") ?: part?.booleanOrNull("grain")
+                horizontalGrain = component.booleanOrNull("grain") ?: part?.booleanOrNull("grain"),
+                materialId = part?.text("materialId")
             )
         }
         val withGrain = parsed.copy(

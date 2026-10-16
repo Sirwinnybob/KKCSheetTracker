@@ -6,6 +6,7 @@ import com.kkc.sheettracker.data.cvjob.DoorHingeSide
 import com.kkc.sheettracker.data.cvjob.DoorPoint
 import com.kkc.sheettracker.data.cvjob.DoorRect
 import com.kkc.sheettracker.data.cvjob.DoorSlope
+import com.kkc.sheettracker.data.cvjob.DoorMaterialRef
 import kotlin.math.min
 
 /*
@@ -51,7 +52,9 @@ data class DoorDrawing(
     /** The door's face when it is not a rectangle (a verified angled door); null means the width x height box. */
     val outline: List<DoorPoint>? = null,
     /** A door that is clearly not rectangular but whose outline could not be proven: nothing is painted. */
-    val refused: Boolean = false
+    val refused: Boolean = false,
+    val faceMaterial: DoorMaterialRef = DoorMaterialRef(),
+    val surfaceMaterials: Map<Int, DoorMaterialRef> = emptyMap()
 )
 
 const val OUTLINE_ONLY_NOTE = "Mid rails, mullions or several panels: outline only"

@@ -1650,6 +1650,7 @@ fun HardwoodsWorkspaceScreen(
                 if (doorAssemblyActive) {
                     DoorAssemblyList(
                         previews = doorPreviews,
+                        readyJobsBasePath = scanState.snapshot.basePath,
                         stateKey = jobFolderName,
                         bottomPadding = hardwoodsListBottomScrollPadding(),
                         modifier = Modifier.fillMaxSize(),

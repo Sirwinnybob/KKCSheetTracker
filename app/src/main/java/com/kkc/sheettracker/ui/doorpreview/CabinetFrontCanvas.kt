@@ -29,13 +29,13 @@ private fun rectanglePoints(r: DoorRect) = listOf(DoorPoint(r.x, r.y), DoorPoint
 
 /** Reuse the complete door renderer, fading its finished image instead of individual paints. */
 private fun DrawScope.drawPlacedDoor(fit: CabinetFit, front: CabinetFront, drawing: DoorDrawing,
-    colors: DoorPreviewColors, showHiddenLines: Boolean, translucentPaint: Paint? = null) {
+    colors: DoorPreviewColors, showHiddenLines: Boolean, textures: DoorTextureImages, translucentPaint: Paint? = null) {
     val r = fit.rect(front.rect)
     inset(r[0], r[1], size.width - r[2], size.height - r[3]) {
         val canvas = drawContext.canvas
         if (translucentPaint != null) canvas.saveLayer(Rect(0f, 0f, size.width, size.height), translucentPaint)
         try {
-            drawDoor(drawing, colors, padding = 0f, showHiddenLines = showHiddenLines)
+            drawDoor(drawing, colors, padding = 0f, showHiddenLines = showHiddenLines, textures = textures)
         } finally {
             if (translucentPaint != null) canvas.restore()
         }
@@ -52,6 +52,7 @@ internal fun CabinetFrontCanvas(layout: CabinetFrontLayout, selectedDoorId: Stri
     val ghost = ghostColor(MaterialTheme.colorScheme.onSurfaceVariant)
     val selection = MaterialTheme.colorScheme.primary
     val translucentPaint = remember { Paint().apply { alpha = CABINET_OTHER_DOOR_ALPHA } }
+    val textures = rememberDoorTextureImages(doorDrawings.values + selectedDrawing)
     Canvas(modifier) {
         val fit = cabinetFit(layout, size.width, size.height, padding.toPx(), frontShape)
         if (fit.scale <= 0f) return@Canvas
@@ -67,7 +68,7 @@ internal fun CabinetFrontCanvas(layout: CabinetFrontLayout, selectedDoorId: Stri
             if (shape == FrontShape.Blank) return@forEach
             val drawing = doorDrawings[front.doorId]
             if (drawing != null && !drawing.refused) {
-                drawPlacedDoor(fit, front, drawing, colors, showHiddenLines, translucentPaint)
+                drawPlacedDoor(fit, front, drawing, colors, showHiddenLines, textures, translucentPaint)
                 return@forEach
             }
             // An inert front without door data has no construction detail to invent.
@@ -82,7 +83,7 @@ internal fun CabinetFrontCanvas(layout: CabinetFrontLayout, selectedDoorId: Stri
         }
         layout.fronts.singleOrNull { it.doorId == selectedDoorId }?.let { front ->
             if (frontShape(front) != FrontShape.Blank && !selectedDrawing.refused) {
-                drawPlacedDoor(fit, front, selectedDrawing, colors, showHiddenLines)
+                drawPlacedDoor(fit, front, selectedDrawing, colors, showHiddenLines, textures)
             }
         }
         selectedMember?.let { member ->

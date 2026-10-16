@@ -178,6 +178,26 @@ fun DoorAssemblyList(
     query: String = "",
     onToggleDone: (doorId: String, done: Boolean) -> Unit = { _, _ -> },
     onToggleSkip: (doorId: String, skipped: Boolean) -> Unit = { _, _ -> },
+    onViewInPdf: (cabinet: String) -> Unit = {},
+    readyJobsBasePath: String = ""
+) {
+    DoorMaterialTextureProvider(readyJobsBasePath) {
+        DoorAssemblyListContent(previews, stateKey, modifier, bottomPadding, rowProgress, query,
+            onToggleDone, onToggleSkip, onViewInPdf)
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DoorAssemblyListContent(
+    previews: CvJobDoorPreviews?,
+    stateKey: String,
+    modifier: Modifier = Modifier,
+    bottomPadding: Dp = 0.dp,
+    rowProgress: Map<Pair<String, String>, HardwoodRowProgress> = emptyMap(),
+    query: String = "",
+    onToggleDone: (doorId: String, done: Boolean) -> Unit = { _, _ -> },
+    onToggleSkip: (doorId: String, skipped: Boolean) -> Unit = { _, _ -> },
     onViewInPdf: (cabinet: String) -> Unit = {}
 ) {
     var sort by rememberSaveable(stateKey) { mutableStateOf(DoorAssemblySort.CABINET) }
@@ -276,7 +296,7 @@ private fun DoorAssemblyHeader(
 ) {
     val done = progress.doneCount.coerceIn(0, 1) > 0
     val rowState = deriveHardwoodsRowState(progress, qty = 1, isMultiCab = false, skippedCabCount = 0, totalCabs = 1)
-    val drawing = remember(door) { buildDoorDrawing(door.geometry) }
+    val drawing = remember(door) { buildDoorDrawing(door) }
     val partCount = remember(door) { door.partCount }
     val scheme = MaterialTheme.colorScheme
     val chevronRotation by animateFloatAsState(
@@ -410,7 +430,7 @@ private fun HeaderChip(text: String) {
 
 @Composable
 private fun DoorAssemblyBody(door: DoorPreviewData, onPreview: () -> Unit) {
-    val drawing = remember(door) { buildDoorDrawing(door.geometry) }
+    val drawing = remember(door) { buildDoorDrawing(door) }
     val lines = remember(door) { groupDoorParts(door.parts) }
     val scheme = MaterialTheme.colorScheme
     Surface(

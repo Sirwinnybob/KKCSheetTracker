@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -23,13 +24,12 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.kkc.sheettracker.data.cvjob.DoorMaterialRef
 import com.kkc.sheettracker.data.cvjob.CvJobDoorPreviews
 import com.kkc.sheettracker.data.cvjob.DoorHingeSide
 import com.kkc.sheettracker.data.cvjob.DoorPoint
@@ -105,8 +105,9 @@ fun DoorPreviewCanvas(
     selectedPartPolygon: List<DoorPoint>? = null
 ) {
     val selectionColor = MaterialTheme.colorScheme.primary
+    val textures = rememberDoorTextureImages(listOf(drawing))
     Canvas(modifier) {
-        drawDoor(drawing, colors, padding.toPx(), showHiddenLines)
+        drawDoor(drawing, colors, padding.toPx(), showHiddenLines, textures)
         if (selectedPartPolygon != null) {
             val fit = DoorPreviewFit.of(drawing.width, drawing.height, size.width, size.height, padding.toPx())
             val path = polygonPath(fit, selectedPartPolygon)
@@ -130,25 +131,8 @@ private fun polygonPath(fit: DoorPreviewFit, points: List<DoorPoint>): Path = Pa
     close()
 }
 
-/** Grain lines running along [direction] (a unit vector, canvas pixels), clipped to [path]. */
-private fun DrawScope.drawGrainAlong(path: Path, direction: Offset, color: Color, spacing: Float, stroke: Float) {
-    if (spacing < 3f) return
-    val bounds = path.getBounds()
-    if (bounds.width <= 0f || bounds.height <= 0f) return
-    clipPath(path) {
-        val center = bounds.center
-        val reach = hypot(bounds.width, bounds.height) / 2f + spacing
-        val normal = Offset(-direction.y, direction.x)
-        var offset = -reach + spacing / 2
-        while (offset < reach) {
-            val mid = center + normal * offset
-            drawLine(color, mid - direction * reach, mid + direction * reach, stroke)
-            offset += spacing
-        }
-    }
-}
-
-internal fun DrawScope.drawDoor(drawing: DoorDrawing, colors: DoorPreviewColors, padding: Float, showHiddenLines: Boolean) {
+internal fun DrawScope.drawDoor(drawing: DoorDrawing, colors: DoorPreviewColors, padding: Float, showHiddenLines: Boolean,
+    textures: DoorTextureImages = emptyMap()) {
     // An angled door whose outline could not be proven is not painted at all.
     if (drawing.refused) return
     val fit = DoorPreviewFit.of(drawing.width, drawing.height, size.width, size.height, padding)
@@ -160,39 +144,29 @@ internal fun DrawScope.drawDoor(drawing: DoorDrawing, colors: DoorPreviewColors,
         return Offset(r[0], r[1]) to Size(r[2] - r[0], r[3] - r[1])
     }
 
-    // Soft drop shadow and the door's face: a slab (or an outline-only door) reads as solid wood.
+    // Paint the slab/base face from its assigned material; missing images stay white.
     val (doorTopLeft, doorSize) = box(DoorRect(0.0, 0.0, drawing.width, drawing.height))
     val shadowOffset = 2.dp.toPx().coerceAtMost(padding)
     val faceOutline = drawing.outline?.let { polygonPath(fit, it) }
+        ?: Path().apply { addRect(Rect(doorTopLeft, doorSize)) }
     val vertical = Offset(0f, 1f)
     val horizontal = Offset(1f, 0f)
-    if (faceOutline != null) {
-        translate(shadowOffset, shadowOffset) { drawPath(faceOutline, colors.shadow) }
-        drawPath(faceOutline, colors.panel)
-        if (drawing.showFaceGrain) {
-            drawGrainAlong(faceOutline, if (drawing.panelGrainVertical) vertical else horizontal, colors.panelGrain, fit.length(2.5), hairline)
-        }
-    } else {
-        drawRect(colors.shadow, doorTopLeft + Offset(shadowOffset, shadowOffset), doorSize)
-        drawRect(colors.panel, doorTopLeft, doorSize)
-        if (drawing.showFaceGrain) {
-            drawGrain(doorTopLeft, doorSize, vertical = drawing.panelGrainVertical, color = colors.panelGrain, spacing = fit.length(2.5), stroke = hairline)
-        }
+    translate(shadowOffset, shadowOffset) { drawPath(faceOutline, colors.shadow) }
+    drawDoorMaterial(faceOutline, textures[drawing.faceMaterial], fit.scale,
+        if (drawing.panelGrainVertical) vertical else horizontal)
+    fun material(path: Path, ref: DoorMaterialRef?, grain: Offset) {
+        drawDoorMaterial(path, ref?.let { textures[it] }, fit.scale, grain)
     }
 
-    for (shape in drawing.shapes) {
+    for ((index, shape) in drawing.shapes.withIndex()) {
         when (shape) {
             is DoorShape.Poly -> {
                 val path = polygonPath(fit, shape.points)
                 when (shape.role) {
                     DoorShapeRole.PANEL -> {
-                        drawPath(path, colors.panel)
-                        if (drawing.showFaceGrain) {
-                            drawGrainAlong(path, if (drawing.panelGrainVertical) vertical else horizontal, colors.panelGrain, fit.length(2.0), hairline)
-                        }
+                        material(path, drawing.surfaceMaterials[index], if (drawing.panelGrainVertical) vertical else horizontal)
                     }
                     DoorShapeRole.STILE, DoorShapeRole.RAIL -> {
-                        drawPath(path, colors.member)
                         // Stiles run straight up; a rail's grain follows its sloped top edge (corners 3 -> 2).
                         val along = if (shape.role == DoorShapeRole.STILE || shape.points.size < 4) vertical else {
                             val a = shape.points[3]
@@ -202,7 +176,7 @@ internal fun DrawScope.drawDoor(drawing: DoorDrawing, colors: DoorPreviewColors,
                             val length = hypot(dx, dy)
                             if (length > 0f) Offset(dx / length, dy / length) else horizontal
                         }
-                        drawGrainAlong(path, along, colors.memberGrain, fit.length(0.6), hairline)
+                        material(path, drawing.surfaceMaterials[index], along)
                         drawPath(path, colors.memberEdge, style = Stroke(hairline))
                     }
                     DoorShapeRole.OUTLINE -> drawPath(path, colors.outline, style = Stroke(hairline * 1.6f))
@@ -213,10 +187,8 @@ internal fun DrawScope.drawDoor(drawing: DoorDrawing, colors: DoorPreviewColors,
                 val (topLeft, rectSize) = box(shape.rect)
                 when (shape.role) {
                     DoorShapeRole.PANEL -> {
-                        drawRect(colors.panel, topLeft, rectSize)
-                        if (drawing.showFaceGrain) {
-                            drawGrain(topLeft, rectSize, vertical = shape.horizontalGrain?.not() ?: drawing.panelGrainVertical, color = colors.panelGrain, spacing = fit.length(2.0), stroke = hairline)
-                        }
+                        material(Path().apply { addRect(Rect(topLeft, rectSize)) }, drawing.surfaceMaterials[index],
+                            if (shape.horizontalGrain?.not() ?: drawing.panelGrainVertical) vertical else horizontal)
                     }
                     DoorShapeRole.GLASS -> {
                         drawRect(
@@ -231,14 +203,8 @@ internal fun DrawScope.drawDoor(drawing: DoorDrawing, colors: DoorPreviewColors,
                         drawLine(glint, topLeft + Offset(w * 0.24f, h * 0.40f), topLeft + Offset(w * 0.58f, h * 0.15f), hairline * 1.5f)
                     }
                     DoorShapeRole.STILE, DoorShapeRole.RAIL -> {
-                        drawRect(colors.member, topLeft, rectSize)
-                        drawGrain(
-                            topLeft, rectSize,
-                            vertical = shape.role == DoorShapeRole.STILE,
-                            color = colors.memberGrain,
-                            spacing = fit.length(0.6),
-                            stroke = hairline
-                        )
+                        material(Path().apply { addRect(Rect(topLeft, rectSize)) }, drawing.surfaceMaterials[index],
+                            if (shape.role == DoorShapeRole.STILE) vertical else horizontal)
                         drawRect(colors.memberEdge, topLeft, rectSize, style = Stroke(hairline))
                     }
                     DoorShapeRole.HIDDEN_PANEL_EDGE, DoorShapeRole.TENON -> if (showHiddenLines) {
@@ -255,27 +221,6 @@ internal fun DrawScope.drawDoor(drawing: DoorDrawing, colors: DoorPreviewColors,
                 drawCircle(colors.hinge, radius, center, style = Stroke(hairline * 1.6f))
                 drawCircle(colors.hinge, radius * 0.22f, center)
             }
-        }
-    }
-}
-
-/** Evenly spaced grain lines along the piece, clipped to it. */
-private fun DrawScope.drawGrain(topLeft: Offset, size: Size, vertical: Boolean, color: Color, spacing: Float, stroke: Float) {
-    if (spacing < 3f || size.width <= 0f || size.height <= 0f) return
-    clipRect(topLeft.x, topLeft.y, topLeft.x + size.width, topLeft.y + size.height) {
-        val across = if (vertical) size.width else size.height
-        var offset = spacing / 2
-        var index = 0
-        while (offset < across) {
-            // A slight lean on alternate lines so the grain does not look ruled.
-            val lean = if (index % 2 == 0) spacing * 0.15f else -spacing * 0.1f
-            if (vertical) {
-                drawLine(color, Offset(topLeft.x + offset, topLeft.y), Offset(topLeft.x + offset + lean, topLeft.y + size.height), stroke)
-            } else {
-                drawLine(color, Offset(topLeft.x, topLeft.y + offset), Offset(topLeft.x + size.width, topLeft.y + offset + lean), stroke)
-            }
-            offset += spacing
-            index++
         }
     }
 }

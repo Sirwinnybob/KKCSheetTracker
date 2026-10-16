@@ -82,7 +82,7 @@ class CvJobDoorGeometryTest {
         assertEquals("1", door.room)
         assertEquals(12, door.parts.size)
         val stile = door.parts.first { it.role == "leftStile" }
-        assertEquals(DoorPart("488742", "leftStile", "Door Left Stile", "3/4 White Oak", "2.2813", "31.5625"), stile)
+        assertEquals(DoorPart("488742", "leftStile", "Door Left Stile", "3/4 White Oak", "2.2813", "31.5625", materialId = "1174"), stile)
         assertEquals(2, door.parts.count { it.role == "hinge" })
         assertEquals("110 Degree Blum 11/16\"", door.parts.first { it.role == "hinge" }.material)
     }

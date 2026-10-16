@@ -56,7 +56,7 @@ import kotlin.math.roundToInt
 @Composable
 internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit,
     onSelectDoor: (String) -> Boolean = { false }, doorsById: Map<String, DoorPreviewData> = mapOf(door.doorId to door)) {
-    val drawing = remember(door) { buildDoorDrawing(door.geometry) }
+    val drawing = remember(door) { buildDoorDrawing(door) }
     val regions = remember(door, drawing) { buildDoorPartRegions(door, drawing) }
     var selectedPartId by remember(door.doorId) { mutableStateOf<String?>(null) }
     val layout = door.cabinetLayout.takeUnless { drawing.refused }
@@ -70,7 +70,7 @@ internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit,
         front?.let { cabinetDoorPartRegions(it, door, drawing) }.orEmpty()
     }
     val cabinetDrawings = remember(doorsById) {
-        doorsById.mapValues { (_, preview) -> buildDoorDrawing(preview.geometry) }
+        doorsById.mapValues { (_, preview) -> buildDoorDrawing(preview) }
     }
     val selected = if (cabinetMode) selectedMember?.let(::frameMemberRegion)
         ?: cabinetRegions.firstOrNull { it.part.partId == selectedPartId }
