@@ -32,6 +32,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.UnfoldMore
@@ -42,15 +43,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
@@ -78,6 +90,15 @@ private val NavAnimExit  = tween<Float>(280, easing = NavEasing)
 
 // Horizontal decoration-tab slide duration (search ↔ pen ↔ cnc …).
 private const val NAV_SLIDE_MS = 440
+
+private val ShopKeypadRows = listOf(
+    listOf("1", "2", "3"),
+    listOf("4", "5", "6"),
+    listOf("7", "8", "9"),
+    listOf("0", "A", "B"),
+    listOf("C", "D", "E"),
+    listOf("F", "G", "\b")
+)
 
 // Size/shape morphs use a softly-tuned spring so the bar grows and SETTLES
 // organically (enlarge/shrink) instead of the mechanical linear-feel of a tween.
@@ -431,6 +452,10 @@ private fun MorphingNavBar(
     onTimeclockBgEdit: () -> Unit = {}
 ) {
     val lowEnd = LocalLowEndMode.current
+    var isShopKeypadVisible by remember { mutableStateOf(false) }
+    var useAndroidKeyboardForShopSearch by remember { mutableStateOf(false) }
+    val shopSearchFocusRequester = remember { FocusRequester() }
+    val softwareKeyboardController = LocalSoftwareKeyboardController.current
     // Cache last non-null values so exit animations can still render content
     // when the parent clears decorations before the slide completes.
     var lastSearch    by remember { mutableStateOf(searchDecoration) }
@@ -578,6 +603,16 @@ private fun MorphingNavBar(
                             ) {
                                 when (decor) {
                                     "search" -> lastSearch?.let { dec ->
+                                        LaunchedEffect(dec.shopKeypadEnabled, dec.placeholder) {
+                                            isShopKeypadVisible = false
+                                            useAndroidKeyboardForShopSearch = false
+                                        }
+                                        LaunchedEffect(dec.shopKeypadEnabled, useAndroidKeyboardForShopSearch) {
+                                            if (dec.shopKeypadEnabled && useAndroidKeyboardForShopSearch) {
+                                                shopSearchFocusRequester.requestFocus()
+                                                softwareKeyboardController?.show()
+                                            }
+                                        }
                                         val searchBold = LocalKKCThemeTokens.current.boldMode
                                         val searchOnGlass = kkcFrostedContentColor()
                                         val searchHint = if (searchBold) searchOnGlass.copy(alpha = 0.75f)
@@ -595,30 +630,44 @@ private fun MorphingNavBar(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            BasicTextField(
-                                                value = dec.searchTextValue,
-                                                onValueChange = dec.onSearchTextChange,
-                                                modifier = Modifier.weight(1f),
-                                                singleLine = true,
-                                                textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                                    color = searchOnGlass
-                                                ),
-                                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                                                keyboardActions = KeyboardActions(onGo = { dec.onGo() }),
-                                                decorationBox = { innerTextField ->
-                                                    Box(contentAlignment = Alignment.CenterStart) {
-                                                        if (dec.searchTextValue.text.isEmpty()) {
-                                                            Text(
-                                                                dec.placeholder,
-                                                                style = MaterialTheme.typography.bodyMedium,
-                                                                color = searchHint
-                                                            )
+                                            if (dec.shopKeypadEnabled && !useAndroidKeyboardForShopSearch) {
+                                                ShopKeypadSearchField(
+                                                    text = dec.searchTextValue.text,
+                                                    placeholder = dec.placeholder,
+                                                    modifier = Modifier.weight(1f),
+                                                    textStyle = MaterialTheme.typography.bodyMedium,
+                                                    textColor = searchOnGlass,
+                                                    placeholderColor = searchHint,
+                                                    onClick = { isShopKeypadVisible = true }
+                                                )
+                                            } else {
+                                                BasicTextField(
+                                                    value = dec.searchTextValue,
+                                                    onValueChange = dec.onSearchTextChange,
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .focusRequester(shopSearchFocusRequester),
+                                                    singleLine = true,
+                                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                                        color = searchOnGlass
+                                                    ),
+                                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                                                    keyboardActions = KeyboardActions(onGo = { dec.onGo() }),
+                                                    decorationBox = { innerTextField ->
+                                                        Box(contentAlignment = Alignment.CenterStart) {
+                                                            if (dec.searchTextValue.text.isEmpty()) {
+                                                                Text(
+                                                                    dec.placeholder,
+                                                                    style = MaterialTheme.typography.bodyMedium,
+                                                                    color = searchHint
+                                                                )
+                                                            }
+                                                            innerTextField()
                                                         }
-                                                        innerTextField()
                                                     }
-                                                }
-                                            )
+                                                )
+                                            }
                                             Button(
                                                 onClick = { dec.onGo() },
                                                 shape = MaterialTheme.shapes.extraLarge,
@@ -875,6 +924,154 @@ private fun MorphingNavBar(
                     )
                 }
             }
+            lastSearch
+                ?.takeIf { it.shopKeypadEnabled && isShopKeypadVisible }
+                ?.let { dec ->
+                    ShopKeypadPopup(
+                        hazeState = hazeState,
+                        blurEnabled = !lowEnd.blurDisabled,
+                        shadowsEnabled = !lowEnd.shadowsDisabled && !lowEnd.webViewBlurSuppressed,
+                        onDismiss = { isShopKeypadVisible = false },
+                        onKey = { key ->
+                            dec.onSearchTextChange(applyShopKeypadKey(dec.searchTextValue, key))
+                        },
+                        onUseAndroidKeyboard = {
+                            isShopKeypadVisible = false
+                            useAndroidKeyboardForShopSearch = true
+                        }
+                    )
+                }
+        }
+    }
+}
+
+@Composable
+private fun ShopKeypadSearchField(
+    text: String,
+    placeholder: String,
+    modifier: Modifier,
+    textStyle: TextStyle,
+    textColor: Color,
+    placeholderColor: Color,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .sizeIn(minHeight = 48.dp)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Text(
+            text = text.ifEmpty { placeholder },
+            style = textStyle,
+            color = if (text.isEmpty()) placeholderColor else textColor
+        )
+    }
+}
+
+private class AboveNavPopupPositionProvider(
+    private val verticalGapPx: Int
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize
+    ): IntOffset = IntOffset(
+        x = (anchorBounds.right - popupContentSize.width).coerceIn(
+            0,
+            (windowSize.width - popupContentSize.width).coerceAtLeast(0)
+        ),
+        y = (anchorBounds.top - popupContentSize.height - verticalGapPx).coerceAtLeast(0)
+    )
+}
+
+@Composable
+private fun ShopKeypadPopup(
+    hazeState: HazeState?,
+    blurEnabled: Boolean,
+    shadowsEnabled: Boolean,
+    onDismiss: () -> Unit,
+    onKey: (String) -> Unit,
+    onUseAndroidKeyboard: () -> Unit
+) {
+    val popupGapPx = with(LocalDensity.current) { 8.dp.roundToPx() }
+    val popupPosition = remember(popupGapPx) {
+        AboveNavPopupPositionProvider(popupGapPx)
+    }
+    val shape = remember { RoundedCornerShape(20.dp) }
+    val frostedSurface = kkcFrostedBaseColor()
+    val frostedTokens = LocalKKCThemeTokens.current.frosted
+    val frostedModifier = if (hazeState != null && blurEnabled) {
+        Modifier.hazeEffect(
+            hazeState,
+            style = HazeDefaults.style(
+                backgroundColor = frostedSurface.copy(alpha = frostedTokens.backgroundAlpha.coerceIn(0.5f, 0.82f)),
+                blurRadius = frostedTokens.blurDp.coerceAtLeast(14f).dp
+            )
+        )
+    } else {
+        Modifier.background(frostedSurface)
+    }
+    Popup(
+        popupPositionProvider = popupPosition,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(
+            focusable = true,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            clippingEnabled = false
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .shadow(if (shadowsEnabled) 6.dp else 0.dp, shape, clip = false)
+                .clip(shape)
+                .then(frostedModifier)
+        ) {
+            ShopKeypad(
+                onKey = onKey,
+                onUseAndroidKeyboard = onUseAndroidKeyboard
+            )
+        }
+    }
+}
+
+@Composable
+private fun ShopKeypad(
+    onKey: (String) -> Unit,
+    onUseAndroidKeyboard: () -> Unit
+) {
+    Column(
+        modifier = Modifier.padding(8.dp),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        ShopKeypadRows.forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { key ->
+                    Button(
+                        onClick = { onKey(key) },
+                        modifier = Modifier.size(48.dp),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text(if (key == "\b") "Del" else key)
+                    }
+                }
+            }
+        }
+        Button(
+            onClick = onUseAndroidKeyboard,
+            modifier = Modifier.size(width = 160.dp, height = 48.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Keyboard,
+                contentDescription = "Open Android keyboard",
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.size(6.dp))
+            Text("Keyboard")
         }
     }
 }

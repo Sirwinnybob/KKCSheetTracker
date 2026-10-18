@@ -1180,7 +1180,8 @@ fun HardwoodsWorkspaceScreen(
             onParts = {},
             contextLine = "$assemblyDone/$assemblyTotal doors done",
             placeholder = "Cabinet, door or style",
-            showParts = false
+            showParts = false,
+            shopKeypadEnabled = true
         )
     }
     SideEffect {

@@ -1146,7 +1146,8 @@ fun AssemblyViewerScreen(
                     onGo = { jumpToCabinet(searchText.text) },
                     isPartsEnabled = lastSearchedCabinet.isNotBlank(),
                     onParts = { showPartsSheet = true },
-                    contextLine = contextLine
+                    contextLine = contextLine,
+                    shopKeypadEnabled = true
                 )
             }
             SideEffect {

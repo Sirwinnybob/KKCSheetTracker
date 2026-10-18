@@ -6,6 +6,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import com.kkc.sheettracker.data.models.SheetStatus
 
@@ -18,8 +19,28 @@ data class NavBarSearchDecoration(
     val contextLine: String,
     val placeholder: String = "Cabinet #",
     val showParts: Boolean = true,
-    val onScan: (() -> Unit)? = null
+    val onScan: (() -> Unit)? = null,
+    val shopKeypadEnabled: Boolean = false
 )
+
+/** Appends or deletes a character through the restricted shop keypad. */
+fun applyShopKeypadKey(value: TextFieldValue, key: String): TextFieldValue {
+    val text = value.text
+    return when {
+        key == "\b" || key == "⌫" -> {
+            val newText = text.dropLast(1)
+            value.copy(
+                text = newText,
+                selection = TextRange(newText.length)
+            )
+        }
+        key.length == 1 && (key[0] in '0'..'9' || key[0] in 'A'..'G') -> value.copy(
+            text = text + key,
+            selection = TextRange(text.length + 1)
+        )
+        else -> value
+    }
+}
 
 data class NavBarCncDecoration(
     val currentPage: Int,
