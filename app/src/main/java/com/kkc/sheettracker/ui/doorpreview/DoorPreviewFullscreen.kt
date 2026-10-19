@@ -40,7 +40,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -59,6 +61,8 @@ internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit,
     val drawing = remember(door) { buildDoorDrawing(door) }
     val regions = remember(door, drawing) { buildDoorPartRegions(door, drawing) }
     var selectedPartId by remember(door.doorId) { mutableStateOf<String?>(null) }
+    var selectedHinge by remember(door) { mutableStateOf<DoorShape.HingeCup?>(null) }
+    val cups = remember(drawing) { drawing.shapes.filterIsInstance<DoorShape.HingeCup>() }
     val layout = door.cabinetLayout.takeUnless { drawing.refused }
     var showCabinet by rememberSaveable(door.doorId) { mutableStateOf(layout != null) }
     val cabinetMode = showCabinet && layout != null
@@ -75,6 +79,11 @@ internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit,
     val selected = if (cabinetMode) selectedMember?.let(::frameMemberRegion)
         ?: cabinetRegions.firstOrNull { it.part.partId == selectedPartId }
         else regions.firstOrNull { it.part.partId == selectedPartId }
+    fun selectHinge(cup: DoorShape.HingeCup?) {
+        selectedHinge = cup
+        selectedPartId = null
+        selectedMemberId = null
+    }
     val measureLines = if (cabinetMode && front != null) {
         val measures = frontMeasures(checkNotNull(layout), front, shape(front))
         // The pure helper explains unmeasured shapes; the operator panel shows measured numbers only.
@@ -135,10 +144,10 @@ internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit,
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     FilterChip(selected = cabinetMode, onClick = {
-                        showCabinet = true; selectedPartId = null; selectedMemberId = null; scale = 1f; offset = Offset.Zero
+                        showCabinet = true; selectHinge(null); scale = 1f; offset = Offset.Zero
                     }, label = { Text("Cabinet") })
                     FilterChip(selected = !cabinetMode, onClick = {
-                        showCabinet = false; selectedPartId = null; selectedMemberId = null; scale = 1f; offset = Offset.Zero
+                        showCabinet = false; selectHinge(null); scale = 1f; offset = Offset.Zero
                     }, label = { Text("Door only") })
                 }
             }
@@ -152,6 +161,13 @@ internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit,
                                 if (cabinetMode) {
                                     val cabinet = checkNotNull(layout)
                                     val fit = cabinetFit(cabinet, viewport.width.toFloat(), viewport.height.toFloat(), paddingPx, shape)
+                                    val hinge = front?.takeIf { shape(it) != FrontShape.Blank }?.let {
+                                        hitDoorHinge(drawing, cabinetDoorFit(fit, it, drawing),
+                                            viewport.width.toFloat(), viewport.height.toFloat(), point.x, point.y,
+                                            scale, offset.x, offset.y, paddingPx)
+                                    }
+                                    selectHinge(hinge)
+                                    if (hinge != null) return@detectTapGestures
                                     when (val target = hitCabinetTarget(cabinet, fit, viewport.width.toFloat(), viewport.height.toFloat(),
                                         point.x, point.y, scale, offset.x, offset.y, shape, cabinetRegions)) {
                                         is CabinetTarget.Part -> {
@@ -172,6 +188,10 @@ internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit,
                                 } else {
                                     val fit = DoorPreviewFit.of(drawing.width, drawing.height,
                                         viewport.width.toFloat(), viewport.height.toFloat(), paddingPx)
+                                    val hinge = hitDoorHinge(drawing, fit, viewport.width.toFloat(), viewport.height.toFloat(),
+                                        point.x, point.y, scale, offset.x, offset.y, paddingPx)
+                                    selectHinge(hinge)
+                                    if (hinge != null) return@detectTapGestures
                                     selectedPartId = hitDoorPart(
                                         regions, fit, viewport.width.toFloat(), viewport.height.toFloat(),
                                         point.x, point.y, zoom = scale, panX = offset.x, panY = offset.y
@@ -185,6 +205,13 @@ internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit,
                     .semantics {
                         contentDescription = if (cabinetMode) "Full screen cabinet drawing" else "Full screen door drawing"
                         stateDescription = "${(scale * 100).roundToInt()}% zoom"
+                        customActions = cups.mapIndexed { index, cup ->
+                            CustomAccessibilityAction("Inspect hinge ${index + 1}: " +
+                                hingeDistanceLines(drawing, door.geometry.hinges.side, cup).joinToString(", ")) {
+                                selectHinge(cup)
+                                true
+                            }
+                        }
                     }
             ) {
                 val drawingModifier = Modifier.fillMaxSize().graphicsLayer {
@@ -195,14 +222,16 @@ internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit,
                     }
                 if (cabinetMode) CabinetFrontCanvas(checkNotNull(layout), door.doorId, drawing, selectedMember,
                     modifier = drawingModifier, showHiddenLines = showHiddenLines, frontShape = shape,
-                    doorDrawings = cabinetDrawings, selectedPart = selected.takeIf { selectedMember == null })
+                    doorDrawings = cabinetDrawings, selectedPart = selected.takeIf { selectedMember == null },
+                    selectedHinge = selectedHinge)
                 else DoorPreviewCanvas(
                     drawing = drawing,
                     modifier = drawingModifier,
                     padding = 24.dp,
                     showHiddenLines = showHiddenLines,
                     selectedPartRect = selected?.rect,
-                    selectedPartPolygon = selected?.polygon
+                    selectedPartPolygon = selected?.polygon,
+                    selectedHinge = selectedHinge
                 )
             }
             Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
@@ -211,18 +240,26 @@ internal fun DoorPreviewFullscreen(door: DoorPreviewData, onDismiss: () -> Unit,
                         .semantics { liveRegion = LiveRegionMode.Polite },
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    if (selected == null && cabinetMode) {
+                    if (selectedHinge != null) {
+                        Text("Hinge ${cups.indexOf(selectedHinge) + 1}", style = MaterialTheme.typography.titleSmall)
+                        hingeDistanceLines(drawing, door.geometry.hinges.side, checkNotNull(selectedHinge)).forEach { line ->
+                            Text(line, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Text("Measured to hinge center", style = MaterialTheme.typography.bodySmall)
+                    } else if (selected == null && cabinetMode) {
                         Text(door.label.ifBlank { "Door" }, style = MaterialTheme.typography.titleSmall)
                         Text("${formatDoorInches(drawing.width)} × ${formatDoorInches(drawing.height)} in",
                             style = MaterialTheme.typography.bodyMedium)
                         if (measureLines.isNotEmpty()) Text(measureLines.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
                     } else if (selected == null) {
                         Text(
-                            if (regions.isEmpty()) "Part positions unavailable" else "Tap a part to inspect it",
+                            if (cups.isNotEmpty()) "Tap a part or hinge to inspect it"
+                            else if (regions.isEmpty()) "Part positions unavailable" else "Tap a part to inspect it",
                             style = MaterialTheme.typography.titleSmall
                         )
                         Text(
-                            if (regions.isEmpty()) "See the parts list for names and sizes" else "Name, cut size and material",
+                            if (cups.isNotEmpty()) "Parts show sizes; hinges show distances to both door ends"
+                            else if (regions.isEmpty()) "See the parts list for names and sizes" else "Name, cut size and material",
                             style = MaterialTheme.typography.bodySmall
                         )
                     } else {

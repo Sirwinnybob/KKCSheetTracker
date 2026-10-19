@@ -113,7 +113,10 @@ data class DoorPreviewData(
     val cabinet: String = "",
     val room: String = "",
     val parts: List<DoorPart> = emptyList(),
-    val cabinetLayout: CabinetFrontLayout? = null
+    val cabinetLayout: CabinetFrontLayout? = null,
+    /** CV door kind, e.g. P/S, DF, or BE/WE/TE for decorative end panels. */
+    val doorType: String = "",
+    val assemblyName: String = ""
 ) {
     val doorId: String get() = geometry.doorId
     /** Manufacturing components only; hardware remains in [parts] with its quantities. */
@@ -167,6 +170,9 @@ fun parseCvJobDoorPreviews(json: String): CvJobDoorPreviews {
     val partsById = obj.arrayOrNull("parts").objects()
         .mapNotNull { part -> part.text("id")?.let { it to part } }
         .toMap()
+    val assemblyNames = obj.arrayOrNull("assemblies").objects()
+        .mapNotNull { assembly -> assembly.text("id")?.let { it to assembly.text("name").orEmpty() } }
+        .toMap()
     val layouts = parseCabinetLayouts(obj, partsById)
     val doors = geometry.objects().mapNotNull { entry ->
         val parsed = parseDoorGeometry(entry) ?: return@mapNotNull null
@@ -209,7 +215,9 @@ fun parseCvJobDoorPreviews(json: String): CvJobDoorPreviews {
             parts = parts.filter { partsById[it.partId]?.text("hidden") != "true" },
             cabinetLayout = layouts[door?.text("cabinet")]?.takeIf { layout ->
                 layout.fronts.any { it.doorId == parsed.doorId }
-            }
+            },
+            doorType = door?.text("doorType").orEmpty(),
+            assemblyName = assemblyNames[door?.text("cabinet")].orEmpty()
         )
     }
     return CvJobDoorPreviews.Loaded(doors.filter { doorsById[it.doorId]?.text("hidden") != "true" }, allDoors = doors)
