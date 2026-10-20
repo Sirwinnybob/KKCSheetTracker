@@ -1,13 +1,10 @@
 import { CoreEngine } from './engine.js';
+import { frameModel, setupViewerControls } from './viewer-controls.js';
 import { loadModel } from './modelLoader.js';
-// Resolved via importmap in viewer.html
-import * as THREE from 'three';
 
-let scene, camera, renderer, controls, engine;
-let zoomVelocity = 0;
+let scene, camera, renderer, engine;
+let interaction;
 let loadedModel = null;
-const zoomDirection = new THREE.Vector3();
-const pointerMoveVector = new THREE.Vector2();
 
 function withViewerBridge(action) {
     const bridge = window.KKCViewerBridge;
@@ -38,16 +35,6 @@ function disposeModel(model) {
     });
 }
 
-function frameLoadedModel(model) {
-    const box = new THREE.Box3().setFromObject(model);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    const maxDim = Math.max(size.x, size.y, size.z);
-    camera.position.set(center.x + maxDim, center.y + maxDim, center.z + maxDim);
-    camera.lookAt(center);
-    controls.target.copy(center);
-    controls.update();
-}
 
 const statusEl   = document.getElementById('status');
 const statusText = document.getElementById('status-text');
@@ -82,22 +69,6 @@ async function init() {
     const lightMode = isLightMode();
     applyTheme(lightMode);
 
-    // Wire zoom keyboard shortcuts
-    window.addEventListener('keydown', (e) => {
-        const zoomKeys = ['+', '=', '-', '_', 'PageUp', 'PageDown'];
-        if (zoomKeys.includes(e.key)) {
-            const joystick = document.getElementById('joystick-handle');
-            if (joystick) joystick.dispatchEvent(new KeyboardEvent('keydown', { key: e.key, bubbles: false }));
-        }
-    });
-    window.addEventListener('keyup', (e) => {
-        const zoomKeys = ['+', '=', '-', '_', 'PageUp', 'PageDown'];
-        if (zoomKeys.includes(e.key)) {
-            const joystick = document.getElementById('joystick-handle');
-            if (joystick) joystick.dispatchEvent(new KeyboardEvent('keyup', { key: e.key, bubbles: false }));
-        }
-    });
-
     if (!jobCode || !initialRoom) {
         updateStatus("Missing job or room parameter", true);
         return;
@@ -116,18 +87,7 @@ async function init() {
             onInteractionStateChanged: (interacting) => {
                 withViewerBridge((bridge) => bridge.setViewerInteracting(interacting));
             },
-            onBeforeRender: () => {
-                let moved = false;
-                if (zoomVelocity !== 0 && camera && controls) {
-                    camera.getWorldDirection(zoomDirection);
-                    const dist = camera.position.distanceTo(controls.target);
-                    if (!(zoomVelocity > 0 && dist < 0.5)) {
-                        camera.position.addScaledVector(zoomDirection, zoomVelocity * controls.zoomSpeed);
-                        moved = true;
-                    }
-                }
-                return moved;
-            }
+            onBeforeRender: () => interaction?.step() === true
         });
 
         // Keep rendering fully paused while page is hidden to reduce battery use.
@@ -145,109 +105,8 @@ async function init() {
         scene    = engine.scene;
         camera   = engine.camera;
         renderer = engine.renderer;
-        controls = engine.controls;
-        // --- SINGLE TAP → PIVOT (consistent with Assimp app) ---
-        let pointerDownPos = new THREE.Vector2();
-        let pointerHasMoved = false;
-        const DRAG_THRESHOLD = 8;
-
-        renderer.domElement.addEventListener('pointerdown', (e) => {
-            if (e.pointerType === 'touch' && !e.isPrimary) return;
-            pointerDownPos.set(e.clientX, e.clientY);
-            pointerHasMoved = false;
-        });
-
-        renderer.domElement.addEventListener('pointermove', (e) => {
-            if (e.pointerType === 'touch' && !e.isPrimary) return;
-            pointerMoveVector.set(e.clientX, e.clientY);
-            if (pointerDownPos.distanceTo(pointerMoveVector) > DRAG_THRESHOLD) {
-                pointerHasMoved = true;
-            }
-        });
-
-        renderer.domElement.addEventListener('pointerup', (e) => {
-            if (e.pointerType === 'touch' && !e.isPrimary) return;
-            if (pointerHasMoved) return;
-
-            const raycaster = new THREE.Raycaster();
-            const mouse = new THREE.Vector2(
-                (e.clientX / window.innerWidth)  *  2 - 1,
-                -(e.clientY / window.innerHeight) * 2 + 1
-            );
-            raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObjects(scene.children, true);
-            if (intersects.length > 0) {
-                controls.target.copy(intersects[0].point);
-                controls.update();
-            }
-        });
-
-        // --- ZOOM JOYSTICK ---
-        const joystickHandle    = document.getElementById('joystick-handle');
-        const joystickContainer = document.getElementById('joystick-container');
-        let isDraggingJoystick  = false;
-
-        const updateJoystick = (clientY) => {
-            if (!isDraggingJoystick || !joystickContainer) return;
-            const rect    = joystickContainer.getBoundingClientRect();
-            const relY    = Math.max(0, Math.min(rect.height, clientY - rect.top));
-            const center  = rect.height / 2;
-            const rawInput = (center - relY) / center;
-            zoomVelocity  = Math.sign(rawInput) * (rawInput * rawInput) * 0.15;
-            if (engine) engine.requestRender();
-            if (joystickHandle) {
-                joystickHandle.style.top = `${relY - 18}px`;
-                const percent = Math.round(((rect.height - relY) / rect.height) * 100);
-                joystickHandle.setAttribute('aria-valuenow', percent.toString());
-            }
-        };
-
-        if (joystickHandle) {
-            joystickHandle.onpointerdown = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                isDraggingJoystick = true;
-                updateJoystick(e.clientY);
-                joystickHandle.setPointerCapture(e.pointerId);
-            };
-            joystickHandle.onpointermove = (e) => { if (isDraggingJoystick) updateJoystick(e.clientY); };
-            joystickHandle.onpointerup = (e) => {
-                isDraggingJoystick = false;
-                zoomVelocity = 0;
-                if (engine) engine.requestRender();
-                if (joystickHandle) {
-                    joystickHandle.style.top = (joystickContainer.offsetHeight / 2 - 18) + 'px';
-                    joystickHandle.setAttribute('aria-valuenow', '50');
-                }
-                joystickHandle.releasePointerCapture(e.pointerId);
-            };
-
-            joystickHandle.addEventListener('keydown', (e) => {
-                let v = 0;
-                if (e.key === 'ArrowUp'   || e.key === 'ArrowRight' || e.key === '+' || e.key === '=') v =  0.5;
-                else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft'  || e.key === '-' || e.key === '_') v = -0.5;
-                else if (e.key === 'PageUp')   v =  1.0;
-                else if (e.key === 'PageDown') v = -1.0;
-                if (v !== 0) {
-                    e.preventDefault();
-                    zoomVelocity = Math.sign(v) * (v * v) * 0.15;
-                    if (engine) engine.requestRender();
-                    const h = joystickContainer.offsetHeight || 160;
-                    const t = (h / 2) - (v * (h / 2));
-                    joystickHandle.style.top = `${t - 18}px`;
-                    joystickHandle.setAttribute('aria-valuenow', Math.round(((h - t) / h) * 100).toString());
-                }
-            });
-
-            joystickHandle.addEventListener('keyup', () => {
-                if (!isDraggingJoystick) {
-                    zoomVelocity = 0;
-                    if (engine) engine.requestRender();
-                    joystickHandle.style.top = (joystickContainer.offsetHeight / 2 - 18) + 'px';
-                    joystickHandle.setAttribute('aria-valuenow', '50');
-                }
-            });
-        }
+        interaction = setupViewerControls(engine, () => loadedModel ? [loadedModel] : []);
+        window.addEventListener('beforeunload', () => interaction.dispose());
 
         // --- ROOM MODEL LOADING (initial room and in-page room switches) ---
         // Switching rooms swaps the model in this same page/engine -- no reload -- so the room
@@ -278,7 +137,7 @@ async function init() {
             if (loadedModel) { scene.remove(loadedModel); disposeModel(loadedModel); }
             loadedModel = model;
             scene.add(loadedModel);
-            frameLoadedModel(loadedModel);
+            frameModel(engine, loadedModel);
             if (engine) engine.requestRender();
 
             updateStatus("");

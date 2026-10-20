@@ -30,13 +30,13 @@ fun WingThumbnail(
             .semantics { contentDescription = "Open 3D Cabinet ${scene.cabinet}" }
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            val extentX = (projection.bounds.maxX - projection.bounds.minX).coerceAtLeast(0.001)
-            val extentY = (projection.bounds.maxY - projection.bounds.minY).coerceAtLeast(0.001)
+            val viewport = fitWingThumbnail(projection.bounds, size.width.toDouble(), size.height.toDouble(), 2.dp.toPx().toDouble())
             projection.faces.forEachIndexed { index, face ->
-                val left = ((face.points.minOf { it.x } - projection.bounds.minX) / extentX * size.width).toFloat()
-                val right = ((face.points.maxOf { it.x } - projection.bounds.minX) / extentX * size.width).toFloat()
-                val top = ((projection.bounds.maxY - face.points.maxOf { it.y }) / extentY * size.height).toFloat()
-                val bottom = ((projection.bounds.maxY - face.points.minOf { it.y }) / extentY * size.height).toFloat()
+                val points = face.points.map(viewport::project)
+                val left = points.minOf { it.x }.toFloat()
+                val right = points.maxOf { it.x }.toFloat()
+                val top = points.minOf { it.y }.toFloat()
+                val bottom = points.maxOf { it.y }.toFloat()
                 val fill = if (face.materialId == null) Color(0xFFE2D5C2) else Color(0xFFC6A77B)
                 drawRect(fill.copy(alpha = (0.88f - index * 0.04f).coerceAtLeast(0.28f)), topLeft = androidx.compose.ui.geometry.Offset(left, top), size = androidx.compose.ui.geometry.Size(right - left, bottom - top))
                 drawRect(Color(0xFF5F4931), topLeft = androidx.compose.ui.geometry.Offset(left, top), size = androidx.compose.ui.geometry.Size(right - left, bottom - top), style = Stroke(1.dp.toPx()))

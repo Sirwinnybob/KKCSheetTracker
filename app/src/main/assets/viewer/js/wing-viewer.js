@@ -1,111 +1,42 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { isTapGesture, wingControlAction, zoomVelocityForJoystick } from './wing-interactions.js';
-import { addWingEdgeOverlay, applyWingTransform, boundsDimensions, doorFacePrimitives, fallbackWingMaterialColor, renderableWingParts } from './wing-scene.js';
+import { CoreEngine } from './engine.js';
+import { frameModel, setupViewerControls } from './viewer-controls.js';
+import { wingControlAction } from './wing-interactions.js';
+import { addWingEdgeOverlay, applyWingTransform, doorFacePrimitives, fallbackWingMaterialColor, renderableWingParts } from './wing-scene.js';
 
-const container = document.getElementById('canvas-container');
 const status = document.getElementById('status');
 const statusText = document.getElementById('status-text');
 document.getElementById('mini-ui').remove();
+const lightMode = new URLSearchParams(location.search).get('dark') === '0';
+document.body.classList.toggle('light-mode', lightMode);
+status.classList.add('visible');
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
-container.append(renderer.domElement);
-const scene = new THREE.Scene();
-scene.background = new THREE.Color('#f2f0ea');
-const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 5000);
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
-scene.add(new THREE.HemisphereLight(0xffffff, 0x5d584f, 2.2));
-const key = new THREE.DirectionalLight(0xffffff, 1.5); key.position.set(60, 90, 40); scene.add(key);
+let interaction;
+function report(method, value) {
+  try { window.KKCViewerBridge?.[method](value); } catch (_) { /* Standalone browser. */ }
+}
+const engine = new CoreEngine({
+  isLightMode: lightMode,
+  onBeforeRender: () => interaction?.step() === true,
+  onViewerActiveChanged: active => report('setViewerActive', active),
+  onInteractionStateChanged: active => report('setViewerInteracting', active)
+});
+const { scene } = engine;
 const group = new THREE.Group(); scene.add(group);
-let bounds;
 let capInspection = false;
-let zoomVelocity = 0;
-const zoomDirection = new THREE.Vector3();
-const pointerDown = new THREE.Vector2();
-const pointerCurrent = new THREE.Vector2();
-
-function resize() {
-  const width = container.clientWidth || innerWidth, height = container.clientHeight || innerHeight;
-  renderer.setSize(width, height, false); camera.aspect = width / Math.max(height, 1); camera.updateProjectionMatrix();
+interaction = setupViewerControls(engine, () => [group]);
+function fit() { frameModel(engine, group); }
+function updateVisibility() {
+  if (document.hidden) engine.suspendRendering();
+  else engine.resumeRendering();
 }
-addEventListener('resize', resize); resize();
-
-renderer.domElement.addEventListener('pointerdown', event => {
-  if (event.pointerType === 'touch' && !event.isPrimary) return;
-  pointerDown.set(event.clientX, event.clientY);
+document.addEventListener('visibilitychange', updateVisibility);
+window.addEventListener('pagehide', () => engine.suspendRendering());
+window.addEventListener('pageshow', updateVisibility);
+window.addEventListener('beforeunload', () => {
+  interaction.dispose(); engine.suspendRendering();
 });
-renderer.domElement.addEventListener('pointerup', event => {
-  if (event.pointerType === 'touch' && !event.isPrimary) return;
-  pointerCurrent.set(event.clientX, event.clientY);
-  if (!isTapGesture(pointerDown, pointerCurrent)) return;
-  const rect = renderer.domElement.getBoundingClientRect();
-  const mouse = new THREE.Vector2(
-    ((event.clientX - rect.left) / rect.width) * 2 - 1,
-    -((event.clientY - rect.top) / rect.height) * 2 + 1
-  );
-  const raycaster = new THREE.Raycaster();
-  raycaster.setFromCamera(mouse, camera);
-  const hit = raycaster.intersectObjects(group.children, false)[0];
-  if (hit) {
-    controls.target.copy(hit.point);
-    controls.update();
-  }
-});
-
-const joystickHandle = document.getElementById('joystick-handle');
-const joystickContainer = document.getElementById('joystick-container');
-let draggingJoystick = false;
-
-function resetJoystick() {
-  zoomVelocity = 0;
-  if (joystickHandle && joystickContainer) {
-    joystickHandle.style.top = `${joystickContainer.offsetHeight / 2 - 18}px`;
-    joystickHandle.setAttribute('aria-valuenow', '50');
-  }
-}
-function updateJoystick(clientY) {
-  if (!draggingJoystick || !joystickContainer || !joystickHandle) return;
-  const rect = joystickContainer.getBoundingClientRect();
-  const relativeY = Math.max(0, Math.min(rect.height, clientY - rect.top));
-  zoomVelocity = zoomVelocityForJoystick(relativeY, rect.height);
-  joystickHandle.style.top = `${relativeY - 18}px`;
-  joystickHandle.setAttribute('aria-valuenow', Math.round(((rect.height - relativeY) / rect.height) * 100).toString());
-}
-if (joystickHandle) {
-  joystickHandle.onpointerdown = event => {
-    event.preventDefault(); event.stopPropagation();
-    draggingJoystick = true;
-    joystickHandle.setPointerCapture(event.pointerId);
-    updateJoystick(event.clientY);
-  };
-  joystickHandle.onpointermove = event => updateJoystick(event.clientY);
-  joystickHandle.onpointerup = event => {
-    draggingJoystick = false;
-    resetJoystick();
-    joystickHandle.releasePointerCapture(event.pointerId);
-  };
-  joystickHandle.addEventListener('keydown', event => {
-    const direction = event.key === 'ArrowUp' || event.key === 'ArrowRight' || event.key === '+' || event.key === '=' ? 0.5
-      : event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === '-' || event.key === '_' ? -0.5
-      : event.key === 'PageUp' ? 1 : event.key === 'PageDown' ? -1 : 0;
-    if (!direction) return;
-    event.preventDefault();
-    zoomVelocity = Math.sign(direction) * direction * direction * 0.15;
-  });
-  joystickHandle.addEventListener('keyup', resetJoystick);
-}
-
-function fit() {
-  if (!bounds) return;
-  const center = new THREE.Vector3((bounds.minX + bounds.maxX) / 2, (bounds.minY + bounds.maxY) / 2, (bounds.minZ + bounds.maxZ) / 2);
-  const size = boundsDimensions(bounds);
-  const radius = Math.max(size.width, size.height, size.depth) * 0.82;
-  controls.target.copy(center); camera.position.copy(center).add(new THREE.Vector3(radius, radius * .7, radius));
-  camera.near = Math.max(radius / 1000, .01); camera.far = radius * 100; camera.updateProjectionMatrix(); controls.update();
-}
+updateVisibility();
 
 function matrix(values) {
   const result = new THREE.Matrix4();
@@ -137,6 +68,7 @@ function addSolid(part, solid) {
         );
       }
       material.color.set('#ffffff'); material.map = texture; material.needsUpdate = true;
+      engine.requestRender();
     });
   }
   const mesh = new THREE.Mesh(geometry, material);
@@ -154,15 +86,16 @@ function setCapInspection(enabled) {
     mesh.material.depthWrite = !enabled;
     mesh.material.needsUpdate = true;
   });
+  engine.requestRender();
 }
 
 fetch('/api/wing').then(response => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`))).then(payload => {
-  bounds = payload.bounds;
   renderableWingParts(payload).forEach(addPart);
   fit(); status.remove();
 }).catch(error => {
   console.error('Wing payload failed to load', error);
-  statusText.textContent = 'Wing data is unavailable.';
+  status.classList.add('visible', 'error');
+  statusText.textContent = 'Wing data is unavailable. Go back and reopen the viewer.';
 });
 
 window.wingViewer = {
@@ -186,12 +119,4 @@ wingControls?.querySelectorAll('.wing-control').forEach(button => {
   });
 });
 
-function frame() {
-  if (zoomVelocity !== 0) {
-    camera.getWorldDirection(zoomDirection);
-    const distance = camera.position.distanceTo(controls.target);
-    if (!(zoomVelocity > 0 && distance < 0.5)) camera.position.addScaledVector(zoomDirection, zoomVelocity * controls.zoomSpeed);
-  }
-  controls.update(); renderer.render(scene, camera); requestAnimationFrame(frame);
-}
-frame();
+engine.start();

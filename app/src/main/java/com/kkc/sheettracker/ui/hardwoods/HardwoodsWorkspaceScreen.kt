@@ -76,6 +76,8 @@ import com.kkc.sheettracker.data.cvjob.CvJobDoorPreviews
 import com.kkc.sheettracker.data.cvjob.DOOR_ASSEMBLY_PROGRESS_DOC_TYPE
 import com.kkc.sheettracker.data.cvjob.loadCvJobDoorPreviews
 import com.kkc.sheettracker.data.cvjob.CvJobWings
+import com.kkc.sheettracker.data.cvjob.CvWingGeometry
+import com.kkc.sheettracker.viewer3d.WingViewerScreen
 import com.kkc.sheettracker.data.cvjob.loadCvJobWings
 import com.kkc.sheettracker.ui.components.rememberCvJobViewerSnapshot
 import com.kkc.sheettracker.ui.components.icons.SpecialtyDoorPanelsIcon
@@ -669,6 +671,7 @@ fun HardwoodsWorkspaceScreen(
     )
     val doorPreviews = viewerSnapshot?.doors
     val jobWings = viewerSnapshot?.wings ?: CvJobWings.Missing
+    var selectedWing by remember(jobFolderName, jobWings) { mutableStateOf<CvWingGeometry?>(null) }
     // The tab shows for any job with doors, so an older job_data.json explains itself there.
     val hasDoorAssembly = (doorPreviews as? CvJobDoorPreviews.Loaded)?.doors?.isNotEmpty() == true ||
         availableDocuments.any { it.doors.isNotEmpty() }
@@ -1651,6 +1654,7 @@ fun HardwoodsWorkspaceScreen(
                         previews = doorPreviews,
                         readyJobsBasePath = scanState.snapshot.basePath,
                         jobWings = jobWings,
+                        onViewWing = { selectedWing = it },
                         stateKey = jobFolderName,
                         bottomPadding = hardwoodsListBottomScrollPadding(),
                         modifier = Modifier.fillMaxSize(),
@@ -2138,6 +2142,15 @@ fun HardwoodsWorkspaceScreen(
                         )
                     }
                 }
+            }
+            selectedWing?.let { wing ->
+                WingViewerScreen(
+                    basePath = scanState.snapshot.basePath,
+                    jobFolderName = jobFolderName,
+                    wing = wing,
+                    doorsById = (doorPreviews as? CvJobDoorPreviews.Loaded)?.allDoors.orEmpty().associateBy { it.doorId },
+                    onDismiss = { selectedWing = null }
+                )
             }
         }
     }

@@ -223,10 +223,10 @@ fun Model3DPane(
     }
 }
 
-private class Viewer3DBridge(
+internal class Viewer3DBridge(
     private val paneId: String,
-    private val onRoomSelected: (String) -> Unit,
-    private val onRooms: (List<String>, String) -> Unit
+    private val onRoomSelected: (String) -> Unit = {},
+    private val onRooms: (List<String>, String) -> Unit = { _, _ -> }
 ) {
     /** The page hands over its room list (JSON array) and the room it opened on. */
     @JavascriptInterface

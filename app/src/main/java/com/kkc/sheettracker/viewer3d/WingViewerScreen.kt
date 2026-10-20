@@ -24,10 +24,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
@@ -38,6 +36,9 @@ import com.kkc.sheettracker.data.cvjob.CvWingGeometry
 import com.kkc.sheettracker.data.cvjob.DoorPreviewData
 import com.kkc.sheettracker.data.cvjob.loadCvMaterialTextures
 import com.kkc.sheettracker.logging.AppLog
+import com.kkc.sheettracker.data.ViewerInteractionSignal
+import com.kkc.sheettracker.ui.components.WebViewBlurGate
+import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -75,6 +76,7 @@ fun WingViewerScreen(
     }
     val session = sessionSlot.current
     Scaffold(
+        modifier = Modifier.fillMaxSize(),
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("3D · Cabinet ${wing.cabinet}") },
@@ -131,15 +133,24 @@ private suspend fun prepareWingScene(
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun WingModel3DPane(port: Int) {
-    var webView by remember(port) { mutableStateOf<WebView?>(null) }
-    DisposableEffect(port) { onDispose { webView?.destroy() } }
+    val isDarkTheme = LocalKKCIsDarkTheme.current
+    val darkParam = if (isDarkTheme) 1 else 0
+    val paneId = remember(port) { "wing_$port" }
+    DisposableEffect(port) {
+        val releaseBlurGate = WebViewBlurGate.shared.acquire()
+        onDispose {
+            ViewerInteractionSignal.setPaneInteracting(paneId, false)
+            ViewerInteractionSignal.setPaneActive(paneId, false)
+            releaseBlurGate()
+        }
+    }
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
             WebView(context).also { view ->
-                webView = view
                 view.settings.javaScriptEnabled = true
                 view.settings.domStorageEnabled = true
+                view.addJavascriptInterface(Viewer3DBridge(paneId), "KKCViewerBridge")
                 view.webViewClient = object : WebViewClient() {
                     override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                         super.onReceivedError(view, request, error)
@@ -163,7 +174,7 @@ private fun WingModel3DPane(port: Int) {
                         return super.onConsoleMessage(message)
                     }
                 }
-                view.loadUrl("http://127.0.0.1:$port/viewer.html?wing=1")
+                view.loadUrl("http://127.0.0.1:$port/viewer.html?wing=1&dark=$darkParam")
             }
         },
         onRelease = { it.destroy() }

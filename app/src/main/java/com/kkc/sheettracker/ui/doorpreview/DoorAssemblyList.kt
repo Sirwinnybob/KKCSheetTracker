@@ -81,7 +81,6 @@ import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import com.kkc.sheettracker.ui.theme.kkcZebraTint
-import com.kkc.sheettracker.viewer3d.WingViewerScreen
 import com.kkc.sheettracker.viewer3d.WingScenePayload
 import com.kkc.sheettracker.viewer3d.WingThumbnail
 import com.kkc.sheettracker.viewer3d.buildWingScenePayload
@@ -190,11 +189,12 @@ fun DoorAssemblyList(
     onToggleSkip: (doorId: String, skipped: Boolean) -> Unit = { _, _ -> },
     onViewInPdf: (cabinet: String) -> Unit = {},
     readyJobsBasePath: String = "",
-    jobWings: CvJobWings = CvJobWings.Missing
+    jobWings: CvJobWings = CvJobWings.Missing,
+    onViewWing: (CvWingGeometry) -> Unit = {}
 ) {
     DoorMaterialTextureProvider(readyJobsBasePath) {
         DoorAssemblyListContent(previews, stateKey, modifier, bottomPadding, rowProgress, query,
-            onToggleDone, onToggleSkip, onViewInPdf, readyJobsBasePath, jobWings)
+            onToggleDone, onToggleSkip, onViewInPdf, readyJobsBasePath, jobWings, onViewWing)
     }
 }
 
@@ -211,7 +211,8 @@ private fun DoorAssemblyListContent(
     onToggleSkip: (doorId: String, skipped: Boolean) -> Unit = { _, _ -> },
     onViewInPdf: (cabinet: String) -> Unit = {},
     readyJobsBasePath: String,
-    jobWings: CvJobWings
+    jobWings: CvJobWings,
+    onViewWing: (CvWingGeometry) -> Unit
 ) {
     var sort by rememberSaveable(stateKey) { mutableStateOf(DoorAssemblySort.CABINET) }
     var category by rememberSaveable(stateKey) { mutableStateOf(DoorAssemblyCategory.DOORS_DRAWERS) }
@@ -228,7 +229,6 @@ private fun DoorAssemblyListContent(
     }
     var expandedIds by rememberSaveable(stateKey) { mutableStateOf(listOf<String>()) }
     var fullscreenDoorId by rememberSaveable(stateKey) { mutableStateOf<String?>(null) }
-    var selectedWing by remember(stateKey, jobWings) { mutableStateOf<CvWingGeometry?>(null) }
     val doors = remember(allDoors, query, category) {
         filterDoorAssemblyDoors(filterDoorAssemblyCategory(allDoors, category), query)
     }
@@ -281,7 +281,8 @@ private fun DoorAssemblyListContent(
         ) {
             doors.forEach { door ->
                 val expanded = door.doorId in expandedIds
-                val wingScene = resolvePaneledEndWing(door, jobWings)?.let { buildWingScenePayload(it, doorsById) }
+                val wing = resolvePaneledEndWing(door, jobWings)
+                val wingScene = wing?.let { buildWingScenePayload(it, doorsById) }
                 stickyHeader(key = "door:${door.doorId}") {
                     val progress = rowProgress[DOOR_ASSEMBLY_PROGRESS_DOC_TYPE to door.doorId] ?: HardwoodRowProgress()
                     DoorAssemblyHeader(
@@ -295,7 +296,7 @@ private fun DoorAssemblyListContent(
                         onToggleSkip = { onToggleSkip(door.doorId, !progress.skipped) },
                         onViewInPdf = { onViewInPdf(door.cabinet) },
                         onPreview = { fullscreenDoorId = door.doorId },
-                        onViewWing = wingScene?.let { scene -> { selectedWing = resolvePaneledEndWing(door, jobWings) } },
+                        onViewWing = wing?.let { geometry -> { onViewWing(geometry) } },
                         wingScene = wingScene
                     )
                 }
@@ -312,15 +313,7 @@ private fun DoorAssemblyListContent(
             onSelectDoor = { id -> (allDoors.any { it.doorId == id }).also { if (it) fullscreenDoorId = id } },
             doorsById = doorsById)
     }
-    selectedWing?.let { wing ->
-        WingViewerScreen(
-            basePath = readyJobsBasePath,
-            jobFolderName = stateKey,
-            wing = wing,
-            doorsById = (previews as? CvJobDoorPreviews.Loaded)?.allDoors.orEmpty().associateBy { it.doorId },
-            onDismiss = { selectedWing = null }
-        )
-    }
+
 }
 
 @Composable
