@@ -158,6 +158,13 @@ import com.kkc.sheettracker.data.models.StatusCounts
 import com.kkc.sheettracker.ui.components.StatusChip
 import com.kkc.sheettracker.ui.standards.MoldingDetailOverlay
 import com.kkc.sheettracker.ui.standards.rememberSvgImageLoader
+import com.kkc.sheettracker.data.cvjob.CvJobDoorPreviews
+import com.kkc.sheettracker.data.cvjob.CvJobWings
+import com.kkc.sheettracker.data.cvjob.CvWingGeometry
+import com.kkc.sheettracker.data.cvjob.loadCvJobDoorPreviews
+import com.kkc.sheettracker.data.cvjob.loadCvJobWings
+import com.kkc.sheettracker.data.cvjob.resolveSpecialtyWings
+import com.kkc.sheettracker.viewer3d.WingViewerScreen
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -206,6 +213,14 @@ internal fun SpecialtyJobDetailScreen(
     var editingItem by remember(jobFolderName) { mutableStateOf<com.kkc.sheettracker.data.models.SpecialtyItem?>(null) }
     var deleteTargetItemId by remember(jobFolderName) { mutableStateOf<String?>(null) }
     var expandedSectionIds by remember(jobFolderName) { mutableStateOf<Set<String>?>(null) }
+    val jobWings by produceState<CvJobWings>(CvJobWings.Missing, scanState.snapshot.basePath, jobFolderName, scanState.snapshot.generation) {
+        value = withContext(Dispatchers.IO) { loadCvJobWings(scanState.snapshot.basePath, jobFolderName) }
+    }
+    val jobDoors by produceState<CvJobDoorPreviews>(CvJobDoorPreviews.NoJobData, scanState.snapshot.basePath, jobFolderName, scanState.snapshot.generation) {
+        value = withContext(Dispatchers.IO) { loadCvJobDoorPreviews(scanState.snapshot.basePath, jobFolderName) }
+    }
+    var selectedWing by remember(jobFolderName) { mutableStateOf<CvWingGeometry?>(null) }
+    var wingChoices by remember(jobFolderName) { mutableStateOf<List<CvWingGeometry>?>(null) }
     val loadedChecklist = rememberLoadedChecklist(
         specialtyStateStore = specialtyStateStore,
         jobFolderName = jobFolderName,
@@ -673,6 +688,14 @@ internal fun SpecialtyJobDetailScreen(
                                     inFlightUpdates = inFlightUpdates,
                                     stationOrder = stationOrder,
                                     onJumpToCabinet = onJumpToCabinet,
+                                    onOpenWing = { specialtyItem: com.kkc.sheettracker.data.models.SpecialtyItem ->
+                                        val matches = resolveSpecialtyWings(specialtyItem, jobWings)
+                                        when (matches.size) {
+                                            0 -> Unit
+                                            1 -> selectedWing = matches.single()
+                                            else -> wingChoices = matches
+                                        }
+                                    }.takeIf { resolveSpecialtyWings(resolved.item, jobWings).isNotEmpty() },
                                     basePath = scanState.snapshot.basePath,
                                     jobFolderName = jobFolderName,
                                     onEditItem = onEditItem,
@@ -754,6 +777,22 @@ internal fun SpecialtyJobDetailScreen(
                 onDismissRequest = { showPrintDialog = false }
             )
         }
+        wingChoices?.let { choices ->
+            AlertDialog(
+                onDismissRequest = { wingChoices = null },
+                title = { Text("Choose island wing") },
+                text = {
+                    Column {
+                        choices.forEach { wing ->
+                            TextButton(onClick = { selectedWing = wing; wingChoices = null }) {
+                                Text("Cabinet ${wing.cabinet}")
+                            }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { wingChoices = null }) { Text("Cancel") } }
+            )
+        }
         if (showArchiveActionSheet) {
             ArchiveLifecycleActionSheet(
                 folderName = jobFolderName,
@@ -796,6 +835,17 @@ internal fun SpecialtyJobDetailScreen(
             }
         }
     } // Box
+    selectedWing?.let { wing ->
+        val doorsById = (jobDoors as? CvJobDoorPreviews.Loaded)
+            ?.allDoors?.associateBy { it.doorId }.orEmpty()
+        WingViewerScreen(
+            basePath = scanState.snapshot.basePath,
+            jobFolderName = jobFolderName,
+            wing = wing,
+            doorsById = doorsById,
+            onDismiss = { selectedWing = null }
+        )
+    }
     } // SharedTransitionLayout
 }
 internal fun hasClosetRodCutList(index: HardwoodCutlistIndex?): Boolean {
@@ -958,6 +1008,7 @@ internal fun SpecialtyChecklistRow(
     stationOrder: List<SpecialtyStation> = SpecialtyStation.entries.toList(),
     onCheckedChange: (SpecialtyChecklistToggle, Boolean) -> Unit,
     onJumpToCabinet: ((String) -> Unit)? = null,
+    onOpenWing: ((com.kkc.sheettracker.data.models.SpecialtyItem) -> Unit)? = null,
     onPatchDims: ((String?, Double?, String?) -> Unit)? = null,
     basePath: String = "",
     jobFolderName: String = "",
@@ -1048,6 +1099,15 @@ internal fun SpecialtyChecklistRow(
                     modifier = Modifier.heightIn(min = 32.dp)
                 ) {
                     Text("View", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            if (onOpenWing != null) {
+                Button(
+                    onClick = { onOpenWing(item) },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.heightIn(min = 32.dp)
+                ) {
+                    Text("View 3D", style = MaterialTheme.typography.labelSmall)
                 }
             }
             if (item.category == com.kkc.sheettracker.data.models.SpecialtyItemCategory.TO_ORDER) {
