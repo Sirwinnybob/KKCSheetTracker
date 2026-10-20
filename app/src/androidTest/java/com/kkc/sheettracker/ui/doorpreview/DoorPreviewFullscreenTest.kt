@@ -112,6 +112,7 @@ class DoorPreviewFullscreenTest {
         compose.setContent {
             MaterialTheme { DoorAssemblyList(previews = previews, stateKey = "fullscreen-test") }
         }
+        compose.onNode(hasText("Paneled Ends and Misc.") and hasClickAction()).performClick()
     }
 
     @Test fun thumbnailTapOpensFullscreenAndCloseLeavesThePartsCollapsed() {

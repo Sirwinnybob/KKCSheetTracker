@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -66,6 +67,8 @@ import com.kkc.sheettracker.data.cvjob.DoorPart
 import com.kkc.sheettracker.data.cvjob.DoorPreviewData
 import com.kkc.sheettracker.data.cvjob.isDoorHardwareRole
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
+import com.kkc.sheettracker.ui.components.KKCPillOption
+import com.kkc.sheettracker.ui.components.KKCSlidingPillRow
 import com.kkc.sheettracker.ui.hardwoods.HardwoodsRowActions
 import com.kkc.sheettracker.ui.hardwoods.deriveHardwoodsRowState
 import java.util.Locale
@@ -201,6 +204,7 @@ private fun DoorAssemblyListContent(
     onViewInPdf: (cabinet: String) -> Unit = {}
 ) {
     var sort by rememberSaveable(stateKey) { mutableStateOf(DoorAssemblySort.CABINET) }
+    var category by rememberSaveable(stateKey) { mutableStateOf(DoorAssemblyCategory.DOORS_DRAWERS) }
     var sortMenuOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val allDoors = remember(previews, sort) { doorAssemblyDoors(previews, sort) }
@@ -213,33 +217,45 @@ private fun DoorAssemblyListContent(
     }
     var expandedIds by rememberSaveable(stateKey) { mutableStateOf(listOf<String>()) }
     var fullscreenDoorId by rememberSaveable(stateKey) { mutableStateOf<String?>(null) }
-    val doors = remember(allDoors, query) { filterDoorAssemblyDoors(allDoors, query) }
-    LaunchedEffect(sort, query) { listState.scrollToItem(0) }
+    val doors = remember(allDoors, query, category) {
+        filterDoorAssemblyDoors(filterDoorAssemblyCategory(allDoors, category), query)
+    }
+    LaunchedEffect(sort, query, category) { listState.scrollToItem(0) }
     Column(modifier = modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-            TextButton(onClick = { sortMenuOpen = true }) {
-                Text("Sort: ${sort.label}")
-                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-            }
-            DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
-                DoorAssemblySort.entries.forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text(option.label) },
-                        leadingIcon = if (sort == option) {
-                            { Icon(Icons.Default.Check, contentDescription = "Selected") }
-                        } else null,
-                        onClick = {
-                            sort = option
-                            sortMenuOpen = false
-                        }
-                    )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            KKCSlidingPillRow(options = DoorAssemblyCategory.entries.map { option ->
+                KKCPillOption(option.label, category == option, { category = option })
+            })
+            Box {
+                TextButton(onClick = { sortMenuOpen = true }) {
+                    Text("Sort: ${sort.label}")
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                }
+                DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
+                    DoorAssemblySort.entries.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option.label) },
+                            leadingIcon = if (sort == option) {
+                                { Icon(Icons.Default.Check, contentDescription = "Selected") }
+                            } else null,
+                            onClick = {
+                                sort = option
+                                sortMenuOpen = false
+                            }
+                        )
+                    }
                 }
             }
         }
         if (doors.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                 Text(
-                    "No doors match \"${query.trim()}\".",
+                    if (query.isBlank()) "No ${category.itemsLabel} in this job."
+                    else "No ${category.itemsLabel} match \"${query.trim()}\".",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )

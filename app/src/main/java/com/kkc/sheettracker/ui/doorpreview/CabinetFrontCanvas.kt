@@ -48,7 +48,8 @@ internal fun CabinetFrontCanvas(layout: CabinetFrontLayout, selectedDoorId: Stri
     selectedDrawing: DoorDrawing, selectedMember: CabinetFrameMember?, modifier: Modifier,
     padding: Dp = 24.dp, showHiddenLines: Boolean = true, colors: DoorPreviewColors = doorPreviewColors(),
     frontShape: (CabinetFront) -> FrontShape = { FrontShape.Rect(it.rect) },
-    doorDrawings: Map<String, DoorDrawing> = emptyMap(), selectedPart: DoorPartRegion? = null) {
+    doorDrawings: Map<String, DoorDrawing> = emptyMap(), selectedPart: DoorPartRegion? = null,
+    selectedHinge: DoorShape.HingeCup? = null) {
     val ghost = ghostColor(MaterialTheme.colorScheme.onSurfaceVariant)
     val selection = MaterialTheme.colorScheme.primary
     val translucentPaint = remember { Paint().apply { alpha = CABINET_OTHER_DOOR_ALPHA } }
@@ -84,6 +85,9 @@ internal fun CabinetFrontCanvas(layout: CabinetFrontLayout, selectedDoorId: Stri
         layout.fronts.singleOrNull { it.doorId == selectedDoorId }?.let { front ->
             if (frontShape(front) != FrontShape.Blank && !selectedDrawing.refused) {
                 drawPlacedDoor(fit, front, selectedDrawing, colors, showHiddenLines, textures)
+                selectedHinge?.let { cup ->
+                    drawHingeSelection(cabinetDoorFit(fit, front, selectedDrawing), cup, selection)
+                }
             }
         }
         selectedMember?.let { member ->

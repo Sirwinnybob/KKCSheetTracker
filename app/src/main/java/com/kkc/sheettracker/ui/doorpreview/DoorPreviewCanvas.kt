@@ -102,7 +102,8 @@ fun DoorPreviewCanvas(
     colors: DoorPreviewColors = doorPreviewColors(),
     selectedPartRect: DoorRect? = null,
     /** Corners of the selected piece when it is not a rectangle (an angled door); wins over the rect. */
-    selectedPartPolygon: List<DoorPoint>? = null
+    selectedPartPolygon: List<DoorPoint>? = null,
+    selectedHinge: DoorShape.HingeCup? = null
 ) {
     val selectionColor = MaterialTheme.colorScheme.primary
     val textures = rememberDoorTextureImages(listOf(drawing))
@@ -121,7 +122,18 @@ fun DoorPreviewCanvas(
             drawRect(selectionColor.copy(alpha = 0.14f), topLeft, selectedSize)
             drawRect(selectionColor, topLeft, selectedSize, style = Stroke(2.dp.toPx()))
         }
+        selectedHinge?.let { cup ->
+            val fit = DoorPreviewFit.of(drawing.width, drawing.height, size.width, size.height, padding.toPx())
+            drawHingeSelection(fit, cup, selectionColor)
+        }
     }
+}
+
+internal fun DrawScope.drawHingeSelection(fit: DoorPreviewFit, cup: DoorShape.HingeCup, color: Color) {
+    val center = Offset(fit.x(cup.center.x), fit.y(cup.center.y))
+    val radius = fit.length(cup.radius).coerceAtLeast(1.5.dp.toPx())
+    drawCircle(color.copy(alpha = 0.3f), radius, center)
+    drawCircle(color, radius + 4.dp.toPx(), center, style = Stroke(3.dp.toPx()))
 }
 
 private fun polygonPath(fit: DoorPreviewFit, points: List<DoorPoint>): Path = Path().apply {
