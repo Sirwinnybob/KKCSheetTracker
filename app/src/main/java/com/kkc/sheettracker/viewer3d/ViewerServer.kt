@@ -17,6 +17,19 @@ class ViewerServer(
     private val baseDir: File
 ) : NanoHTTPD("127.0.0.1", 0) {
 
+    @Volatile
+    private var wingPayload: String? = null
+    @Volatile
+    private var wingTextures: Map<String, File> = emptyMap()
+
+    /** Registers one already-resolved scene; the endpoint never reads arbitrary job files. */
+    fun installWingPayload(payload: String, textureFiles: List<File> = emptyList()) {
+        wingPayload = payload.takeIf { it.isNotBlank() }
+        wingTextures = textureFiles
+            .filter { it.isFile && it.name.matches(Regex("[a-f0-9]{64}\\.png")) }
+            .associateBy { it.name }
+    }
+
     data class StartResult(
         val port: Int,
         val error: String? = null
@@ -57,10 +70,24 @@ class ViewerServer(
     override fun serve(session: IHTTPSession): Response {
         val uri = session.uri
         return when {
+            uri == "/api/wing" -> serveWingPayload()
+            uri.startsWith("/wing-textures/") -> serveWingTexture(uri)
             uri.startsWith("/api/job/") -> serveJobApi(uri)
             uri.startsWith("/jobs/") -> serveGlbFile(uri)
             else -> serveAsset(uri)
         }
+    }
+
+    private fun serveWingPayload(): Response = wingPayload?.let { payload ->
+        newFixedLengthResponse(Response.Status.OK, "application/json", payload)
+    } ?: newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Wing not found")
+
+    /** Files are selected by the native host, not resolved from the request path. */
+    private fun serveWingTexture(uri: String): Response {
+        val name = uri.removePrefix("/wing-textures/")
+        val texture = wingTextures[name]
+            ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Texture not found")
+        return newFixedLengthResponse(Response.Status.OK, "image/png", FileInputStream(texture), texture.length())
     }
 
     private fun serveAsset(uri: String): Response {

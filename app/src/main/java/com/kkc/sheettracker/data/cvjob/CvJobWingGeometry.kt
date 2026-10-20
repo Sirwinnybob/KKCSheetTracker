@@ -3,6 +3,7 @@ package com.kkc.sheettracker.data.cvjob
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import java.io.File
 
 data class CvWingVector(val x: Double, val y: Double, val z: Double)
 data class CvWingSize(val width: Double, val height: Double, val depth: Double)
@@ -31,6 +32,18 @@ sealed interface CvJobWings {
     data class Loaded(val wings: List<CvWingGeometry>) : CvJobWings
     data object Missing : CvJobWings
     data class Unreadable(val reason: String) : CvJobWings
+}
+
+/** Reads only the exporter-owned canonical job payload and never writes to it. */
+fun loadCvJobWings(basePath: String, jobFolderName: String): CvJobWings {
+    if (basePath.isBlank() || jobFolderName.isBlank()) return CvJobWings.Missing
+    val file = cvJobDataFile(basePath, jobFolderName)
+    if (!file.isFile) return CvJobWings.Missing
+    return try {
+        parseCvJobWings(file.readText())
+    } catch (error: Exception) {
+        CvJobWings.Unreadable(error.message ?: error.javaClass.simpleName)
+    }
 }
 
 private val WING_CONTAINER_CODES = setOf("CAB", "Case", "Face2", "Face4", "DOR_OPEN")

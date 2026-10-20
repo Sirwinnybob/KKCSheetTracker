@@ -135,6 +135,28 @@ class ViewerServerTest {
         assertEquals(404, response.status.requestStatus) // "Room not found" — traversal rejected
     }
 
+    @Test
+    fun serveWingPayload_isAvailableOnlyAfterTheNativeHostRegistersOne() {
+        assertEquals(404, server.serve(sessionWithUri("/api/wing")).status.requestStatus)
+
+        server.installWingPayload("{\"cabinet\":\"3\"}")
+        val response = server.serve(sessionWithUri("/api/wing"))
+
+        assertEquals(200, response.status.requestStatus)
+        assertEquals("{\"cabinet\":\"3\"}", response.data.bufferedReader().readText())
+    }
+
+    @Test
+    fun serveWingTexture_exposesOnlyTheRegisteredPng() {
+        val textureName = "a".repeat(64) + ".png"
+        val texture = File(baseDir, textureName).apply { writeText("PNG") }
+        server.installWingPayload("{}", listOf(texture))
+
+        assertEquals(200, server.serve(sessionWithUri("/wing-textures/$textureName")).status.requestStatus)
+        assertEquals(404, server.serve(sessionWithUri("/wing-textures/../secret.txt")).status.requestStatus)
+        assertEquals(404, server.serve(sessionWithUri("/wing-textures/not-registered.png")).status.requestStatus)
+    }
+
     private fun sessionWithUri(uri: String): NanoHTTPD.IHTTPSession {
         val session = mock<NanoHTTPD.IHTTPSession>()
         whenever(session.uri).thenReturn(uri)

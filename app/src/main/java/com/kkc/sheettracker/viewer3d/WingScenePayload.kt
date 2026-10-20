@@ -3,6 +3,7 @@ package com.kkc.sheettracker.viewer3d
 import com.kkc.sheettracker.data.cvjob.CvWingGeometry
 import com.kkc.sheettracker.data.cvjob.CvWingNode
 import com.kkc.sheettracker.data.cvjob.CvWingNodeMaterial
+import com.kkc.sheettracker.data.cvjob.CvWingSize
 import com.kkc.sheettracker.data.cvjob.DoorPreviewData
 import com.kkc.sheettracker.data.cvjob.visibleNodes
 import kotlin.math.cos
@@ -40,10 +41,21 @@ data class WingScenePart(
     val code: String,
     val doorId: String?,
     val material: CvWingNodeMaterial?,
+    val size: CvWingSize,
     val transform: WingMatrix,
     val bounds: WingBounds,
+    val texture: WingSceneTexture? = null,
     /** Paneled DOR meshes retain their verified component source rather than borrowing a board material. */
     val usesDoorComponents: Boolean
+)
+
+/** Browser-safe texture metadata; [url] is a loopback session route, never a source path. */
+data class WingSceneTexture(
+    val url: String,
+    val worldWidthInches: Double?,
+    val worldHeightInches: Double?,
+    val tile: Boolean,
+    val grainAxis: String?
 )
 
 data class WingCapEngagement(val capPath: String, val boardPath: String, val depth: Double)
@@ -72,6 +84,7 @@ fun buildWingScenePayload(
             code = node.code,
             doorId = node.doorId,
             material = node.material,
+            size = node.size,
             transform = transform,
             bounds = transform.boundsFor(node),
             usesDoorComponents = node.doorId != null && doorsById.containsKey(node.doorId)

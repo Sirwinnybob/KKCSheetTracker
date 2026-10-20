@@ -111,6 +111,9 @@
         }
     }
     </script>
-    <script type="module" src="js/viewer.js"></script>
+    <script type="module">
+        const isWing = new URLSearchParams(location.search).get('wing') === '1';
+        import(isWing ? './js/wing-viewer.js' : './js/viewer.js');
+    </script>
 </body>
 </html>

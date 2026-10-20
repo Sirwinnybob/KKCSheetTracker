@@ -2,9 +2,12 @@ package com.kkc.sheettracker.data.cvjob
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 class CvJobWingGeometryTest {
+    @get:Rule val temporaryFolder = TemporaryFolder()
     private fun fixture(): String = requireNotNull(
         javaClass.classLoader?.getResource("cvjob/verified-wing-export.json")
     ).readText()
@@ -33,5 +36,17 @@ class CvJobWingGeometryTest {
         assertEquals(CvJobWings.Missing, parseCvJobWings("{\"schemaVersion\":2}"))
         assertTrue(parseCvJobWings("{not json") is CvJobWings.Unreadable)
         assertTrue(parseCvJobWings("{\"wingGeometry\":[{\"cabinet\":\"3\",\"nodes\":[]}]}") is CvJobWings.Unreadable)
+    }
+
+    @Test
+    fun loadWings_readsOnlyTheCanonicalPublishedJobDataFile() {
+        val job = temporaryFolder.newFolder("688 - TEST")
+        val metadata = java.io.File(job, ".metadata/cv_job").apply { mkdirs() }
+        java.io.File(metadata, "job_data.json").writeText(fixture())
+
+        val loaded = loadCvJobWings(temporaryFolder.root.absolutePath, job.name)
+
+        assertTrue(loaded is CvJobWings.Loaded)
+        assertEquals(CvJobWings.Missing, loadCvJobWings("", job.name))
     }
 }
