@@ -75,6 +75,8 @@ import com.kkc.sheettracker.data.ClockInState
 import com.kkc.sheettracker.data.cvjob.CvJobDoorPreviews
 import com.kkc.sheettracker.data.cvjob.DOOR_ASSEMBLY_PROGRESS_DOC_TYPE
 import com.kkc.sheettracker.data.cvjob.loadCvJobDoorPreviews
+import com.kkc.sheettracker.data.cvjob.CvJobWings
+import com.kkc.sheettracker.data.cvjob.loadCvJobWings
 import com.kkc.sheettracker.ui.components.icons.SpecialtyDoorPanelsIcon
 import com.kkc.sheettracker.ui.doorpreview.DoorAssemblyList
 import com.kkc.sheettracker.ui.doorpreview.doorAssemblyDoors
@@ -669,6 +671,16 @@ fun HardwoodsWorkspaceScreen(
     ) {
         value = withContext(Dispatchers.IO) {
             loadCvJobDoorPreviews(scanState.snapshot.basePath, jobFolderName)
+        }
+    }
+    val jobWings by produceState<CvJobWings>(
+        initialValue = CvJobWings.Missing,
+        scanState.snapshot.basePath,
+        jobFolderName,
+        scanState.snapshot.generation
+    ) {
+        value = withContext(Dispatchers.IO) {
+            loadCvJobWings(scanState.snapshot.basePath, jobFolderName)
         }
     }
     // The tab shows for any job with doors, so an older job_data.json explains itself there.
@@ -1652,6 +1664,7 @@ fun HardwoodsWorkspaceScreen(
                     DoorAssemblyList(
                         previews = doorPreviews,
                         readyJobsBasePath = scanState.snapshot.basePath,
+                        jobWings = jobWings,
                         stateKey = jobFolderName,
                         bottomPadding = hardwoodsListBottomScrollPadding(),
                         modifier = Modifier.fillMaxSize(),

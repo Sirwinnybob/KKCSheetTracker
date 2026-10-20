@@ -61,11 +61,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.cvjob.CvJobDoorPreviews
+import com.kkc.sheettracker.data.cvjob.CvJobWings
+import com.kkc.sheettracker.data.cvjob.CvWingGeometry
 import com.kkc.sheettracker.data.cvjob.DOOR_ASSEMBLY_PROGRESS_DOC_TYPE
 import com.kkc.sheettracker.data.cvjob.DoorHingeSide
 import com.kkc.sheettracker.data.cvjob.DoorPart
 import com.kkc.sheettracker.data.cvjob.DoorPreviewData
 import com.kkc.sheettracker.data.cvjob.isDoorHardwareRole
+import com.kkc.sheettracker.data.cvjob.resolvePaneledEndWing
 import com.kkc.sheettracker.data.models.HardwoodRowProgress
 import com.kkc.sheettracker.ui.components.KKCPillOption
 import com.kkc.sheettracker.ui.components.KKCSlidingPillRow
@@ -78,6 +81,7 @@ import com.kkc.sheettracker.ui.theme.KKCSpacing
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import com.kkc.sheettracker.ui.theme.kkcZebraTint
+import com.kkc.sheettracker.viewer3d.WingViewerScreen
 
 /*
  * Door Assembly tab of the Hardwoods workspace: one collapsible card per door (drawing thumbnail,
@@ -182,11 +186,12 @@ fun DoorAssemblyList(
     onToggleDone: (doorId: String, done: Boolean) -> Unit = { _, _ -> },
     onToggleSkip: (doorId: String, skipped: Boolean) -> Unit = { _, _ -> },
     onViewInPdf: (cabinet: String) -> Unit = {},
-    readyJobsBasePath: String = ""
+    readyJobsBasePath: String = "",
+    jobWings: CvJobWings = CvJobWings.Missing
 ) {
     DoorMaterialTextureProvider(readyJobsBasePath) {
         DoorAssemblyListContent(previews, stateKey, modifier, bottomPadding, rowProgress, query,
-            onToggleDone, onToggleSkip, onViewInPdf)
+            onToggleDone, onToggleSkip, onViewInPdf, readyJobsBasePath, jobWings)
     }
 }
 
@@ -201,7 +206,9 @@ private fun DoorAssemblyListContent(
     query: String = "",
     onToggleDone: (doorId: String, done: Boolean) -> Unit = { _, _ -> },
     onToggleSkip: (doorId: String, skipped: Boolean) -> Unit = { _, _ -> },
-    onViewInPdf: (cabinet: String) -> Unit = {}
+    onViewInPdf: (cabinet: String) -> Unit = {},
+    readyJobsBasePath: String,
+    jobWings: CvJobWings
 ) {
     var sort by rememberSaveable(stateKey) { mutableStateOf(DoorAssemblySort.CABINET) }
     var category by rememberSaveable(stateKey) { mutableStateOf(DoorAssemblyCategory.DOORS_DRAWERS) }
@@ -217,6 +224,7 @@ private fun DoorAssemblyListContent(
     }
     var expandedIds by rememberSaveable(stateKey) { mutableStateOf(listOf<String>()) }
     var fullscreenDoorId by rememberSaveable(stateKey) { mutableStateOf<String?>(null) }
+    var selectedWing by remember(stateKey) { mutableStateOf<CvWingGeometry?>(null) }
     val doors = remember(allDoors, query, category) {
         filterDoorAssemblyDoors(filterDoorAssemblyCategory(allDoors, category), query)
     }
@@ -281,7 +289,8 @@ private fun DoorAssemblyListContent(
                         onToggleDone = { done -> onToggleDone(door.doorId, done) },
                         onToggleSkip = { onToggleSkip(door.doorId, !progress.skipped) },
                         onViewInPdf = { onViewInPdf(door.cabinet) },
-                        onPreview = { fullscreenDoorId = door.doorId }
+                        onPreview = { fullscreenDoorId = door.doorId },
+                        onViewWing = resolvePaneledEndWing(door, jobWings)?.let { wing -> { selectedWing = wing } }
                     )
                 }
                 if (expanded) {
@@ -297,6 +306,15 @@ private fun DoorAssemblyListContent(
             onSelectDoor = { id -> (allDoors.any { it.doorId == id }).also { if (it) fullscreenDoorId = id } },
             doorsById = (previews as? CvJobDoorPreviews.Loaded)?.allDoors.orEmpty().associateBy { it.doorId })
     }
+    selectedWing?.let { wing ->
+        WingViewerScreen(
+            basePath = readyJobsBasePath,
+            jobFolderName = stateKey,
+            wing = wing,
+            doorsById = (previews as? CvJobDoorPreviews.Loaded)?.allDoors.orEmpty().associateBy { it.doorId },
+            onDismiss = { selectedWing = null }
+        )
+    }
 }
 
 @Composable
@@ -308,7 +326,8 @@ private fun DoorAssemblyHeader(
     onToggleDone: (Boolean) -> Unit,
     onToggleSkip: () -> Unit,
     onViewInPdf: () -> Unit,
-    onPreview: () -> Unit
+    onPreview: () -> Unit,
+    onViewWing: (() -> Unit)?
 ) {
     val done = progress.doneCount.coerceIn(0, 1) > 0
     val rowState = deriveHardwoodsRowState(progress, qty = 1, isMultiCab = false, skippedCabCount = 0, totalCabs = 1)
@@ -401,6 +420,9 @@ private fun DoorAssemblyHeader(
                     )
                 }
                 if (drawing.warnings.isNotEmpty()) DoorWarningBadge(drawing.warnings.size)
+                onViewWing?.let { openWing ->
+                    TextButton(onClick = openWing) { Text("3D") }
+                }
                 HardwoodsRowActions(
                     qty = 1, done = progress.doneCount.coerceIn(0, 1), rowState = rowState,
                     onIncrement = { onToggleDone(true) }, onDecrement = { onToggleDone(false) },
