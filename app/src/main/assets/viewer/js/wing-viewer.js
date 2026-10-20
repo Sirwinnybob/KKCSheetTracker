@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { renderableWingParts } from './wing-scene.js';
+import { isTapGesture, wingControlAction, zoomVelocityForJoystick } from './wing-interactions.js';
+import { addWingEdgeOverlay, applyWingTransform, boundsDimensions, doorFacePrimitives, fallbackWingMaterialColor, renderableWingParts } from './wing-scene.js';
 
 const container = document.getElementById('canvas-container');
 const status = document.getElementById('status');
 const statusText = document.getElementById('status-text');
 document.getElementById('mini-ui').remove();
-document.getElementById('joystick-container').remove();
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
@@ -22,6 +22,10 @@ const key = new THREE.DirectionalLight(0xffffff, 1.5); key.position.set(60, 90, 
 const group = new THREE.Group(); scene.add(group);
 let bounds;
 let capInspection = false;
+let zoomVelocity = 0;
+const zoomDirection = new THREE.Vector3();
+const pointerDown = new THREE.Vector2();
+const pointerCurrent = new THREE.Vector2();
 
 function resize() {
   const width = container.clientWidth || innerWidth, height = container.clientHeight || innerHeight;
@@ -29,10 +33,76 @@ function resize() {
 }
 addEventListener('resize', resize); resize();
 
+renderer.domElement.addEventListener('pointerdown', event => {
+  if (event.pointerType === 'touch' && !event.isPrimary) return;
+  pointerDown.set(event.clientX, event.clientY);
+});
+renderer.domElement.addEventListener('pointerup', event => {
+  if (event.pointerType === 'touch' && !event.isPrimary) return;
+  pointerCurrent.set(event.clientX, event.clientY);
+  if (!isTapGesture(pointerDown, pointerCurrent)) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  const mouse = new THREE.Vector2(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1
+  );
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(mouse, camera);
+  const hit = raycaster.intersectObjects(group.children, false)[0];
+  if (hit) {
+    controls.target.copy(hit.point);
+    controls.update();
+  }
+});
+
+const joystickHandle = document.getElementById('joystick-handle');
+const joystickContainer = document.getElementById('joystick-container');
+let draggingJoystick = false;
+
+function resetJoystick() {
+  zoomVelocity = 0;
+  if (joystickHandle && joystickContainer) {
+    joystickHandle.style.top = `${joystickContainer.offsetHeight / 2 - 18}px`;
+    joystickHandle.setAttribute('aria-valuenow', '50');
+  }
+}
+function updateJoystick(clientY) {
+  if (!draggingJoystick || !joystickContainer || !joystickHandle) return;
+  const rect = joystickContainer.getBoundingClientRect();
+  const relativeY = Math.max(0, Math.min(rect.height, clientY - rect.top));
+  zoomVelocity = zoomVelocityForJoystick(relativeY, rect.height);
+  joystickHandle.style.top = `${relativeY - 18}px`;
+  joystickHandle.setAttribute('aria-valuenow', Math.round(((rect.height - relativeY) / rect.height) * 100).toString());
+}
+if (joystickHandle) {
+  joystickHandle.onpointerdown = event => {
+    event.preventDefault(); event.stopPropagation();
+    draggingJoystick = true;
+    joystickHandle.setPointerCapture(event.pointerId);
+    updateJoystick(event.clientY);
+  };
+  joystickHandle.onpointermove = event => updateJoystick(event.clientY);
+  joystickHandle.onpointerup = event => {
+    draggingJoystick = false;
+    resetJoystick();
+    joystickHandle.releasePointerCapture(event.pointerId);
+  };
+  joystickHandle.addEventListener('keydown', event => {
+    const direction = event.key === 'ArrowUp' || event.key === 'ArrowRight' || event.key === '+' || event.key === '=' ? 0.5
+      : event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === '-' || event.key === '_' ? -0.5
+      : event.key === 'PageUp' ? 1 : event.key === 'PageDown' ? -1 : 0;
+    if (!direction) return;
+    event.preventDefault();
+    zoomVelocity = Math.sign(direction) * direction * direction * 0.15;
+  });
+  joystickHandle.addEventListener('keyup', resetJoystick);
+}
+
 function fit() {
   if (!bounds) return;
   const center = new THREE.Vector3((bounds.minX + bounds.maxX) / 2, (bounds.minY + bounds.maxY) / 2, (bounds.minZ + bounds.maxZ) / 2);
-  const radius = Math.max(bounds.width, bounds.height, bounds.depth) * 0.82;
+  const size = boundsDimensions(bounds);
+  const radius = Math.max(size.width, size.height, size.depth) * 0.82;
   controls.target.copy(center); camera.position.copy(center).add(new THREE.Vector3(radius, radius * .7, radius));
   camera.near = Math.max(radius / 1000, .01); camera.far = radius * 100; camera.updateProjectionMatrix(); controls.update();
 }
@@ -44,25 +114,35 @@ function matrix(values) {
   return result;
 }
 function addPart(part) {
-  const geometry = new THREE.BoxGeometry(part.size.width, part.size.height, part.size.depth);
-  geometry.translate(part.size.width / 2, part.size.height / 2, part.size.depth / 2);
-  const material = new THREE.MeshStandardMaterial({ color: part.doorId ? '#ddd5c6' : '#d6c0a0', roughness: .7, metalness: 0 });
+  const primitives = doorFacePrimitives(part);
+  const solids = primitives.length ? primitives : [{
+    x: 0, y: 0, width: part.size.width, height: part.size.height, kind: 'solid', depthFactor: 1
+  }];
+  solids.forEach(solid => addSolid(part, solid));
+}
+
+function addSolid(part, solid) {
+  const depth = part.size.depth * solid.depthFactor;
+  const geometry = new THREE.BoxGeometry(solid.width, solid.height, depth);
+  geometry.translate(solid.x + solid.width / 2, solid.y + solid.height / 2, depth / 2);
+  const material = new THREE.MeshStandardMaterial({ color: fallbackWingMaterialColor(part), roughness: .7, metalness: 0 });
   if (part.texture) {
     new THREE.TextureLoader().load(part.texture.url, texture => {
       texture.colorSpace = THREE.SRGBColorSpace;
       if (part.texture.tile && part.texture.worldWidthInches && part.texture.worldHeightInches) {
         texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
         texture.repeat.set(
-          Math.max(part.size.width / part.texture.worldWidthInches, 0.01),
-          Math.max(part.size.height / part.texture.worldHeightInches, 0.01)
+          Math.max(solid.width / part.texture.worldWidthInches, 0.01),
+          Math.max(solid.height / part.texture.worldHeightInches, 0.01)
         );
       }
       material.color.set('#ffffff'); material.map = texture; material.needsUpdate = true;
     });
   }
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.matrixAutoUpdate = false; mesh.matrix.copy(matrix(part.transform.values));
-  mesh.userData = part; group.add(mesh);
+  applyWingTransform(mesh, part.transform.values, matrix);
+  addWingEdgeOverlay(mesh, THREE);
+  mesh.userData = { ...part, doorFaceKind: solid.kind }; group.add(mesh);
 }
 
 function setCapInspection(enabled) {
@@ -76,11 +156,14 @@ function setCapInspection(enabled) {
   });
 }
 
-fetch('/api/wing').then(response => response.ok ? response.json() : Promise.reject()).then(payload => {
+fetch('/api/wing').then(response => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`))).then(payload => {
   bounds = payload.bounds;
   renderableWingParts(payload).forEach(addPart);
   fit(); status.remove();
-}).catch(() => { statusText.textContent = 'Wing data is unavailable.'; });
+}).catch(error => {
+  console.error('Wing payload failed to load', error);
+  statusText.textContent = 'Wing data is unavailable.';
+});
 
 window.wingViewer = {
   fit,
@@ -88,5 +171,27 @@ window.wingViewer = {
   toggleCapInspection: () => setCapInspection(!capInspection)
 };
 
-function frame() { controls.update(); renderer.render(scene, camera); requestAnimationFrame(frame); }
+const wingControls = document.getElementById('wing-controls');
+wingControls?.removeAttribute('hidden');
+wingControls?.querySelectorAll('.wing-control').forEach(button => {
+  button.addEventListener('click', () => {
+    const action = wingControlAction(button.id);
+    if (action === 'toggleCapInspection') {
+      window.wingViewer.toggleCapInspection();
+      button.setAttribute('aria-pressed', String(capInspection));
+      button.textContent = capInspection ? 'Caps on' : 'Caps';
+    } else if (action) {
+      window.wingViewer[action]();
+    }
+  });
+});
+
+function frame() {
+  if (zoomVelocity !== 0) {
+    camera.getWorldDirection(zoomDirection);
+    const distance = camera.position.distanceTo(controls.target);
+    if (!(zoomVelocity > 0 && distance < 0.5)) camera.position.addScaledVector(zoomDirection, zoomVelocity * controls.zoomSpeed);
+  }
+  controls.update(); renderer.render(scene, camera); requestAnimationFrame(frame);
+}
 frame();

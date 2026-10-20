@@ -45,9 +45,14 @@ data class WingScenePart(
     val transform: WingMatrix,
     val bounds: WingBounds,
     val texture: WingSceneTexture? = null,
+    /** Finished face partition for a paneled door; absent doors retain their manufactured slab. */
+    val doorFace: WingDoorFace? = null,
     /** Paneled DOR meshes retain their verified component source rather than borrowing a board material. */
     val usesDoorComponents: Boolean
 )
+
+data class WingDoorFaceRect(val x: Double, val y: Double, val width: Double, val height: Double)
+data class WingDoorFace(val members: List<WingDoorFaceRect>, val panels: List<WingDoorFaceRect>)
 
 /** Browser-safe texture metadata; [url] is a loopback session route, never a source path. */
 data class WingSceneTexture(
@@ -79,6 +84,7 @@ fun buildWingScenePayload(
     }
     val parts = wing.visibleNodes().map { node ->
         val transform = requireNotNull(transforms[node.path])
+        val door = node.doorId?.let(doorsById::get)
         WingScenePart(
             path = node.path,
             code = node.code,
@@ -87,7 +93,8 @@ fun buildWingScenePayload(
             size = node.size,
             transform = transform,
             bounds = transform.boundsFor(node),
-            usesDoorComponents = node.doorId != null && doorsById.containsKey(node.doorId)
+            doorFace = door?.toWingDoorFace(),
+            usesDoorComponents = door != null
         )
     }
     val allBounds = parts.map { it.bounds }.reduce(::union)
@@ -98,6 +105,32 @@ fun buildWingScenePayload(
         capEngagements = capEngagements(parts)
     )
 }
+
+/** Uses the query tool's validated finished-face rectangles; never invents panel proportions. */
+private fun DoorPreviewData.toWingDoorFace(): WingDoorFace? {
+    geometry.layout?.let { layout ->
+        return WingDoorFace(
+            members = layout.members.map { it.rect.toWingDoorFaceRect() },
+            panels = layout.panels.mapNotNull { it.panel.opening?.toWingDoorFaceRect() }
+        )
+    }
+    val frame = geometry.frame ?: return null
+    val opening = geometry.panel?.opening ?: return null
+    val innerWidth = geometry.width - frame.leftStile - frame.rightStile
+    if (innerWidth <= 0.0 || frame.topRail <= 0.0 || frame.bottomRail <= 0.0) return null
+    return WingDoorFace(
+        members = listOf(
+            WingDoorFaceRect(0.0, 0.0, frame.leftStile, geometry.height),
+            WingDoorFaceRect(geometry.width - frame.rightStile, 0.0, frame.rightStile, geometry.height),
+            WingDoorFaceRect(frame.leftStile, 0.0, innerWidth, frame.bottomRail),
+            WingDoorFaceRect(frame.leftStile, geometry.height - frame.topRail, innerWidth, frame.topRail)
+        ),
+        panels = listOf(opening.toWingDoorFaceRect())
+    )
+}
+
+private fun com.kkc.sheettracker.data.cvjob.DoorRect.toWingDoorFaceRect() =
+    WingDoorFaceRect(x, y, width, height)
 
 private fun capEngagements(parts: List<WingScenePart>): List<WingCapEngagement> =
     parts.filter { it.code == "FILLER" }.flatMap { cap ->

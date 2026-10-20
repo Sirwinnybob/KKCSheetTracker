@@ -94,14 +94,21 @@
         <span id="status-text">Initializing 3D...</span>
     </div>
 
-    <!-- Zoom Joystick -->
+    <div id="canvas-container" tabindex="-1"></div>
+
+    <!-- These overlays must follow the hardware-composited WebGL canvas in DOM order. Android
+         WebView otherwise paints the canvas above them once the first model frame is rendered. -->
     <div id="joystick-container">
         <div id="joystick-track"></div>
         <div id="joystick-handle" role="slider" aria-label="Zoom joystick handle" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" tabindex="0"></div>
         <div class="joystick-label">Zoom</div>
     </div>
 
-    <div id="canvas-container" tabindex="-1"></div>
+    <div id="wing-controls" hidden>
+        <button id="wing-caps-btn" class="wing-control" type="button" aria-label="Toggle cap inspection" aria-pressed="false" title="Caps">Caps</button>
+        <button id="wing-reset-btn" class="wing-control" type="button" aria-label="Reset view" title="Reset view">↺</button>
+        <button id="wing-frame-btn" class="wing-control" type="button" aria-label="Frame model" title="Frame model">⌗</button>
+    </div>
 
     <script type="importmap">
     {

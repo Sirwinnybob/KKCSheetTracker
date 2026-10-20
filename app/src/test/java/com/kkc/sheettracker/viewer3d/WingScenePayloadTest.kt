@@ -20,6 +20,10 @@ class WingScenePayloadTest {
         assertEquals(5, payload.parts.size)
         assertTrue(payload.parts.none { it.code in setOf("TS", "DE", "CAB", "Case", "Face2", "Face4", "DOR_OPEN") })
         assertEquals("53738", payload.parts.single { it.code == "DOR" }.doorId)
+        val doorFace = requireNotNull(payload.parts.single { it.code == "DOR" }.doorFace)
+        assertEquals(4, doorFace.members.size)
+        assertEquals(1, doorFace.panels.size)
+        assertEquals(30.375, doorFace.panels.single().width, 0.001)
         assertTrue(payload.parts.filter { it.code != "DOR" }.all { it.material?.materialId?.isNotBlank() == true })
         assertEquals(35.25, payload.bounds.height, 0.001)
     }

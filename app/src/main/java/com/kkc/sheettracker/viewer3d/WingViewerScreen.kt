@@ -1,32 +1,34 @@
 package com.kkc.sheettracker.viewer3d
 
 import android.annotation.SuppressLint
+import android.util.Log
+import android.webkit.ConsoleMessage
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -35,6 +37,7 @@ import com.kkc.sheettracker.data.cvjob.CV_MATERIAL_TEXTURES_RELATIVE_PATH
 import com.kkc.sheettracker.data.cvjob.CvWingGeometry
 import com.kkc.sheettracker.data.cvjob.DoorPreviewData
 import com.kkc.sheettracker.data.cvjob.loadCvMaterialTextures
+import com.kkc.sheettracker.logging.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -55,16 +58,22 @@ fun WingViewerScreen(
             prepareWingScene(context.cacheDir, basePath, jobFolderName, wing, doorsById)
         }
     }
-    val session by produceState<WingServerSession?>(null, basePath, scene) {
-        val prepared = scene ?: return@produceState
-        value = withContext(Dispatchers.IO) {
+    val sessionSlot = remember {
+        WingServerSessionSlot<WingServerSession> { it.server.stop() }
+    }
+    DisposableEffect(Unit) { onDispose { sessionSlot.dispose() } }
+    LaunchedEffect(scene, basePath) {
+        sessionSlot.dispose()
+        val prepared = scene ?: return@LaunchedEffect
+        val next = withContext(Dispatchers.IO) {
             ViewerServer(context, File(basePath)).let { server ->
                 server.installWingPayload(Gson().toJson(prepared.payload), prepared.textureFiles)
                 WingServerSession(server, server.startWithRetry())
             }
         }
+        sessionSlot.replace(next)
     }
-    DisposableEffect(session) { onDispose { session?.server?.stop() } }
+    val session = sessionSlot.current
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -78,16 +87,7 @@ fun WingViewerScreen(
             val result = session?.result
             if (result?.port ?: 0 > 0) {
                 val port = requireNotNull(result).port
-                var webView by remember(port) { mutableStateOf<WebView?>(null) }
-                WingModel3DPane(port, onCreated = { webView = it })
-                Column(
-                    modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Button(onClick = { webView?.evaluateJavascript("window.wingViewer?.fit()", null) }) { Text("Fit") }
-                    Button(onClick = { webView?.evaluateJavascript("window.wingViewer?.reset()", null) }) { Text("Reset") }
-                    Button(onClick = { webView?.evaluateJavascript("window.wingViewer?.toggleCapInspection()", null) }) { Text("Caps") }
-                }
+                WingModel3DPane(port)
             } else {
                 Text(result?.error ?: "Starting 3D viewer…")
             }
@@ -98,6 +98,10 @@ fun WingViewerScreen(
 private data class WingServerSession(val server: ViewerServer, val result: ViewerServer.StartResult)
 private data class WingPreparedScene(val payload: WingScenePayload, val textureFiles: List<File>)
 
+/** Material images are one shared cache at the Ready Jobs root, never per individual job. */
+internal fun wingMaterialTextureRoot(basePath: String): File =
+    File(basePath, CV_MATERIAL_TEXTURES_RELATIVE_PATH)
+
 private suspend fun prepareWingScene(
     cacheDir: File,
     basePath: String,
@@ -105,7 +109,7 @@ private suspend fun prepareWingScene(
     wing: CvWingGeometry,
     doorsById: Map<String, DoorPreviewData>
 ): WingPreparedScene {
-    val library = loadCvMaterialTextures(File(basePath, "$jobFolderName/$CV_MATERIAL_TEXTURES_RELATIVE_PATH"))
+    val library = loadCvMaterialTextures(wingMaterialTextureRoot(basePath))
     val textureDir = File(cacheDir, "wing-textures")
     val source = buildWingScenePayload(wing, doorsById)
     val files = linkedSetOf<File>()
@@ -126,7 +130,7 @@ private suspend fun prepareWingScene(
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun WingModel3DPane(port: Int, onCreated: (WebView) -> Unit) {
+private fun WingModel3DPane(port: Int) {
     var webView by remember(port) { mutableStateOf<WebView?>(null) }
     DisposableEffect(port) { onDispose { webView?.destroy() } }
     AndroidView(
@@ -134,11 +138,31 @@ private fun WingModel3DPane(port: Int, onCreated: (WebView) -> Unit) {
         factory = { context ->
             WebView(context).also { view ->
                 webView = view
-                onCreated(view)
                 view.settings.javaScriptEnabled = true
                 view.settings.domStorageEnabled = true
-                view.webViewClient = WebViewClient()
-                view.webChromeClient = WebChromeClient()
+                view.webViewClient = object : WebViewClient() {
+                    override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                        super.onReceivedError(view, request, error)
+                        if (request.isForMainFrame) {
+                            AppLog.e("WingViewer", "WebView failed to load ${request.url}: ${error.errorCode} ${error.description}")
+                        }
+                    }
+
+                    override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
+                        super.onReceivedHttpError(view, request, errorResponse)
+                        if (request.isForMainFrame || errorResponse.statusCode >= 400) {
+                            AppLog.e("WingViewer", "WebView HTTP ${errorResponse.statusCode} for ${request.url}")
+                        }
+                    }
+                }
+                view.webChromeClient = object : WebChromeClient() {
+                    override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                        if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                            Log.e("WingViewer", "JS ${message.sourceId()}:${message.lineNumber()} ${message.message()}")
+                        }
+                        return super.onConsoleMessage(message)
+                    }
+                }
                 view.loadUrl("http://127.0.0.1:$port/viewer.html?wing=1")
             }
         },

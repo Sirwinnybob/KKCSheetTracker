@@ -6,6 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
 
 class WingTextureBridgeTest {
     @get:Rule val tmp = TemporaryFolder()
@@ -26,5 +27,13 @@ class WingTextureBridgeTest {
     @Test
     fun descriptor_returnsNull_whenNoVerifiedTextureExists() {
         assertNull(WingTextureBridge.descriptor(parseCvMaterialTextures("{}", tmp.root), "42", "Oak"))
+    }
+
+    @Test
+    fun materialTextureRoot_isSharedByAllJobs() {
+        assertEquals(
+            File(tmp.root, ".metadata/material_textures").canonicalFile,
+            wingMaterialTextureRoot(tmp.root.absolutePath).canonicalFile
+        )
     }
 }
