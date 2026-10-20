@@ -21,6 +21,7 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0x5d584f, 2.2));
 const key = new THREE.DirectionalLight(0xffffff, 1.5); key.position.set(60, 90, 40); scene.add(key);
 const group = new THREE.Group(); scene.add(group);
 let bounds;
+let capInspection = false;
 
 function resize() {
   const width = container.clientWidth || innerWidth, height = container.clientHeight || innerHeight;
@@ -64,11 +65,28 @@ function addPart(part) {
   mesh.userData = part; group.add(mesh);
 }
 
+function setCapInspection(enabled) {
+  capInspection = enabled;
+  group.children.forEach(mesh => {
+    if (mesh.userData?.code !== 'FILLER') return;
+    mesh.material.transparent = enabled;
+    mesh.material.opacity = enabled ? .24 : 1;
+    mesh.material.depthWrite = !enabled;
+    mesh.material.needsUpdate = true;
+  });
+}
+
 fetch('/api/wing').then(response => response.ok ? response.json() : Promise.reject()).then(payload => {
   bounds = payload.bounds;
   renderableWingParts(payload).forEach(addPart);
   fit(); status.remove();
 }).catch(() => { statusText.textContent = 'Wing data is unavailable.'; });
+
+window.wingViewer = {
+  fit,
+  reset: fit,
+  toggleCapInspection: () => setCapInspection(!capInspection)
+};
 
 function frame() { controls.update(); renderer.render(scene, camera); requestAnimationFrame(frame); }
 frame();
