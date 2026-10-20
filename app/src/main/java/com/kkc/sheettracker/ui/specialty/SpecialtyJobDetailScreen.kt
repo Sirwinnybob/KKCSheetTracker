@@ -165,6 +165,7 @@ import com.kkc.sheettracker.data.cvjob.loadCvJobDoorPreviews
 import com.kkc.sheettracker.data.cvjob.loadCvJobWings
 import com.kkc.sheettracker.data.cvjob.resolveSpecialtyWings
 import com.kkc.sheettracker.viewer3d.WingViewerScreen
+import com.kkc.sheettracker.ui.components.rememberCvJobViewerSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -213,14 +214,17 @@ internal fun SpecialtyJobDetailScreen(
     var editingItem by remember(jobFolderName) { mutableStateOf<com.kkc.sheettracker.data.models.SpecialtyItem?>(null) }
     var deleteTargetItemId by remember(jobFolderName) { mutableStateOf<String?>(null) }
     var expandedSectionIds by remember(jobFolderName) { mutableStateOf<Set<String>?>(null) }
-    val jobWings by produceState<CvJobWings>(CvJobWings.Missing, scanState.snapshot.basePath, jobFolderName, scanState.snapshot.generation) {
-        value = withContext(Dispatchers.IO) { loadCvJobWings(scanState.snapshot.basePath, jobFolderName) }
-    }
-    val jobDoors by produceState<CvJobDoorPreviews>(CvJobDoorPreviews.NoJobData, scanState.snapshot.basePath, jobFolderName, scanState.snapshot.generation) {
-        value = withContext(Dispatchers.IO) { loadCvJobDoorPreviews(scanState.snapshot.basePath, jobFolderName) }
-    }
+    val viewerSnapshot by rememberCvJobViewerSnapshot(
+        scanState.snapshot.basePath, jobFolderName, scanState.snapshot.generation
+    )
+    val jobWings = viewerSnapshot?.wings ?: CvJobWings.Missing
+    val jobDoors = viewerSnapshot?.doors ?: CvJobDoorPreviews.NoJobData
     var selectedWing by remember(jobFolderName) { mutableStateOf<CvWingGeometry?>(null) }
     var wingChoices by remember(jobFolderName) { mutableStateOf<List<CvWingGeometry>?>(null) }
+    LaunchedEffect(scanState.snapshot.generation, scanState.snapshot.basePath, jobFolderName) {
+        selectedWing = null
+        wingChoices = null
+    }
     val loadedChecklist = rememberLoadedChecklist(
         specialtyStateStore = specialtyStateStore,
         jobFolderName = jobFolderName,

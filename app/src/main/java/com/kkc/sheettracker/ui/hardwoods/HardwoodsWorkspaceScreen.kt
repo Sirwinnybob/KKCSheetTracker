@@ -77,6 +77,7 @@ import com.kkc.sheettracker.data.cvjob.DOOR_ASSEMBLY_PROGRESS_DOC_TYPE
 import com.kkc.sheettracker.data.cvjob.loadCvJobDoorPreviews
 import com.kkc.sheettracker.data.cvjob.CvJobWings
 import com.kkc.sheettracker.data.cvjob.loadCvJobWings
+import com.kkc.sheettracker.ui.components.rememberCvJobViewerSnapshot
 import com.kkc.sheettracker.ui.components.icons.SpecialtyDoorPanelsIcon
 import com.kkc.sheettracker.ui.doorpreview.DoorAssemblyList
 import com.kkc.sheettracker.ui.doorpreview.doorAssemblyDoors
@@ -663,26 +664,11 @@ fun HardwoodsWorkspaceScreen(
         rawCutlistIndexJson = json
     }
     // Door drawings come from CV Cutlist Query's job_data.json; read-only, re-read on each rescan.
-    val doorPreviews by produceState<CvJobDoorPreviews?>(
-        initialValue = null,
-        scanState.snapshot.basePath,
-        jobFolderName,
-        scanState.snapshot.generation
-    ) {
-        value = withContext(Dispatchers.IO) {
-            loadCvJobDoorPreviews(scanState.snapshot.basePath, jobFolderName)
-        }
-    }
-    val jobWings by produceState<CvJobWings>(
-        initialValue = CvJobWings.Missing,
-        scanState.snapshot.basePath,
-        jobFolderName,
-        scanState.snapshot.generation
-    ) {
-        value = withContext(Dispatchers.IO) {
-            loadCvJobWings(scanState.snapshot.basePath, jobFolderName)
-        }
-    }
+    val viewerSnapshot by rememberCvJobViewerSnapshot(
+        scanState.snapshot.basePath, jobFolderName, scanState.snapshot.generation
+    )
+    val doorPreviews = viewerSnapshot?.doors
+    val jobWings = viewerSnapshot?.wings ?: CvJobWings.Missing
     // The tab shows for any job with doors, so an older job_data.json explains itself there.
     val hasDoorAssembly = (doorPreviews as? CvJobDoorPreviews.Loaded)?.doors?.isNotEmpty() == true ||
         availableDocuments.any { it.doors.isNotEmpty() }

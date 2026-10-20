@@ -82,6 +82,9 @@ import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import com.kkc.sheettracker.ui.theme.kkcZebraTint
 import com.kkc.sheettracker.viewer3d.WingViewerScreen
+import com.kkc.sheettracker.viewer3d.WingScenePayload
+import com.kkc.sheettracker.viewer3d.WingThumbnail
+import com.kkc.sheettracker.viewer3d.buildWingScenePayload
 
 /*
  * Door Assembly tab of the Hardwoods workspace: one collapsible card per door (drawing thumbnail,
@@ -215,6 +218,7 @@ private fun DoorAssemblyListContent(
     var sortMenuOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val allDoors = remember(previews, sort) { doorAssemblyDoors(previews, sort) }
+    val doorsById = remember(previews) { (previews as? CvJobDoorPreviews.Loaded)?.allDoors.orEmpty().associateBy { it.doorId } }
     val message = doorPreviewStatusMessage(previews, allDoors.size)
     if (message != null) {
         Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -224,7 +228,7 @@ private fun DoorAssemblyListContent(
     }
     var expandedIds by rememberSaveable(stateKey) { mutableStateOf(listOf<String>()) }
     var fullscreenDoorId by rememberSaveable(stateKey) { mutableStateOf<String?>(null) }
-    var selectedWing by remember(stateKey) { mutableStateOf<CvWingGeometry?>(null) }
+    var selectedWing by remember(stateKey, jobWings) { mutableStateOf<CvWingGeometry?>(null) }
     val doors = remember(allDoors, query, category) {
         filterDoorAssemblyDoors(filterDoorAssemblyCategory(allDoors, category), query)
     }
@@ -277,6 +281,7 @@ private fun DoorAssemblyListContent(
         ) {
             doors.forEach { door ->
                 val expanded = door.doorId in expandedIds
+                val wingScene = resolvePaneledEndWing(door, jobWings)?.let { buildWingScenePayload(it, doorsById) }
                 stickyHeader(key = "door:${door.doorId}") {
                     val progress = rowProgress[DOOR_ASSEMBLY_PROGRESS_DOC_TYPE to door.doorId] ?: HardwoodRowProgress()
                     DoorAssemblyHeader(
@@ -290,7 +295,8 @@ private fun DoorAssemblyListContent(
                         onToggleSkip = { onToggleSkip(door.doorId, !progress.skipped) },
                         onViewInPdf = { onViewInPdf(door.cabinet) },
                         onPreview = { fullscreenDoorId = door.doorId },
-                        onViewWing = resolvePaneledEndWing(door, jobWings)?.let { wing -> { selectedWing = wing } }
+                        onViewWing = wingScene?.let { scene -> { selectedWing = resolvePaneledEndWing(door, jobWings) } },
+                        wingScene = wingScene
                     )
                 }
                 if (expanded) {
@@ -304,7 +310,7 @@ private fun DoorAssemblyListContent(
     allDoors.firstOrNull { it.doorId == fullscreenDoorId }?.let { door ->
         DoorPreviewFullscreen(door = door, onDismiss = { fullscreenDoorId = null },
             onSelectDoor = { id -> (allDoors.any { it.doorId == id }).also { if (it) fullscreenDoorId = id } },
-            doorsById = (previews as? CvJobDoorPreviews.Loaded)?.allDoors.orEmpty().associateBy { it.doorId })
+            doorsById = doorsById)
     }
     selectedWing?.let { wing ->
         WingViewerScreen(
@@ -327,7 +333,8 @@ private fun DoorAssemblyHeader(
     onToggleSkip: () -> Unit,
     onViewInPdf: () -> Unit,
     onPreview: () -> Unit,
-    onViewWing: (() -> Unit)?
+    onViewWing: (() -> Unit)?,
+    wingScene: WingScenePayload?
 ) {
     val done = progress.doneCount.coerceIn(0, 1) > 0
     val rowState = deriveHardwoodsRowState(progress, qty = 1, isMultiCab = false, skippedCabCount = 0, totalCabs = 1)
@@ -383,7 +390,9 @@ private fun DoorAssemblyHeader(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                DoorPreviewCanvas(
+                wingScene?.let { scene ->
+                    WingThumbnail(scene, onOpen = { onViewWing?.invoke() }, modifier = Modifier.size(48.dp))
+                } ?: DoorPreviewCanvas(
                     drawing = drawing,
                     modifier = Modifier
                         .size(48.dp)

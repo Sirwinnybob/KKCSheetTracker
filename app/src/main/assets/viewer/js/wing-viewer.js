@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { renderableWingParts } from './wing-scene.js';
 
 const container = document.getElementById('canvas-container');
 const status = document.getElementById('status');
@@ -65,7 +66,7 @@ function addPart(part) {
 
 fetch('/api/wing').then(response => response.ok ? response.json() : Promise.reject()).then(payload => {
   bounds = payload.bounds;
-  payload.parts.forEach(addPart);
+  renderableWingParts(payload).forEach(addPart);
   fit(); status.remove();
 }).catch(() => { statusText.textContent = 'Wing data is unavailable.'; });
 
