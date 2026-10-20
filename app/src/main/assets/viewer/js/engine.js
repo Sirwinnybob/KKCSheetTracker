@@ -19,6 +19,7 @@ export class CoreEngine {
             lightIntensity: 1.0,
             gloss: 0.10,
             colorTemp: 0.5,
+            msaaSamples: 0,
             onBeforeRender: null,
             onInteractionStateChanged: null,
             onViewerActiveChanged: null
@@ -109,7 +110,16 @@ export class CoreEngine {
     }
 
     _setupPostProcessing(dpr) {
-        this.composer = new EffectComposer(this.renderer);
+        // Canvas antialias does not reach the composer's offscreen targets, so MSAA must be requested on the target itself.
+        let composerTarget;
+        if (this.config.msaaSamples > 0) {
+            composerTarget = new THREE.WebGLRenderTarget(
+                window.innerWidth * dpr,
+                window.innerHeight * dpr,
+                { type: THREE.HalfFloatType, samples: this.config.msaaSamples }
+            );
+        }
+        this.composer = new EffectComposer(this.renderer, composerTarget);
         this.composer.addPass(new RenderPass(this.scene, this.camera));
 
         const KKCShader = {

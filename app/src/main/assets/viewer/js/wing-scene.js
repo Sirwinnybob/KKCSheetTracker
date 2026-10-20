@@ -34,15 +34,23 @@ export function fallbackWingMaterialColor() {
   return '#ffffff';
 }
 
-/** Attaches a screen-readable, depth-aware outline that inherits the part transform. */
-export function addWingEdgeOverlay(mesh, three) {
+/** Edge line thickness in device pixels; native GL lines are fixed at 1px. */
+export const WING_EDGE_LINE_WIDTH = 1.6;
+
+/**
+ * Attaches a screen-readable, depth-aware outline that inherits the part transform.
+ * With `fatLines` the outline is drawn as screen-space quads so it can be thicker than 1px;
+ * without it the outline falls back to native 1px lines.
+ */
+export function addWingEdgeOverlay(mesh, three, fatLines = null) {
   // Lines share the part's boundary. Move the filled polygon slightly away
   // in depth, then draw the line second so mobile GPUs do not alternate them.
   mesh.material.polygonOffset = true;
   mesh.material.polygonOffsetFactor = 1;
   mesh.material.polygonOffsetUnits = 1;
-  const overlay = new three.LineSegments(
-    new three.EdgesGeometry(mesh.geometry),
+  const edges = new three.EdgesGeometry(mesh.geometry);
+  const overlay = fatLines ? fatEdgeOverlay(edges, three, fatLines) : new three.LineSegments(
+    edges,
     new three.LineBasicMaterial({
       color: '#050505',
       depthTest: true,
@@ -53,6 +61,32 @@ export function addWingEdgeOverlay(mesh, three) {
   overlay.name = 'part-edge-overlay';
   overlay.renderOrder = mesh.renderOrder + 1;
   mesh.add(overlay);
+  return overlay;
+}
+
+function fatEdgeOverlay(edges, three, { LineSegments2, LineSegmentsGeometry, LineMaterial }) {
+  const geometry = new LineSegmentsGeometry().fromEdgesGeometry(edges);
+  edges.dispose?.();
+  const material = new LineMaterial({
+    color: 0x050505,
+    linewidth: WING_EDGE_LINE_WIDTH,
+    depthTest: true,
+    depthWrite: false,
+    toneMapped: false
+  });
+  const overlay = new LineSegments2(geometry, material);
+  // LineSegments2 is a Mesh; keep it out of tap picking so the pivot lands on the part surface.
+  overlay.raycast = () => {};
+  // LineMaterial sizes lines against the target being drawn into (the composer's offscreen
+  // target here, not the canvas), so refresh its resolution on every draw.
+  overlay.onBeforeRender = renderer => {
+    const target = renderer.getRenderTarget();
+    if (target) material.resolution.set(target.width, target.height);
+    else {
+      const size = renderer.getDrawingBufferSize(new three.Vector2());
+      material.resolution.set(size.x, size.y);
+    }
+  };
   return overlay;
 }
 

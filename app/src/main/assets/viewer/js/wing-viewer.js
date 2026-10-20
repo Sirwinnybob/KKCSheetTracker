@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import { CoreEngine } from './engine.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { frameModel, setupViewerControls } from './viewer-controls.js';
 import { wingControlAction } from './wing-interactions.js';
 import { addWingEdgeOverlay, applyWingTransform, doorFacePrimitives, fallbackWingMaterialColor, renderableWingParts } from './wing-scene.js';
@@ -11,12 +14,16 @@ const lightMode = new URLSearchParams(location.search).get('dark') === '0';
 document.body.classList.toggle('light-mode', lightMode);
 status.classList.add('visible');
 
+const requestedMsaa = Number.parseInt(new URLSearchParams(location.search).get('msaa'), 10);
+const msaaSamples = Number.isFinite(requestedMsaa) ? Math.min(Math.max(requestedMsaa, 0), 4) : 4;
+
 let interaction;
 function report(method, value) {
   try { window.KKCViewerBridge?.[method](value); } catch (_) { /* Standalone browser. */ }
 }
 const engine = new CoreEngine({
   isLightMode: lightMode,
+  msaaSamples: msaaSamples,
   onBeforeRender: () => interaction?.step() === true,
   onViewerActiveChanged: active => report('setViewerActive', active),
   onInteractionStateChanged: active => report('setViewerInteracting', active)
@@ -73,7 +80,7 @@ function addSolid(part, solid) {
   }
   const mesh = new THREE.Mesh(geometry, material);
   applyWingTransform(mesh, part.transform.values, matrix);
-  addWingEdgeOverlay(mesh, THREE);
+  addWingEdgeOverlay(mesh, THREE, { LineSegments2, LineSegmentsGeometry, LineMaterial });
   mesh.userData = { ...part, doorFaceKind: solid.kind }; group.add(mesh);
 }
 

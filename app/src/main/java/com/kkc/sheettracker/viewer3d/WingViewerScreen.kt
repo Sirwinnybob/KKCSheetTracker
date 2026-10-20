@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.viewer3d
 
 import android.annotation.SuppressLint
+import android.os.Build
 import android.util.Log
 import android.webkit.ConsoleMessage
 import android.webkit.WebResourceError
@@ -42,6 +43,12 @@ import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+
+private const val ANDROID_15_SDK = 35
+
+/** MSAA sample count for the wing viewer; tablets older than Android 15 get the cheaper 2x. */
+internal fun wingMsaaSamples(sdkInt: Int = Build.VERSION.SDK_INT): Int =
+    if (sdkInt < ANDROID_15_SDK) 2 else 4
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -174,7 +181,7 @@ private fun WingModel3DPane(port: Int) {
                         return super.onConsoleMessage(message)
                     }
                 }
-                view.loadUrl("http://127.0.0.1:$port/viewer.html?wing=1&dark=$darkParam")
+                view.loadUrl("http://127.0.0.1:$port/viewer.html?wing=1&dark=$darkParam&msaa=${wingMsaaSamples()}")
             }
         },
         onRelease = { it.destroy() }

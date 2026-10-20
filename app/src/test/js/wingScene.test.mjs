@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { addWingEdgeOverlay, applyWingTransform, boundsDimensions, doorFacePrimitives, fallbackWingMaterialColor, renderableWingParts } from '../../main/assets/viewer/js/wing-scene.js';
+import { WING_EDGE_LINE_WIDTH, addWingEdgeOverlay,applyWingTransform, boundsDimensions, doorFacePrimitives, fallbackWingMaterialColor, renderableWingParts } from '../../main/assets/viewer/js/wing-scene.js';
 import { isTapGesture, wingControlAction, zoomVelocityForJoystick } from '../../main/assets/viewer/js/wing-interactions.js';
 
 test('wing scene accepts only complete manufactured solids', () => {
@@ -88,6 +88,47 @@ test('wing scene places black depth-tested edge lines on each rendered solid', (
   assert.deepEqual(overlay.material.options, {
     color: '#050505', depthTest: true, depthWrite: false, toneMapped: false
   });
+});
+
+test('wing scene draws thick edge lines when fat line classes are supplied', () => {
+  const mesh = { geometry: { id: 'part-geometry' }, material: {}, renderOrder: 2, add() {} };
+  const three = {
+    EdgesGeometry: class {
+      constructor(geometry) { this.geometry = geometry; }
+    },
+    Vector2: class {
+      constructor() { this.x = 0; this.y = 0; }
+    }
+  };
+  const resolution = { set(x, y) { this.x = x; this.y = y; } };
+  const fatLines = {
+    LineSegmentsGeometry: class {
+      fromEdgesGeometry(edges) { this.edges = edges; return this; }
+    },
+    LineMaterial: class {
+      constructor(options) { this.options = options; this.resolution = resolution; }
+    },
+    LineSegments2: class {
+      constructor(geometry, material) { this.geometry = geometry; this.material = material; }
+    }
+  };
+
+  const overlay = addWingEdgeOverlay(mesh, three, fatLines);
+
+  assert.equal(overlay.name, 'part-edge-overlay');
+  assert.equal(overlay.renderOrder, 3);
+  assert.equal(overlay.geometry.edges.geometry, mesh.geometry);
+  assert.equal(overlay.material.options.linewidth, WING_EDGE_LINE_WIDTH);
+  assert.ok(WING_EDGE_LINE_WIDTH > 1);
+  assert.equal(overlay.raycast(), undefined);
+
+  overlay.onBeforeRender({ getRenderTarget: () => ({ width: 1600, height: 900 }) });
+  assert.deepEqual([resolution.x, resolution.y], [1600, 900]);
+  overlay.onBeforeRender({
+    getRenderTarget: () => null,
+    getDrawingBufferSize: size => Object.assign(size, { x: 800, y: 450 })
+  });
+  assert.deepEqual([resolution.x, resolution.y], [800, 450]);
 });
 
 test('wing controls pivot only for a deliberate tap', () => {
