@@ -612,7 +612,7 @@ fun ClassicCutListTable(
                             materialRows.forEach { row ->
                                 val progress = rowProgressMap[docType.name to row.rowId] ?: HardwoodRowProgress()
                                 val qty = row.qty.coerceAtLeast(0)
-                                val done = progress.doneCount.coerceIn(0, qty)
+                                val done = progress.doneCount.coerceAtLeast(0)
                                 val skipped = progress.skipped
 
                                 // Status wash styling per design guidelines
@@ -620,7 +620,7 @@ fun ClassicCutListTable(
                                 val widthColor = widthColorBands[normalizeWidthForGrouping(row.width)] ?: Color.Transparent
                                 val (washColor, borderWashColor) = when {
                                     skipped -> statusColors.skipBg.copy(alpha = 0.08f) to statusColors.skipBorder
-                                    qty > 0 && done == qty -> statusColors.completeBg.copy(alpha = 0.08f) to statusColors.completeBorder
+                                    qty > 0 && done >= qty -> statusColors.completeBg.copy(alpha = 0.08f) to statusColors.completeBorder
                                     done > 0 -> statusColors.inProgress.copy(alpha = 0.08f) to statusColors.inProgress
                                     else -> {
                                         val isEven = globalRowIndex % 2 == 0
@@ -897,7 +897,7 @@ private fun TableRow(
         ) {
             val actionsEnabled = tallyActionsEnabled
             val decrementEnabled = actionsEnabled && !skipped && done > 0
-            val incrementEnabled = actionsEnabled && !skipped && done < qty
+            val incrementEnabled = actionsEnabled && !skipped && done < Int.MAX_VALUE
             val skipEnabled = actionsEnabled
 
             Box(
@@ -928,21 +928,21 @@ private fun TableRow(
 
             // Central progress count
             Text(
-                text = if (skipped) "SKIPPED" else "$done / $qty",
+                text = if (skipped) "SKIPPED" else "$done / $qty" + if (done > qty) " (+${done - qty})" else "",
                 modifier = Modifier
                     .weight(1f)
                     .trackTallyTarget(
                         key = "$tallyTargetKeyPrefix-count",
                         enabled = actionsEnabled,
                         onTap = {
-                            if (!skipped && done < qty) {
+                            if (!skipped && done < Int.MAX_VALUE) {
                                 onIncrement()
                             }
                         },
                         onTargetChanged = onTallyTargetChanged
                     )
                     .clickable(enabled = actionsEnabled) {
-                        if (!skipped && done < qty) {
+                        if (!skipped && done < Int.MAX_VALUE) {
                             onIncrement()
                         }
                     },
@@ -951,7 +951,7 @@ private fun TableRow(
                 fontWeight = FontWeight.Bold,
                 color = when {
                     skipped -> statusColors.skipBorder
-                    done == qty -> statusColors.completeBorder
+                    done >= qty -> statusColors.completeBorder
                     done > 0 -> statusColors.inProgress
                     else -> MaterialTheme.colorScheme.onSurface
                 }
@@ -971,7 +971,7 @@ private fun TableRow(
                         onClick = onIncrement,
                         onLongClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onCompleteAll()
+                            if (done < qty) onCompleteAll()
                         }
                     ),
                 contentAlignment = Alignment.Center

@@ -451,17 +451,8 @@ class HardwoodsProgressStore(
         proposedBad: Int = current.badCount,
         proposedSkipped: Boolean = current.skipped
     ): HardwoodRowProgress {
-        val clampedQty = qty.coerceAtLeast(0)
-        var done = proposedDone.coerceIn(0, clampedQty)
-        var bad = proposedBad.coerceIn(0, clampedQty)
-        if (done + bad > clampedQty) {
-            val overflow = done + bad - clampedQty
-            if (done >= bad) {
-                done = (done - overflow).coerceAtLeast(0)
-            } else {
-                bad = (bad - overflow).coerceAtLeast(0)
-            }
-        }
+        val done = proposedDone.coerceAtLeast(0)
+        val bad = proposedBad.coerceAtLeast(0)
         return HardwoodRowProgress(
             doneCount = done,
             badCount = bad,
@@ -498,7 +489,7 @@ class HardwoodsProgressStore(
         ) { cache ->
             val key = docType to rowId
             val current = cache.rowProgressMap[key] ?: HardwoodRowProgress()
-            val next = normalized(qty, current, proposedDone = current.doneCount + delta)
+            val next = normalized(qty, current, proposedDone = adjustTallyCount(current.doneCount, delta))
             next.doneCount.takeIf { it != current.doneCount }
         }
     }
@@ -552,6 +543,15 @@ class HardwoodsProgressStore(
     fun getTotalsRip10DoneMap(jobFolderName: String): Map<String, Int> {
         val cache = ensureJobCache(jobFolderName)
         return synchronized(cache) { cache.totalsRip10Map.toMap() }
+    }
+
+    fun setSheetUsage(jobFolderName: String, material: String, count: Int) {
+        require(material.isNotBlank() && count >= 0)
+        // CROSS-PROGRAM: Hours Tracker reads this material total; its worker preserves
+        // it as a totals action. Only tablets author the event stream. Zero is explicit.
+        appendAction(jobFolderName = jobFolderName, docType = "SHEET_USAGE", rowId = "",
+            totalsKey = sheetUsageKey(material), action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+            value = count)
     }
 
     fun getBoardStockRipDone(
@@ -751,7 +751,7 @@ class HardwoodsProgressStore(
         for (row in document.rows) {
             val qty = row.qty.coerceAtLeast(0)
             val raw = states[document.docType.name to row.rowId] ?: HardwoodRowProgress()
-            val state = normalized(qty, raw)
+            val state = creditedHardwoodProgress(qty, raw)
             totalPieces += qty
             if (state.skipped) {
                 skippedPieces += qty
@@ -1139,7 +1139,7 @@ class HardwoodsProgressStore(
             fallbackDoneCount = fallbackDoneCount
         )
         return (getTotalsRip10DoneMap(jobFolderName)[key] ?: fallbackDoneCount)
-            .coerceIn(0, maxCount.coerceAtLeast(0))
+            .coerceAtLeast(0)
     }
 
     fun setAdminBoardStockSkipped(jobFolderName: String, material: String, itemId: String, skipped: Boolean) {
@@ -1161,7 +1161,6 @@ class HardwoodsProgressStore(
         delta: Int,
         fallbackDoneCount: Int = 0
     ) {
-        val clampedMax = maxCount.coerceAtLeast(0)
         appendComputedAction(
             jobFolderName = jobFolderName,
             docType = docType,
@@ -1170,8 +1169,8 @@ class HardwoodsProgressStore(
             action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT
         ) { cache ->
             val current = (cache.totalsRip10Map[totalsKey] ?: fallbackDoneCount)
-                .coerceIn(0, clampedMax)
-            val next = (current + delta).coerceIn(0, clampedMax)
+                .coerceAtLeast(0)
+            val next = adjustTallyCount(current, delta)
             next.takeIf { it != current }
         }
     }

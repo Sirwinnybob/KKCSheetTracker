@@ -242,7 +242,8 @@ internal fun SpecialtyKanbanCard(
     jobFolderName: String,
     modifier: Modifier = Modifier,
     readOnly: Boolean = false,
-    handoff: HandoffItemUi? = null
+    handoff: HandoffItemUi? = null,
+    sheetUsageContent: @Composable (SpecialtyItem) -> Unit = {}
 ) {
     val item = resolved.item
     val toggle = toggleState.toggle
@@ -331,6 +332,7 @@ internal fun SpecialtyKanbanCard(
                     }
                 }
             }
+            if (columnId == SpecialtyStation.SAW.name) sheetUsageContent(item)
             // Same fields and editors as the list row (notes, supplier, dims, attachments, ...).
             SpecialtyItemDetails(
                 item = item,
@@ -541,6 +543,7 @@ internal fun SpecialtyKanbanBoard(
     jobFolderName: String,
     readOnly: Boolean = false,
     handoffFor: (SpecialtyItem) -> HandoffItemUi? = { null },
+    sheetUsageContent: @Composable (SpecialtyItem) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val board = rememberSupplyBoardState()
@@ -634,6 +637,7 @@ internal fun SpecialtyKanbanBoard(
                                 jobFolderName = jobFolderName,
                                 readOnly = readOnly,
                                 handoff = handoffFor(resolved.item),
+                                sheetUsageContent = sheetUsageContent,
                                 modifier = itemMotion.width(BOARD_CARD_WIDTH)
                             )
                         }

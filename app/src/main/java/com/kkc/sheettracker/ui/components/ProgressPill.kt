@@ -66,7 +66,7 @@ fun ProgressPill(
     val lowEnd = LocalLowEndMode.current
     val colors = KKCThemeColors.statusColors
     val safeTotal = total.coerceAtLeast(0)
-    val safeDone = done.coerceAtLeast(0).coerceAtMost(if (safeTotal > 0) safeTotal else done.coerceAtLeast(0))
+    val safeDone = done.coerceAtLeast(0)
     val fraction = when {
         state == ProgressState.SKIPPED -> 1f
         safeTotal <= 0 -> 0f
@@ -91,7 +91,8 @@ fun ProgressPill(
             .compositeOver(MaterialTheme.colorScheme.surface)
     }
     val shape = RoundedCornerShape(9.dp)
-    val label = "$safeDone/$safeTotal"
+    val overage = (safeDone - safeTotal).coerceAtLeast(0)
+    val label = "$safeDone/$safeTotal" + if (overage > 0) " (+$overage)" else ""
     val textColor = when {
         state == ProgressState.COMPLETE && showCheckOnComplete -> Color.White
         fraction >= 0.6f && state != ProgressState.NOT_STARTED -> Color.White
@@ -101,7 +102,7 @@ fun ProgressPill(
     Box(
         modifier = modifier
             .height(22.dp)
-            .width(80.dp)
+            .width(if (overage > 0) 112.dp else 80.dp)
             .shadow(elevation = if (lowEnd.shadowsDisabled) 0.dp else 2.dp, shape = shape, clip = false)
             .clip(shape)
             .background(trackColor)
@@ -129,7 +130,7 @@ fun ProgressPill(
                 .background(fillColor)
         )
 
-        if (state == ProgressState.COMPLETE && showCheckOnComplete) {
+        if (state == ProgressState.COMPLETE && showCheckOnComplete && overage == 0) {
             Icon(
                 imageVector = Icons.Default.Check,
                 contentDescription = "Check icon",

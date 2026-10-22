@@ -267,6 +267,24 @@ internal fun SpecialtyJobDetailScreen(
             specialtyStateStore.loadSheetRipDoneStates(jobFolderName, sheetRipItems, ::specialtySheetRipTarget)
         }
     }
+    val usageMaterials by produceState(emptyMap<String, String>(), jobFolderName, resolvedItems, scanState.snapshot.generation) {
+        value = emptyMap()
+        value = withContext(Dispatchers.IO) {
+            specialtyStateStore.loadSheetUsageMaterials(jobFolderName, resolvedItems.map { it.item })
+        }
+    }
+    val usageTotals by produceState(emptyMap<String, Int>(), jobFolderName, hardwoodsProgressVersion) {
+        value = emptyMap()
+        value = withContext(Dispatchers.IO) { specialtyStateStore.loadSheetUsageTotals(jobFolderName) }
+    }
+    val sheetUsageContent: @Composable (com.kkc.sheettracker.data.models.SpecialtyItem) -> Unit = { item ->
+        usageMaterials[item.id]?.let { material ->
+            SheetUsageEntry(material, usageTotals[com.kkc.sheettracker.data.sheetUsageKey(material)], readOnly,
+                onSave = { count -> coroutineScope.launch(Dispatchers.IO) {
+                    specialtyStateStore.saveSheetUsage(jobFolderName, material, count)
+                } }, modifier = Modifier.fillMaxWidth(), stateKey = "$jobFolderName|$material")
+        }
+    }
     // Molding preview — same pattern as HardwoodsWorkspaceScreen
     val moldingLibraryRepository = remember(scanState.snapshot.basePath) {
         MoldingLibraryRepository(File(scanState.snapshot.basePath))
@@ -512,6 +530,7 @@ internal fun SpecialtyJobDetailScreen(
                             )
                         },
                         handoffFor = { item -> handoffFlags.uiFor(handoffFlagRef(item)) },
+                        sheetUsageContent = sheetUsageContent,
                         onToggle = onToggleChecked,
                         onView = onJumpToCabinet,
                         onEdit = onEditItem,
@@ -711,6 +730,7 @@ internal fun SpecialtyJobDetailScreen(
                                     onCheckedChange = { toggle, next -> onToggleChecked(resolved, toggle, next) },
                                     readOnly = readOnly,
                                     collapseWhenComplete = true,
+                                    sheetUsageContent = if (sectionKey == SpecialtyStation.SAW.name) sheetUsageContent else { _ -> },
                                     handoff = handoffFlags.uiFor(handoffFlagRef(resolved.item))
                                 )
                             }
@@ -1022,6 +1042,7 @@ internal fun SpecialtyChecklistRow(
     readOnly: Boolean = false,
     /** Shrinks a fully checked item to its checkbox(es) and name so open items stand out; tap to expand. */
     collapseWhenComplete: Boolean = false,
+    sheetUsageContent: @Composable (com.kkc.sheettracker.data.models.SpecialtyItem) -> Unit = {},
     handoff: HandoffItemUi? = null
 ) {
     val item = resolved.item
@@ -1031,14 +1052,17 @@ internal fun SpecialtyChecklistRow(
     var expandedWhenComplete by remember(item.id, allChecked) { mutableStateOf(false) }
     val collapsed = collapseWhenComplete && allChecked && !expandedWhenComplete
     if (collapsed) {
-        CollapsedSpecialtyChecklistRow(
-            title = title,
-            toggles = toggles,
-            inFlightUpdates = inFlightUpdates,
-            onCheckedChange = onCheckedChange,
-            onExpand = { expandedWhenComplete = true },
-            readOnly = readOnly
-        )
+        Column {
+            CollapsedSpecialtyChecklistRow(
+                title = title,
+                toggles = toggles,
+                inFlightUpdates = inFlightUpdates,
+                onCheckedChange = onCheckedChange,
+                onExpand = { expandedWhenComplete = true },
+                readOnly = readOnly
+            )
+            sheetUsageContent(item)
+        }
         return
     }
     val completionKeys = completionKeysForItem(item)
@@ -1134,6 +1158,7 @@ internal fun SpecialtyChecklistRow(
         },
         inlineContent = {
             handoff?.let { HandoffTruckChip(it) }
+            sheetUsageContent(item)
             SpecialtyItemDetails(
                 item = item,
                 onPatchDims = onPatchDims,

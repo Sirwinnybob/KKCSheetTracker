@@ -67,6 +67,21 @@ class SpecialtyStateStore(
         return specialtyProgressStore.loadSpecialtyItems(jobFolderName)
     }
 
+    fun loadSheetUsageTotals(jobFolderName: String): Map<String, Int> =
+        hardwoodsProgressStore.getTotalsRip10DoneMap(jobFolderName)
+
+    fun saveSheetUsage(jobFolderName: String, material: String, count: Int) =
+        hardwoodsProgressStore.setSheetUsage(jobFolderName, material, count)
+
+    fun loadSheetUsageMaterials(jobFolderName: String, items: List<SpecialtyItem>): Map<String, String> {
+        val raw = loadHardwoodsCutlistIndexRawJson(baseDir.absolutePath, jobFolderName)
+        val index = runCatching { hardwoodIndexGson.fromJson(raw, HardwoodCutlistIndex::class.java) }.getOrNull()
+        val rows = HardwoodDocuments.rowsOfTypeOrNull(index, HardwoodDocType.DOOR_CUT_LIST).orEmpty()
+        val sheetRows = filterDoorCutRowsToSheets(rows, parseDoorCutUnitTypeMetadata(raw))
+        val mappings = MaterialMappings.load(baseDir)
+        return items.mapNotNull { item -> sheetUsageMaterialForItem(item, sheetRows, mappings)?.let { item.id to it } }.toMap()
+    }
+
     /** Creates or updates a specialty item (admin edit overlay or tablet item), then invalidates the cache. */
     suspend fun saveSpecialtyItem(jobFolderName: String, item: TabletSpecialtyItem) =
         withContext(ioDispatcher) {
@@ -236,7 +251,7 @@ class SpecialtyStateStore(
                         docType = HardwoodDocType.CLOSET_ROD_CUT_LIST.name,
                         rowId = target.rowId,
                         qty = target.qty,
-                        doneCount = if (completed) target.qty else 0
+                        doneCount = if (completed) maxOf(target.qty, hardwoodsProgressStore.getRowProgress(jobFolderName, HardwoodDocType.CLOSET_ROD_CUT_LIST.name, target.rowId).doneCount) else 0
                     )
                 }
         }
@@ -268,7 +283,7 @@ class SpecialtyStateStore(
                     docType = HardwoodDocType.DOOR_CUT_LIST.name,
                     rowId = target.rowId,
                     qty = target.qty,
-                    doneCount = if (completed) target.qty else 0
+                    doneCount = if (completed) maxOf(target.qty, hardwoodsProgressStore.getRowProgress(jobFolderName, HardwoodDocType.DOOR_CUT_LIST.name, target.rowId).doneCount) else 0
                 )
             }
         }

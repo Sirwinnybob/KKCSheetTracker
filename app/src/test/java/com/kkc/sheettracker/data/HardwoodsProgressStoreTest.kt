@@ -33,6 +33,27 @@ class HardwoodsProgressStoreTest {
     private val tabletId = "tablet-test"
 
     @Test
+    fun partAndRipOveragesSurviveReloadWithoutCompletingOtherRows() {
+        val baseDir = createTempBaseDir()
+        val doc = HardwoodDocumentIndex(docType = HardwoodDocType.FACE_FRAME_CUT_LIST,
+            rows = listOf(HardwoodCutlistRow(rowId = "a", qty = 2), HardwoodCutlistRow(rowId = "b", qty = 2)))
+        writeCutlistIndex(baseDir, jobFolderName, HardwoodCutlistIndex(documents = listOf(doc)))
+        val store = HardwoodsProgressStore(baseDir, tabletId)
+        store.setDoneCount(jobFolderName, "FACE_FRAME_CUT_LIST", "a", 2, 4)
+        store.incrementDoneCount(jobFolderName, "FACE_FRAME_CUT_LIST", "a", 2)
+        store.setBadCount(jobFolderName, "FACE_FRAME_CUT_LIST", "a", 2, 3)
+        store.setBoardStockRipDone(jobFolderName, "Maple", 2.5, "frame", 4)
+        store.incrementBoardStockRipDone(jobFolderName, "Maple", 2.5, "frame", 2)
+        store.awaitPendingWrites()
+        val peer = HardwoodsProgressStore(baseDir, "peer", readOnly = true)
+        assertEquals(5, peer.getRowProgress(jobFolderName, "FACE_FRAME_CUT_LIST", "a").doneCount)
+        assertEquals(3, peer.getRowProgress(jobFolderName, "FACE_FRAME_CUT_LIST", "a").badCount)
+        assertEquals(5, peer.getBoardStockRipDone(jobFolderName, "Maple", 2.5, "frame"))
+        assertEquals(2, peer.summarizeDocument(jobFolderName, doc).counts.donePieces)
+        assertEquals(4, peer.summarizeDocument(jobFolderName, doc).counts.totalPieces)
+    }
+
+    @Test
     fun doorAssemblyChecksSurviveReloadAndPeerReadsWithoutChangingPieceTotals() {
         val baseDir = createTempBaseDir()
         val index = HardwoodCutlistIndex(documents = listOf(HardwoodDocumentIndex(
@@ -979,7 +1000,7 @@ class HardwoodsProgressStoreTest {
     }
 
     @Test
-    fun adjustAdminBoardStockDone_normalizesAboveTargetBeforeDecrement() {
+    fun adjustAdminBoardStockDone_decrementsActualOverage() {
         val baseDir = createTempBaseDir()
         val store = HardwoodsProgressStore(baseDir, tabletId)
         val key = store.makeAdminBoardStockTallyKey("Walnut", "item-above-target")
@@ -994,8 +1015,8 @@ class HardwoodsProgressStoreTest {
             delta = -1
         )
 
-        assertEquals(1, actual)
-        assertEquals(1, store.getTotalsRip10DoneMap(jobFolderName)[key])
+        assertEquals(8, actual)
+        assertEquals(8, store.getTotalsRip10DoneMap(jobFolderName)[key])
     }
 
     @Test

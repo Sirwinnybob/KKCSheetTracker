@@ -2,6 +2,7 @@ package com.kkc.sheettracker.ui.hardwoods
 
 import com.kkc.sheettracker.ui.components.rememberLazySectionExpansions
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.ExperimentalFoundationApi
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import androidx.compose.foundation.background
@@ -1649,6 +1650,22 @@ fun HardwoodsWorkspaceScreen(
                         )
                     }
                 }
+                if (isDoorPanelsEntry && selectedDoc?.docType == HardwoodDocType.DOOR_CUT_LIST &&
+                    doorCutMaterialFilter == DoorCutMaterialFilter.Plywood && !doorAssemblyActive && !showRipCutList) {
+                    Row(modifier = Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        visiblePartSections.map { it.section.material }.distinct().forEach { material ->
+                            Column(Modifier.width(260.dp).padding(vertical = 8.dp)) {
+                                Text(material, style = MaterialTheme.typography.labelMedium)
+                                com.kkc.sheettracker.ui.specialty.SheetUsageEntry(
+                                    material, totalsDoneMap[com.kkc.sheettracker.data.sheetUsageKey(material)],
+                                    readOnly = pdfMarkupReadOnly,
+                                    onSave = { count -> hardwoodsProgressStore.setSheetUsage(jobFolderName, material, count) },
+                                    stateKey = "$jobFolderName|$material")
+                            }
+                        }
+                    }
+                }
                 if (doorAssemblyActive) {
                     DoorAssemblyList(
                         previews = doorPreviews,
@@ -2220,7 +2237,7 @@ private fun HardwoodsPartRow(
 ) {
     val haptic = LocalHapticFeedback.current
     val row = rowUi.row
-    val done = progress.doneCount.coerceIn(0, qty.coerceAtLeast(0))
+    val done = progress.doneCount.coerceAtLeast(0)
     val skippedCabCount = skippedCabs.size
     val rowState = remember(progress, qty, rowUi.isMultiCab, skippedCabCount, rowUi.normalizedCabs.size) {
         deriveHardwoodsRowState(
@@ -2234,7 +2251,7 @@ private fun HardwoodsPartRow(
     val visuals = hardwoodsRowVisualStyle(state = rowState, widthBand = widthBand)
     val statusColors = KKCThemeColors.statusColors
     val completionFlash = remember(rowUi.row.rowId) { Animatable(0f) }
-    val isComplete = qty > 0 && done == qty && rowState == HardwoodsRowState.COMPLETE
+    val isComplete = qty > 0 && done >= qty && rowState == HardwoodsRowState.COMPLETE
     val completionTransition = remember(rowUi.row.rowId) { HardwoodsCompletionTransition(isComplete) }
     LaunchedEffect(rowState, done, qty) {
         val becameComplete = completionTransition.update(isComplete)
@@ -2842,7 +2859,7 @@ private fun HardwoodsBoardStockList(
                             totalsDoneMap[progressStore.makeAdminBoardStockTallyKey(material, item.id)],
                             sheetRipDone[item.id] == true,
                             boards
-                        ).done
+                        ).done.coerceAtMost(boards)
                     } else {
                         (totalsDoneMap[progressStore.makeAdminBoardStockTallyKey(material, item.id)] ?: 0).coerceIn(0, boards)
                     }
@@ -2929,7 +2946,7 @@ private fun HardwoodsBoardStockList(
                                 } else null
                                 val done = if (itemSkipped || isNoneItem) 0
                                            else sheetTallyState?.done
-                                               ?: (totalsDoneMap[tallyKey] ?: 0).coerceIn(0, boards)
+                                               ?: (totalsDoneMap[tallyKey] ?: 0).coerceAtLeast(0)
                                 val rowState = when {
                                     isNoneItem   -> ProgressState.SKIPPED
                                     itemSkipped  -> ProgressState.SKIPPED
@@ -3017,7 +3034,7 @@ private fun HardwoodsBoardStockList(
                                                     }
                                                 }
                                                 fun setSheetSawTally(nextDone: Int) {
-                                                    val clampedDone = nextDone.coerceIn(0, boards)
+                                                    val clampedDone = nextDone.coerceAtLeast(0)
                                                     progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, clampedDone)
                                                     projectSheetSawCompletion(clampedDone)
                                                 }
@@ -3046,14 +3063,14 @@ private fun HardwoodsBoardStockList(
                                                 ProgressPill(done = done, total = boards, state = rowState,
                                                     skippedFillColor = statusColors.completeBorder.copy(alpha = 0.52f))
                                                 TallyStepButton(icon = Icons.Default.Add, contentDescription = "Done +",
-                                                    containerColor = statusColors.completeBorder, enabled = !itemSkipped && done < boards,
+                                                    containerColor = statusColors.completeBorder, enabled = !itemSkipped && done < Int.MAX_VALUE,
                                                     onClick = {
                                                         if (sheetSawTally) adjustSheetSawTally(delta = 1)
                                                         else progressStore.incrementAdminBoardStockDone(jobFolderName, material, item.id, maxCount = boards)
                                                     },
                                                     onLongClick = {
-                                                        if (sheetSawTally) setSheetSawTally(boards)
-                                                        else progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, doneCount = boards)
+                                                        if (done < boards && sheetSawTally) setSheetSawTally(boards)
+                                                        else if (done < boards) progressStore.setAdminBoardStockDone(jobFolderName, material, item.id, doneCount = boards)
                                                         true
                                                     })
                                                 if (allowsSkip && !materialSkipped) {
@@ -3177,7 +3194,7 @@ private fun HardwoodsBoardStockList(
                                 val key = progressStore.makeBoardStockTallyKey(line.material, line.normalizedWidth, line.source.name)
                                 val lineSkippedKey = progressStore.makeBoardStockRipSkipKey(line.material, line.normalizedWidth, line.source.name)
                                 val lineSkipped = materialSkipped || ((totalsDoneMap[lineSkippedKey] ?: 0) > 0)
-                                val done = (totalsDoneMap[key] ?: 0).coerceIn(0, line.neededRips)
+                                val done = (totalsDoneMap[key] ?: 0).coerceAtLeast(0)
                                 val widthBand = widthColorBands[normalizeWidthForGrouping(line.width)] ?: statusColors.notStarted
                                 val rowState = when {
                                     lineSkipped -> ProgressState.SKIPPED

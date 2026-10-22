@@ -11,9 +11,9 @@ class SheetRipTallyTest {
     }
 
     @Test
-    fun resolve_clampsToZeroAndTarget() {
+    fun resolve_preservesOveragesAndClampsOnlyToZero() {
         assertEquals(SheetRipTallyState(0, 2), resolveSheetRipTallyState(-1, false, 2))
-        assertEquals(SheetRipTallyState(2, 2), resolveSheetRipTallyState(9, false, 2))
+        assertEquals(SheetRipTallyState(9, 2), resolveSheetRipTallyState(9, false, 2))
     }
 
     @Test

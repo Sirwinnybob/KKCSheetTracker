@@ -593,16 +593,5 @@ private fun buildHardwoodsMaterialSegments(
 }
 
 private fun normalizeRowProgress(qty: Int, progress: HardwoodRowProgress): HardwoodRowProgress {
-    val clampedQty = qty.coerceAtLeast(0)
-    var done = progress.doneCount.coerceIn(0, clampedQty)
-    var bad = progress.badCount.coerceIn(0, clampedQty)
-    if (done + bad > clampedQty) {
-        val overflow = done + bad - clampedQty
-        if (done >= bad) {
-            done = (done - overflow).coerceAtLeast(0)
-        } else {
-            bad = (bad - overflow).coerceAtLeast(0)
-        }
-    }
-    return HardwoodRowProgress(doneCount = done, badCount = bad, skipped = progress.skipped)
+    return com.kkc.sheettracker.data.creditedHardwoodProgress(qty, progress)
 }

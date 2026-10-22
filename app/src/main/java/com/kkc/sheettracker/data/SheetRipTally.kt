@@ -7,7 +7,7 @@ data class SheetRipTallyState(val done: Int, val target: Int) {
 fun resolveSheetRipTallyState(storedDone: Int?, legacyDone: Boolean, target: Int): SheetRipTallyState {
     val normalizedTarget = target.coerceAtLeast(0)
     val done = when {
-        storedDone != null -> storedDone.coerceIn(0, normalizedTarget)
+        storedDone != null -> storedDone.coerceAtLeast(0)
         legacyDone -> normalizedTarget
         else -> 0
     }

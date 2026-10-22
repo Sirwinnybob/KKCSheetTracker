@@ -1,0 +1,6 @@
+- generic [active] [ref=f3e1]:
+  - status:
+    - generic: Initializing 3D...
+  - generic [ref=f3e3]:
+    - slider "Zoom joystick handle" [ref=f3e5] [cursor=pointer]
+    - generic [ref=f3e6]: Zoom

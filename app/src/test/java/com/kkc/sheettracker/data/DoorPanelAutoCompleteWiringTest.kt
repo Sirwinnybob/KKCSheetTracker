@@ -136,6 +136,13 @@ class DoorPanelAutoCompleteWiringTest {
         assertEquals(1, doneCount(hardwoodsProgressStore, jobFolderName, HardwoodDocType.CLOSET_ROD_CUT_LIST, "rod-b"))
         assertEquals(0, doneCount(hardwoodsProgressStore, jobFolderName, HardwoodDocType.CLOSET_ROD_CUT_LIST, "rod-other"))
 
+        hardwoodsProgressStore.setDoneCount(jobFolderName, HardwoodDocType.CLOSET_ROD_CUT_LIST.name, "rod-a", qty = 2, doneCount = 5)
+        hardwoodsProgressStore.setDoneCount(jobFolderName, HardwoodDocType.DOOR_CUT_LIST.name, "rod-a", qty = 2, doneCount = 9)
+        store.setItemCompletion(jobFolderName, "auto-rods", true)
+        hardwoodsProgressStore.awaitPendingWrites()
+        assertEquals(5, doneCount(hardwoodsProgressStore, jobFolderName, HardwoodDocType.CLOSET_ROD_CUT_LIST, "rod-a"))
+        assertEquals(9, doneCount(hardwoodsProgressStore, jobFolderName, HardwoodDocType.DOOR_CUT_LIST, "rod-a"))
+
         store.setItemCompletion(jobFolderName, "auto-rods", false)
         hardwoodsProgressStore.awaitPendingWrites()
 
