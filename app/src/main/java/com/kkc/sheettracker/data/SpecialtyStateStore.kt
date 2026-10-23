@@ -73,14 +73,17 @@ class SpecialtyStateStore(
     fun saveSheetUsage(jobFolderName: String, material: String, count: Int) =
         hardwoodsProgressStore.setSheetUsage(jobFolderName, material, count)
 
-    fun loadSheetUsageMaterials(jobFolderName: String, items: List<SpecialtyItem>): Map<String, String> {
-        val raw = loadHardwoodsCutlistIndexRawJson(baseDir.absolutePath, jobFolderName)
-        val index = runCatching { hardwoodIndexGson.fromJson(raw, HardwoodCutlistIndex::class.java) }.getOrNull()
-        val rows = HardwoodDocuments.rowsOfTypeOrNull(index, HardwoodDocType.DOOR_CUT_LIST).orEmpty()
-        val sheetRows = filterDoorCutRowsToSheets(rows, parseDoorCutUnitTypeMetadata(raw))
-        val mappings = MaterialMappings.load(baseDir)
-        return items.mapNotNull { item -> sheetUsageMaterialForItem(item, sheetRows, mappings)?.let { item.id to it } }.toMap()
-    }
+    fun adjustSheetUsage(jobFolderName: String, material: String, delta: Int) =
+        hardwoodsProgressStore.adjustSheetUsage(jobFolderName, material, delta)
+
+    fun hideSheetMaterial(jobFolderName: String, material: String, hidden: Boolean) =
+        hardwoodsProgressStore.setSheetUsageHidden(jobFolderName, material, hidden)
+
+    fun loadSawSheetMaterials(jobFolderName: String, cncJob: com.kkc.sheettracker.data.models.Job?, cncProgress: ProgressStore): List<SawSheetMaterial> =
+        buildSawSheetMaterials(loadPublishedSheetMaterials(baseDir, jobFolderName), cncJob?.materials.orEmpty(),
+            MaterialMappings.load(baseDir), if (cncJob == null) null else { material ->
+                usedCncSheets(material) { page -> cncProgress.isSheetComplete(jobFolderName, material.pdfFilename, page, material.fileFingerprint) }
+            })
 
     /** Creates or updates a specialty item (admin edit overlay or tablet item), then invalidates the cache. */
     suspend fun saveSpecialtyItem(jobFolderName: String, item: TabletSpecialtyItem) =

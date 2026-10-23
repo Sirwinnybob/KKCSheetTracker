@@ -162,4 +162,6 @@ class JobRepository(
     fun loadHardwoodsIndex(jobFolderName: String): HardwoodCutlistIndex? {
         return engine().getHardwoodsSnapshot(jobFolderName)?.job?.index
     }
+
+    fun loadCncJob(jobFolderName: String): Job? = engine().getCncSnapshot(jobFolderName)?.job
 }

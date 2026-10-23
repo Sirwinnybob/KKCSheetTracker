@@ -442,6 +442,7 @@ private fun ArchiveSpecialtyDetail(
         specialtyStateStore = session.specialtyStateStore,
         specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
         jobRepository = session.jobRepository,
+        cncProgressStore = session.progressStore,
         availability = availability,
         onOpenReferenceDocument = { docType, startPage ->
             navController.navigate("referenceViewer/${URLEncoder.encode(docType.name, "UTF-8")}/$startPage")

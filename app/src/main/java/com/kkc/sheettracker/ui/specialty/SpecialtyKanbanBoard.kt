@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector2D
 import androidx.compose.animation.core.Spring
@@ -242,8 +243,7 @@ internal fun SpecialtyKanbanCard(
     jobFolderName: String,
     modifier: Modifier = Modifier,
     readOnly: Boolean = false,
-    handoff: HandoffItemUi? = null,
-    sheetUsageContent: @Composable (SpecialtyItem) -> Unit = {}
+    handoff: HandoffItemUi? = null
 ) {
     val item = resolved.item
     val toggle = toggleState.toggle
@@ -332,7 +332,6 @@ internal fun SpecialtyKanbanCard(
                     }
                 }
             }
-            if (columnId == SpecialtyStation.SAW.name) sheetUsageContent(item)
             // Same fields and editors as the list row (notes, supplier, dims, attachments, ...).
             SpecialtyItemDetails(
                 item = item,
@@ -439,6 +438,7 @@ internal fun SpecialtyKanbanColumnFrame(
     total: Int,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    belowHeader: @Composable () -> Unit = {},
     /** Emits the bucket's cards; apply [itemMotion] to each so reordering (done -> bottom) animates. */
     content: @Composable (itemMotion: Modifier) -> Unit
 ) {
@@ -447,8 +447,9 @@ internal fun SpecialtyKanbanColumnFrame(
         containerColor = MaterialTheme.colorScheme.surfaceVariant,
         modifier = modifier,
         header = {
-            Row(
-                modifier = Modifier
+            Column {
+                Row(
+                    modifier = Modifier
                     .fillMaxWidth()
                     .background(kanbanHeaderColor(color))
                     // Same 48dp bar as a Supply column header (10dp padding around a 28dp control).
@@ -474,10 +475,14 @@ internal fun SpecialtyKanbanColumnFrame(
                 )
                 Text(text = "$done/$total", style = MaterialTheme.typography.labelLarge, color = Color.White)
             }
+            belowHeader()
+            }
         }
     ) {
         val itemMotion = if (animationsOn) Modifier.then(KanbanCardMotionElement) else Modifier
-        BoardCardFlow { content(itemMotion) }
+        Box(Modifier.widthIn(min = BOARD_CARD_WIDTH + 16.dp)) {
+            BoardCardFlow { content(itemMotion) }
+        }
     }
 }
 
@@ -543,7 +548,7 @@ internal fun SpecialtyKanbanBoard(
     jobFolderName: String,
     readOnly: Boolean = false,
     handoffFor: (SpecialtyItem) -> HandoffItemUi? = { null },
-    sheetUsageContent: @Composable (SpecialtyItem) -> Unit = {},
+    sawSheetMaterials: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val board = rememberSupplyBoardState()
@@ -583,7 +588,10 @@ internal fun SpecialtyKanbanBoard(
                     done = sheetRipItems.count(sheetRipIsDone),
                     total = sheetRipItems.size,
                     modifier = placed,
-                    icon = specialtySectionIcon(column.id)
+                    icon = specialtySectionIcon(column.id),
+                    belowHeader = { if (column.id == SpecialtyStation.SAW.name) {
+                        Box(Modifier.width(BOARD_CARD_WIDTH)) { sawSheetMaterials() }
+                    } }
                 ) { itemMotion ->
                     // Same as the station buckets: finished rips drop to the bottom.
                     orderKanbanCards(sheetRipItems, sheetRipIsDone).forEach { rip ->
@@ -619,7 +627,10 @@ internal fun SpecialtyKanbanBoard(
                     done = cards.count { (_, state) -> state.done },
                     total = cards.size,
                     modifier = placed,
-                    icon = specialtySectionIcon(column.id)
+                    icon = specialtySectionIcon(column.id),
+                    belowHeader = { if (column.id == SpecialtyStation.SAW.name) {
+                        Box(Modifier.width(BOARD_CARD_WIDTH)) { sawSheetMaterials() }
+                    } }
                 ) { itemMotion ->
                     cards.forEach { (resolved, state) ->
                         key(resolved.item.id) {
@@ -637,7 +648,6 @@ internal fun SpecialtyKanbanBoard(
                                 jobFolderName = jobFolderName,
                                 readOnly = readOnly,
                                 handoff = handoffFor(resolved.item),
-                                sheetUsageContent = sheetUsageContent,
                                 modifier = itemMotion.width(BOARD_CARD_WIDTH)
                             )
                         }

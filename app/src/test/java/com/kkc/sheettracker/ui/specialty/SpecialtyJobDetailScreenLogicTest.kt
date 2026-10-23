@@ -27,6 +27,12 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CompletableDeferred
 
 class SpecialtyJobDetailScreenLogicTest {
+    @Test fun sawMaterialListRemainsAvailableWithoutCustomSawItems() {
+        val sections = buildSpecialtyDetailSections(emptyList(), listOf(SpecialtyStation.SAW), hasSheetMaterials = true)
+        assertEquals(listOf("SAW"), sections.map { it.id })
+        assertTrue(sections.single().items.isEmpty())
+        assertTrue(buildSpecialtyDetailSections(emptyList(), listOf(SpecialtyStation.SAW)).isEmpty())
+    }
 @Test
     fun specialtySheetRipLengthLabel_showsConfiguredRipLength() {
         assertEquals("2x 9ft Sheet Rips", specialtySheetRipLengthLabel(2, 9))

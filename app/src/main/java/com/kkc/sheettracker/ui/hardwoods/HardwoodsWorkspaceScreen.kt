@@ -2,7 +2,6 @@ package com.kkc.sheettracker.ui.hardwoods
 
 import com.kkc.sheettracker.ui.components.rememberLazySectionExpansions
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.ExperimentalFoundationApi
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import androidx.compose.foundation.background
@@ -1648,22 +1647,6 @@ fun HardwoodsWorkspaceScreen(
                             },
                             modifier = Modifier.fillMaxWidth()
                         )
-                    }
-                }
-                if (isDoorPanelsEntry && selectedDoc?.docType == HardwoodDocType.DOOR_CUT_LIST &&
-                    doorCutMaterialFilter == DoorCutMaterialFilter.Plywood && !doorAssemblyActive && !showRipCutList) {
-                    Row(modifier = Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        visiblePartSections.map { it.section.material }.distinct().forEach { material ->
-                            Column(Modifier.width(260.dp).padding(vertical = 8.dp)) {
-                                Text(material, style = MaterialTheme.typography.labelMedium)
-                                com.kkc.sheettracker.ui.specialty.SheetUsageEntry(
-                                    material, totalsDoneMap[com.kkc.sheettracker.data.sheetUsageKey(material)],
-                                    readOnly = pdfMarkupReadOnly,
-                                    onSave = { count -> hardwoodsProgressStore.setSheetUsage(jobFolderName, material, count) },
-                                    stateKey = "$jobFolderName|$material")
-                            }
-                        }
                     }
                 }
                 if (doorAssemblyActive) {

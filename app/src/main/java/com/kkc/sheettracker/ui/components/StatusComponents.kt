@@ -300,7 +300,9 @@ fun SectionProgressHeader(
     // Optional section color (e.g. a station's job-list bar color): tints wash, accent, border, bar.
     tintColor: Color? = null,
     // Optional icon before the title (full-size headers only), in the section color.
-    icon: ImageVector? = null
+    icon: ImageVector? = null,
+    // Material-use lists share the cutlist disclosure chrome without a completion target.
+    showProgress: Boolean = true
 ) {
     val colors = KKCThemeColors.statusColors
     val safeTotal = total.coerceAtLeast(0)
@@ -445,7 +447,7 @@ fun SectionProgressHeader(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(KKCSpacing.tightSpacing)
                         ) {
-                            LinearProgressIndicator(
+                            if (showProgress) LinearProgressIndicator(
                                 progress = { fraction.coerceIn(0f, 1f) },
                                 modifier = Modifier
                                     .weight(1f)
@@ -453,7 +455,7 @@ fun SectionProgressHeader(
                                 color = if (skipped) skippedBarColor else progressColor,
                                 trackColor = emptyProgressSegmentColor()
                             )
-                            Text(
+                            if (showProgress) Text(
                                 text = "$safeDone/$safeTotal",
                                 style = textStyleFraction,
                                 fontWeight = FontWeight.SemiBold
@@ -471,7 +473,7 @@ fun SectionProgressHeader(
                                     content = headerActions
                                 )
                             }
-                            ProgressPill(
+                            if (showProgress) ProgressPill(
                                 done = safeDone,
                                 total = safeTotal,
                                 state = if (skipped) ProgressState.SKIPPED else ProgressState.from(safeDone, safeTotal),
@@ -546,7 +548,7 @@ fun SectionProgressHeader(
                                     content = headerActions
                                 )
                             }
-                            ProgressPill(
+                            if (showProgress) ProgressPill(
                                 done = safeDone,
                                 total = safeTotal,
                                 state = if (skipped) ProgressState.SKIPPED else ProgressState.from(safeDone, safeTotal),
@@ -572,25 +574,28 @@ fun SectionProgressHeader(
                             }
                         }
                     }
-                    Spacer(Modifier.height(KKCSpacing.tightSpacing))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        LinearProgressIndicator(
-                            progress = { fraction.coerceIn(0f, 1f) },
+                    if (showProgress) {
+                        Spacer(Modifier.height(KKCSpacing.tightSpacing))
+                        Row(
                             modifier = Modifier
-                                .weight(1f)
-                                .height(progressBarHeight),
-                            color = if (skipped) skippedBarColor else progressColor,
-                            trackColor = emptyProgressSegmentColor()
-                        )
-                        Spacer(Modifier.width(KKCSpacing.inCardSpacing))
-                        Text(
-                            text = "$safeDone/$safeTotal",
-                            style = textStyleFraction,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                                .fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            LinearProgressIndicator(
+                                progress = { fraction.coerceIn(0f, 1f) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(progressBarHeight),
+                                color = if (skipped) skippedBarColor else progressColor,
+                                trackColor = emptyProgressSegmentColor()
+                            )
+                            Spacer(Modifier.width(KKCSpacing.inCardSpacing))
+                            Text(
+                                text = "$safeDone/$safeTotal",
+                                style = textStyleFraction,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }

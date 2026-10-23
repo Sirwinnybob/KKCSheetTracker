@@ -554,6 +554,25 @@ class HardwoodsProgressStore(
             value = count)
     }
 
+    fun adjustSheetUsage(jobFolderName: String, material: String, delta: Int) {
+        require(material.isNotBlank())
+        val key = sheetUsageKey(material)
+        appendComputedAction(jobFolderName = jobFolderName, docType = "SHEET_USAGE", rowId = "",
+            totalsKey = key, action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT) { cache ->
+            val current = cache.totalsRip10Map[key] ?: 0
+            adjustTallyCount(current, delta).takeIf { it != current }
+        }
+    }
+
+    fun setSheetUsageHidden(jobFolderName: String, material: String, hidden: Boolean) {
+        require(material.isNotBlank())
+        // CROSS-PROGRAM: per-job visibility travels with the tablet event stream to all
+        // tablets and Hours Tracker. Hiding never deletes or changes the recorded count.
+        appendAction(jobFolderName = jobFolderName, docType = "SHEET_USAGE", rowId = "",
+            totalsKey = sheetUsageHiddenKey(material), action = HardwoodTrackerActions.SET_TOTALS_RIP10_DONE_COUNT,
+            value = if (hidden) 1 else 0)
+    }
+
     fun getBoardStockRipDone(
         jobFolderName: String,
         material: String,

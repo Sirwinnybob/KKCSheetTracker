@@ -1809,6 +1809,7 @@ private fun JobsTabHost(
                 specialtyStateStore = specialtyStateStore,
                 specialtyViewerDefaultsStore = specialtyViewerDefaultsStore,
                 jobRepository = jobRepository,
+                cncProgressStore = progressStore,
                 availability = availability,
                 onOpenReferenceDocument = { docType, startPage ->
                     navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
@@ -3344,6 +3345,7 @@ private fun LegacySingleStackNavigation(
                         specialtyStateStore = specialtyStateStore,
                         specialtyViewerDefaultsStore = legacySpecialtyViewerDefaultsStore,
                         jobRepository = jobRepository,
+                        cncProgressStore = progressStore,
                         availability = availability,
                         onOpenReferenceDocument = { docType, startPage ->
                             navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {

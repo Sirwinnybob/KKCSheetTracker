@@ -184,6 +184,7 @@ internal fun SpecialtyJobDetailScreen(
     specialtyStateStore: SpecialtyStateStore,
     specialtyViewerDefaultsStore: SpecialtyViewerDefaultsStore,
     jobRepository: JobRepository,
+    cncProgressStore: com.kkc.sheettracker.data.ProgressStore,
     onOpenJobPacketDocument: (JobPdfRef) -> Unit,
     availability: com.kkc.sheettracker.navigation.SpecialtyAvailability,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
@@ -267,23 +268,24 @@ internal fun SpecialtyJobDetailScreen(
             specialtyStateStore.loadSheetRipDoneStates(jobFolderName, sheetRipItems, ::specialtySheetRipTarget)
         }
     }
-    val usageMaterials by produceState(emptyMap<String, String>(), jobFolderName, resolvedItems, scanState.snapshot.generation) {
-        value = emptyMap()
+    val cncProgressVersion by cncProgressStore.progressVersion.collectAsState()
+    val sawMaterialBundle by produceState("" to emptyList<com.kkc.sheettracker.data.SawSheetMaterial>(),
+        jobFolderName, scanState.snapshot.generation, cncProgressVersion, resolvedItems) {
         value = withContext(Dispatchers.IO) {
-            specialtyStateStore.loadSheetUsageMaterials(jobFolderName, resolvedItems.map { it.item })
+            jobFolderName to specialtyStateStore.loadSawSheetMaterials(jobFolderName, jobRepository.loadCncJob(jobFolderName), cncProgressStore)
         }
     }
-    val usageTotals by produceState(emptyMap<String, Int>(), jobFolderName, hardwoodsProgressVersion) {
-        value = emptyMap()
-        value = withContext(Dispatchers.IO) { specialtyStateStore.loadSheetUsageTotals(jobFolderName) }
+    val sawMaterials = if (sawMaterialBundle.first == jobFolderName) sawMaterialBundle.second else emptyList()
+    val usageBundle by produceState("" to emptyMap<String, Int>(), jobFolderName, hardwoodsProgressVersion) {
+        value = withContext(Dispatchers.IO) { jobFolderName to specialtyStateStore.loadSheetUsageTotals(jobFolderName) }
     }
-    val sheetUsageContent: @Composable (com.kkc.sheettracker.data.models.SpecialtyItem) -> Unit = { item ->
-        usageMaterials[item.id]?.let { material ->
-            SheetUsageEntry(material, usageTotals[com.kkc.sheettracker.data.sheetUsageKey(material)], readOnly,
-                onSave = { count -> coroutineScope.launch(Dispatchers.IO) {
-                    specialtyStateStore.saveSheetUsage(jobFolderName, material, count)
-                } }, modifier = Modifier.fillMaxWidth(), stateKey = "$jobFolderName|$material")
-        }
+    val usageTotals = if (usageBundle.first == jobFolderName) usageBundle.second else emptyMap()
+    val sawSheetMaterials: @Composable (Boolean) -> Unit = { compact ->
+        SawSheetMaterialsDropdown(sawMaterials, usageTotals, jobFolderName, readOnly,
+            onAdjust = { material, delta -> specialtyStateStore.adjustSheetUsage(jobFolderName, material, delta) },
+            onSetCount = { material, count -> specialtyStateStore.saveSheetUsage(jobFolderName, material, count) },
+            onHide = { material, hidden -> specialtyStateStore.hideSheetMaterial(jobFolderName, material, hidden) },
+            modifier = Modifier.fillMaxWidth(), compact = compact)
     }
     // Molding preview — same pattern as HardwoodsWorkspaceScreen
     val moldingLibraryRepository = remember(scanState.snapshot.basePath) {
@@ -314,8 +316,8 @@ internal fun SpecialtyJobDetailScreen(
     val stationOrder = remember(viewerDefaults.stationOrder) {
         specialtyDetailStationOrder(viewerDefaults.stationOrder)
     }
-    val sections = remember(resolvedItems, stationOrder) {
-        buildSpecialtyDetailSections(resolvedItems = resolvedItems, stationOrder = stationOrder)
+    val sections = remember(resolvedItems, stationOrder, sawMaterials.isNotEmpty()) {
+        buildSpecialtyDetailSections(resolvedItems, stationOrder, hasSheetMaterials = sawMaterials.isNotEmpty())
     }
     val activeExpandedSectionIds = expandedSectionIds ?: viewerDefaults.expandedSectionIds
     val sectionExpansions = rememberLazySectionExpansions(
@@ -504,7 +506,7 @@ internal fun SpecialtyJobDetailScreen(
                 toggleErrorMessage?.takeIf { it.isNotBlank() }?.let { message ->
                     SpecialtyChecklistError(message, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
                 }
-                if (resolvedItems.isEmpty() && sheetRipItems.isEmpty()) {
+                if (resolvedItems.isEmpty() && sheetRipItems.isEmpty() && sawMaterials.isEmpty()) {
                     SpecialtyChecklistEmpty(Modifier.padding(horizontal = 16.dp))
                 } else {
                     val kanbanColumns = remember(sections, sheetRipItems) {
@@ -530,7 +532,7 @@ internal fun SpecialtyJobDetailScreen(
                             )
                         },
                         handoffFor = { item -> handoffFlags.uiFor(handoffFlagRef(item)) },
-                        sheetUsageContent = sheetUsageContent,
+                        sawSheetMaterials = { sawSheetMaterials(true) },
                         onToggle = onToggleChecked,
                         onView = onJumpToCabinet,
                         onEdit = onEditItem,
@@ -632,7 +634,7 @@ internal fun SpecialtyJobDetailScreen(
                 }
             }
 
-            if (resolvedItems.isEmpty()) {
+            if (resolvedItems.isEmpty() && sawMaterials.isEmpty()) {
                 item(key = "empty") {
                     SpecialtyChecklistEmpty(Modifier.padding(top = 12.dp))
                 }
@@ -665,6 +667,10 @@ internal fun SpecialtyJobDetailScreen(
                             tintColor = sectionTint,
                             icon = specialtySectionIcon(section.id)
                         )
+                    }
+
+                    if (section.id == SpecialtyStation.SAW.name && sectionExpanded && sawMaterials.isNotEmpty()) {
+                        item(key = "saw-sheet-materials") { sawSheetMaterials(false) }
                     }
 
                     // Open items stay on top in list order; finished ones sink to the bottom.
@@ -730,7 +736,6 @@ internal fun SpecialtyJobDetailScreen(
                                     onCheckedChange = { toggle, next -> onToggleChecked(resolved, toggle, next) },
                                     readOnly = readOnly,
                                     collapseWhenComplete = true,
-                                    sheetUsageContent = if (sectionKey == SpecialtyStation.SAW.name) sheetUsageContent else { _ -> },
                                     handoff = handoffFlags.uiFor(handoffFlagRef(resolved.item))
                                 )
                             }
@@ -1042,7 +1047,6 @@ internal fun SpecialtyChecklistRow(
     readOnly: Boolean = false,
     /** Shrinks a fully checked item to its checkbox(es) and name so open items stand out; tap to expand. */
     collapseWhenComplete: Boolean = false,
-    sheetUsageContent: @Composable (com.kkc.sheettracker.data.models.SpecialtyItem) -> Unit = {},
     handoff: HandoffItemUi? = null
 ) {
     val item = resolved.item
@@ -1061,7 +1065,6 @@ internal fun SpecialtyChecklistRow(
                 onExpand = { expandedWhenComplete = true },
                 readOnly = readOnly
             )
-            sheetUsageContent(item)
         }
         return
     }
@@ -1158,7 +1161,6 @@ internal fun SpecialtyChecklistRow(
         },
         inlineContent = {
             handoff?.let { HandoffTruckChip(it) }
-            sheetUsageContent(item)
             SpecialtyItemDetails(
                 item = item,
                 onPatchDims = onPatchDims,
@@ -1648,9 +1650,10 @@ internal fun specialtyDetailStationOrder(savedOrder: List<SpecialtyStation>): Li
 
 internal fun buildSpecialtyDetailSections(
     resolvedItems: List<SpecialtyResolvedItem>,
-    stationOrder: List<SpecialtyStation>
+    stationOrder: List<SpecialtyStation>,
+    hasSheetMaterials: Boolean = false
 ): List<SpecialtyDetailSection> {
-    if (resolvedItems.isEmpty()) return emptyList()
+    if (resolvedItems.isEmpty() && !hasSheetMaterials) return emptyList()
     val effectiveOrder = specialtyDetailStationOrder(stationOrder)
     val buckets = linkedMapOf<String, MutableList<SpecialtyResolvedItem>>()
     effectiveOrder.forEach { buckets[it.name] = mutableListOf() }
@@ -1670,7 +1673,7 @@ internal fun buildSpecialtyDetailSections(
     return buildList {
         effectiveOrder.forEach { station ->
             val items = buckets[station.name].orEmpty()
-            if (items.isNotEmpty()) {
+            if (items.isNotEmpty() || (hasSheetMaterials && station == SpecialtyStation.SAW)) {
                 add(
                     SpecialtyDetailSection(
                         id = station.name,
