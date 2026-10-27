@@ -1373,7 +1373,7 @@ private fun DashboardTabHost(
                 val dashPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
                 var dashMode by remember {
                     mutableStateOf(
-                        WorkMode.fromStored(dashPrefs.getString("flexible_dashboard_last_mode", null))
+                        WorkMode.fromStored(dashPrefs.getString("flexible_dashboard_last_mode", null) ?: workMode.name)
                             .let { if (it == WorkMode.HARDWOODS) it else WorkMode.CNC }
                     )
                 }
@@ -3008,7 +3008,7 @@ private fun LegacySingleStackNavigation(
                             val dashPrefs = remember { context.getSharedPreferences("kkc_tracker", android.content.Context.MODE_PRIVATE) }
                             var dashMode by remember {
                                 mutableStateOf(
-                                    WorkMode.fromStored(dashPrefs.getString("flexible_dashboard_last_mode", null))
+                                    WorkMode.fromStored(dashPrefs.getString("flexible_dashboard_last_mode", null) ?: workMode.name)
                                         .let { if (it == WorkMode.HARDWOODS) it else WorkMode.CNC }
                                 )
                             }
