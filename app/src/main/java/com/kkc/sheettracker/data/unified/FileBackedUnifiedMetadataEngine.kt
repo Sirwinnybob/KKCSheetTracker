@@ -1736,6 +1736,16 @@ class FileBackedUnifiedMetadataEngine(
                         }
                     },
                     ocrImageWidth = page.ocrImageWidth,
+                    partBoxes = page.partBoxes?.mapValues { (_, list) ->
+                        (gsonNullable(list) ?: emptyList()).map { box ->
+                            OcrBoxMetadata(
+                                left = box.left,
+                                top = box.top,
+                                right = box.right,
+                                bottom = box.bottom
+                            )
+                        }
+                    },
                     ocrSource = page.ocrSource,
                     ocrGeneratedAt = page.ocrGeneratedAt,
                     ocrVersion = page.ocrVersion,

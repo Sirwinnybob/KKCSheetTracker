@@ -3,9 +3,11 @@ package com.kkc.sheettracker.ui.viewer
 import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
+import com.google.gson.Gson
 import com.kkc.sheettracker.data.IdlePhase
 import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.MaterialMetadata
+import com.kkc.sheettracker.data.models.OcrBoxMetadata
 import com.kkc.sheettracker.data.models.PageMetadata
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -364,5 +366,99 @@ class SheetViewerScreenTest {
         whenever(bitmap.isRecycled).thenReturn(false)
 
         assertTrue(shouldRecycleRenderedPageBitmap(bitmap = bitmap, wasDisplayed = false))
+    }
+
+    private fun box(left: Int, top: Int, right: Int, bottom: Int) = OcrBoxMetadata(left, top, right, bottom)
+
+    private val labels = mapOf(
+        1 to listOf(box(100, 100, 130, 120)),
+        2 to listOf(box(400, 100, 430, 120))
+    )
+
+    @Test
+    fun partBoxes_parsedByGsonPerPartWithOneBoxPerSheetView() {
+        val page = Gson().fromJson(
+            """{"ocrSource":"cv_placement","ocrBoxes":{"7":[{"left":1,"top":2,"right":3,"bottom":4}]},
+               "partBoxes":{"7":[{"left":10,"top":20,"right":300,"bottom":200},{"left":10,"top":220,"right":300,"bottom":400}]}}""",
+            PageMetadata::class.java
+        )
+
+        assertEquals(listOf(box(10, 20, 300, 200), box(10, 220, 300, 400)), page.partBoxes?.get("7"))
+        assertEquals(mapOf(7 to listOf(box(10, 20, 300, 200), box(10, 220, 300, 400))), page.toSidecarPartOutlines())
+    }
+
+    @Test
+    fun partBoxes_absentInOlderSidecarsLeavesLabelBoxesUntouched() {
+        val page = Gson().fromJson(
+            """{"ocrBoxes":{"7":[{"left":1,"top":2,"right":3,"bottom":4}]}}""",
+            PageMetadata::class.java
+        )
+
+        assertNull(page.partBoxes)
+        assertTrue(page.toSidecarPartOutlines().isEmpty())
+        assertTrue(null.toSidecarPartOutlines().isEmpty())
+        assertEquals(mapOf(7 to listOf(box(1, 2, 3, 4))), page.toSidecarDiagramBounds())
+    }
+
+    @Test
+    fun partOutlines_dropNonNumericKeysAndDegenerateBoxes() {
+        val page = PageMetadata(
+            partBoxes = mapOf(
+                "3" to listOf(box(0, 0, 50, 50), box(0, 0, 0, 50), box(60, 60, 120, 120), box(200, 200, 260, 260)),
+                "x" to listOf(box(0, 0, 50, 50)),
+                "4" to listOf(box(10, 10, 10, 10))
+            )
+        )
+
+        assertEquals(mapOf(3 to listOf(box(0, 0, 50, 50), box(60, 60, 120, 120))), page.toSidecarPartOutlines())
+    }
+
+    @Test
+    fun hitSidecarPart_tapAnywhereInsideOutlineSelectsPart() {
+        val outlines = mapOf(
+            1 to listOf(box(100, 100, 400, 300)),
+            2 to listOf(box(500, 100, 800, 300), box(500, 400, 800, 600))
+        )
+
+        // Far from the label, but inside the outline.
+        assertEquals(1, hitSidecarPart(390f, 290f, outlines, labels, zoom = 1f))
+        // Second view of a double-sided part.
+        assertEquals(2, hitSidecarPart(700f, 550f, outlines, labels, zoom = 1f))
+        // Edges count as inside.
+        assertEquals(1, hitSidecarPart(100f, 100f, outlines, labels, zoom = 1f))
+    }
+
+    @Test
+    fun hitSidecarPart_overlappingOutlinesPreferSmallestArea() {
+        val outlines = mapOf(
+            1 to listOf(box(0, 0, 1000, 1000)),
+            2 to listOf(box(200, 200, 300, 300))
+        )
+
+        assertEquals(2, hitSidecarPart(250f, 250f, outlines, emptyMap(), zoom = 1f))
+        assertEquals(1, hitSidecarPart(600f, 600f, outlines, emptyMap(), zoom = 1f))
+    }
+
+    @Test
+    fun hitSidecarPart_fallsBackToNearestLabelWithoutOutlines() {
+        assertEquals(1, hitSidecarPart(150f, 110f, emptyMap(), labels, zoom = 1f))
+        assertEquals(2, hitSidecarPart(400f, 190f, emptyMap(), labels, zoom = 1f))
+        // Beyond 90px of every label.
+        assertNull(hitSidecarPart(260f, 400f, emptyMap(), labels, zoom = 1f))
+    }
+
+    @Test
+    fun hitSidecarPart_fallsBackToLabelWhenTapIsOutsideEveryOutline() {
+        val outlines = mapOf(1 to listOf(box(0, 0, 90, 90)))
+
+        assertEquals(2, hitSidecarPart(440f, 150f, outlines, labels, zoom = 1f))
+        assertNull(hitSidecarPart(900f, 900f, outlines, labels, zoom = 1f))
+    }
+
+    @Test
+    fun hitSidecarPart_labelRadiusShrinksWithZoom() {
+        // 60px from the label centre: inside 90px at 1x, outside 90/2 = 45px at 2x.
+        assertEquals(2, hitSidecarPart(475f, 110f, emptyMap(), labels, zoom = 1f))
+        assertNull(hitSidecarPart(475f, 110f, emptyMap(), labels, zoom = 2f))
     }
 }

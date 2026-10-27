@@ -70,6 +70,11 @@ data class PageMetadata(
     val ocrBoxes: Map<String, List<OcrBoxMetadata>>? = null,
     /** Width of the image [ocrBoxes] were measured on. */
     val ocrImageWidth: Int? = null,
+    /**
+     * Full part outlines per part number, in the same pixel space as [ocrBoxes]. One box per sheet
+     * view (two on double-sided sheets). Only present when [ocrSource] is "cv_placement".
+     */
+    val partBoxes: Map<String, List<OcrBoxMetadata>>? = null,
     val ocrSource: String? = null,
     val ocrGeneratedAt: String? = null,
     val ocrVersion: String? = null,

@@ -5,6 +5,7 @@ import com.kkc.sheettracker.data.models.HardwoodCutlistIndex
 import com.kkc.sheettracker.data.models.HardwoodCutlistRow
 import com.kkc.sheettracker.data.models.HardwoodDocType
 import com.kkc.sheettracker.data.models.HardwoodDocumentIndex
+import com.kkc.sheettracker.data.models.OcrBoxMetadata
 import com.kkc.sheettracker.data.models.ReferenceDocType
 import com.kkc.sheettracker.data.models.SheetStatus
 import org.junit.Assert.assertEquals
@@ -90,6 +91,46 @@ class UnifiedMetadataEngineTest {
 
         assertEquals(".metadata/.thumbs/1234 - White Melamine_p001.diagram.png", page?.diagramPath)
         assertEquals(2450, page?.ocrImageWidth)
+    }
+
+    @Test
+    fun cncPageMetadata_carriesPartBoxesOnlyWhereSidecarHasThem() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        File(baseDir, "$jobFolder/CNC/.metadata/1234 - White Melamine.json").writeText(
+            """
+            {
+              "pdfFilename": "1234 - White Melamine.pdf",
+              "pages": [
+                {
+                  "pageNumber": 1,
+                  "ocrSource": "cv_placement",
+                  "ocrImageWidth": 2450,
+                  "ocrBoxes": {"5": [{"left": 10, "top": 10, "right": 40, "bottom": 30}]},
+                  "partBoxes": {"5": [{"left": 0, "top": 0, "right": 200, "bottom": 100}]},
+                  "parts": []
+                },
+                {
+                  "pageNumber": 2,
+                  "ocrBoxes": {"5": [{"left": 10, "top": 10, "right": 40, "bottom": 30}]},
+                  "parts": []
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+        val engine = FileBackedUnifiedMetadataEngine(
+            basePath = baseDir.absolutePath,
+            isDebugBuild = true,
+            pdfPageCounter = { UnifiedPdfPageCountResult(2) }
+        )
+
+        val pages = engine.getCncSnapshot(jobFolder)?.job?.materials?.first()?.metadata?.pages.orEmpty()
+
+        assertEquals(listOf(OcrBoxMetadata(0, 0, 200, 100)), pages[0].partBoxes?.get("5"))
+        assertEquals(listOf(OcrBoxMetadata(10, 10, 40, 30)), pages[0].ocrBoxes?.get("5"))
+        assertNull(pages[1].partBoxes)
+        assertEquals(listOf(OcrBoxMetadata(10, 10, 40, 30)), pages[1].ocrBoxes?.get("5"))
     }
 
     @Test

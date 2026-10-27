@@ -2,7 +2,6 @@ package com.kkc.sheettracker.ui.viewer
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Rect
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -114,6 +113,7 @@ import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.data.models.CabinetSheetIndex
 import com.kkc.sheettracker.data.models.Material
+import com.kkc.sheettracker.data.models.OcrBoxMetadata
 import com.kkc.sheettracker.data.models.PageMetadata
 import com.kkc.sheettracker.data.models.Part
 import com.kkc.sheettracker.data.models.PdfInkStroke
@@ -162,7 +162,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import java.io.File
 import kotlin.math.min
-import kotlin.math.sqrt
 import java.util.ArrayDeque
 
 private val ROOM_PAREN_REGEX = Regex("""\(([^)]+)\)""")
@@ -441,7 +440,8 @@ fun SheetViewerScreen(
     var nameWeight by rememberSaveable { mutableFloatStateOf(initialPrefs.nameWeight) }
     var cabColDp by rememberSaveable { mutableFloatStateOf(initialPrefs.cabDp) }
     var roomColDp by rememberSaveable { mutableFloatStateOf(initialPrefs.roomDp) }
-    var diagramBboxes by remember { mutableStateOf<Map<Int, List<Rect>>>(emptyMap()) }
+    var diagramBboxes by remember { mutableStateOf<Map<Int, List<OcrBoxMetadata>>>(emptyMap()) }
+    var diagramOutlines by remember { mutableStateOf<Map<Int, List<OcrBoxMetadata>>>(emptyMap()) }
     var renderEffectCount by remember { mutableIntStateOf(0) }
     var statusEffectCount by remember { mutableIntStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -907,6 +907,7 @@ fun SheetViewerScreen(
             "render_effect_trigger count=$renderEffectCount page=$currentPage generation=${scanState.snapshot.generation}"
         )
         diagramBboxes = emptyMap()
+        diagramOutlines = emptyMap()
         val cached = renderCache[currentPage]
         if (cached != null) {
             cached.wasDisplayed = true
@@ -962,6 +963,7 @@ fun SheetViewerScreen(
         selectedPartType = null
 
         diagramBboxes = meta.toSidecarDiagramBounds()
+        diagramOutlines = meta.toSidecarPartOutlines()
     }
 
     LaunchedEffect(currentPage, totalPages, fileFingerprint, currentMaterial?.metadata) {
@@ -1705,6 +1707,7 @@ fun SheetViewerScreen(
                                     parts = parts,
                                     selectedPartNumber = selectedPartNumber,
                                     diagramBboxes = diagramBboxes,
+                                    partOutlines = diagramOutlines,
                                     bboxScale = diagramScale,
                                     resetZoomTrigger = resetZoomTrigger,
                                     markupStrokes = visiblePdfMarkupStrokes,
@@ -2655,16 +2658,6 @@ private fun measureImageSignal(bitmap: Bitmap): Pair<Double, Double> {
     return nonWhiteRatio to variance
 }
 
-private fun com.kkc.sheettracker.data.models.PageMetadata?.toSidecarDiagramBounds(): Map<Int, List<Rect>> {
-    val ocrBoxes = this?.ocrBoxes.orEmpty()
-    if (ocrBoxes.isEmpty()) return emptyMap()
-    return ocrBoxes.mapNotNull { (numText, boxes) ->
-        val num = numText.toIntOrNull() ?: return@mapNotNull null
-        val rects = boxes.map { Rect(it.left, it.top, it.right, it.bottom) }
-        num to rects.take(2)
-    }.toMap()
-}
-
 internal data class AnchoredZoomPan(val zoom: Float, val panX: Float, val panY: Float)
 
 /**
@@ -2827,7 +2820,9 @@ internal fun DiagramView(
     invertSheetBitmap: Boolean = false,
     parts: List<Part>,
     selectedPartNumber: Int?,
-    diagramBboxes: Map<Int, List<Rect>>,
+    diagramBboxes: Map<Int, List<OcrBoxMetadata>>,
+    /** Full part outlines (sidecar `partBoxes`); empty falls back to the [diagramBboxes] label boxes. */
+    partOutlines: Map<Int, List<OcrBoxMetadata>> = emptyMap(),
     /** [bitmap] pixels per [diagramBboxes] unit (boxes are in source-image pixels). */
     bboxScale: Float = 1f,
     resetZoomTrigger: Int,
@@ -2902,26 +2897,13 @@ internal fun DiagramView(
         modifier = modifier
             .clipToBounds()
             .onSizeChanged { viewSize = it }
-            .pointerInput(diagramBboxes, bboxScale, viewSize, zoom, panX, panY) {
+            .pointerInput(diagramBboxes, partOutlines, bboxScale, viewSize, zoom, panX, panY) {
                 fun hitPart(tapX: Float, tapY: Float): Int? {
                     if (viewSize == IntSize.Zero) return null
                     val ux = (tapX - panX) / zoom
                     val uy = (tapY - panY) / zoom
                     val (bx, by) = viewToBitmap(ux, uy)
-                    var bestPart: Int? = null
-                    var bestDist = Float.MAX_VALUE
-                    for ((num, rects) in diagramBboxes) {
-                        for (rect in rects) {
-                            val cx = (rect.left + rect.right) / 2f
-                            val cy = (rect.top + rect.bottom) / 2f
-                            val dist = sqrt((bx - cx) * (bx - cx) + (by - cy) * (by - cy))
-                            if (dist < bestDist && dist < (90f / zoom)) {
-                                bestDist = dist
-                                bestPart = num
-                            }
-                        }
-                    }
-                    return bestPart
+                    return hitSidecarPart(bx, by, partOutlines, diagramBboxes, zoom)
                 }
                 detectTapGestures(
                     onTap = { tap ->
@@ -2962,9 +2944,11 @@ internal fun DiagramView(
 
             // Highlight overlay for selected part; transformed together with image.
             val statusColors = KKCThemeColors.statusColors
-            val selBboxes = selectedPartNumber?.let { diagramBboxes[it] }
+            val selOutlines = selectedPartNumber?.let { partOutlines[it] }
+            val selBboxes = if (!selOutlines.isNullOrEmpty()) selOutlines else selectedPartNumber?.let { diagramBboxes[it] }
             if (!selBboxes.isNullOrEmpty() && viewSize != IntSize.Zero) {
-                val pad = 12f
+                // Outlines already span the whole part; only label boxes need breathing room.
+                val pad = if (!selOutlines.isNullOrEmpty()) 2f else 12f
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     for (selBbox in selBboxes) {
                         val (vLeft, vTop) = bitmapToView(selBbox.left.toFloat(), selBbox.top.toFloat())
