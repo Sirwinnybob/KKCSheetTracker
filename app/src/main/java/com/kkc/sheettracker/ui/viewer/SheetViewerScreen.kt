@@ -66,6 +66,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
@@ -89,6 +90,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -2835,6 +2840,7 @@ internal fun DiagramView(
     markupStrokes: List<PdfInkStroke> = emptyList(),
     onTapEmpty: (() -> Unit)? = null
 ) {
+    val partInfoHazeState = remember { HazeState() }
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
     var zoom by remember { mutableFloatStateOf(1f) }
     var panX by remember { mutableFloatStateOf(0f) }
@@ -2925,72 +2931,95 @@ internal fun DiagramView(
             }
             .transformable(state = transformState)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = zoom
-                    scaleY = zoom
-                    translationX = panX
-                    translationY = panY
-                }
-        ) {
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = "Sheet diagram",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit,
-                alignment = UiAlignment.Center,
-                colorFilter = if (invertSheetBitmap) ColorFilter.colorMatrix(SHEET_BITMAP_INVERSION_COLOR_MATRIX) else null,
-                filterQuality = FilterQuality.None
-            )
+        Box(Modifier.fillMaxSize().hazeSource(partInfoHazeState)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = zoom
+                        scaleY = zoom
+                        translationX = panX
+                        translationY = panY
+                    }
+            ) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "Sheet diagram",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                    alignment = UiAlignment.Center,
+                    colorFilter = if (invertSheetBitmap) ColorFilter.colorMatrix(SHEET_BITMAP_INVERSION_COLOR_MATRIX) else null,
+                    filterQuality = FilterQuality.None
+                )
 
-            // Highlight overlay for selected part; transformed together with image.
-            val statusColors = KKCThemeColors.statusColors
-            val selOutlines = selectedPartNumber?.let { partOutlines[it] }
-            val selBboxes = if (!selOutlines.isNullOrEmpty()) selOutlines else selectedPartNumber?.let { diagramBboxes[it] }
-            if (!selBboxes.isNullOrEmpty() && viewSize != IntSize.Zero) {
-                // Outlines already span the whole part; only label boxes need breathing room.
-                val pad = if (!selOutlines.isNullOrEmpty()) 2f else 12f
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    for (selBbox in selBboxes) {
-                        val (vLeft, vTop) = bitmapToView(selBbox.left.toFloat(), selBbox.top.toFloat())
-                        val (vRight, vBottom) = bitmapToView(selBbox.right.toFloat(), selBbox.bottom.toFloat())
-                        drawRect(
-                            color = statusColors.skip.copy(alpha = 0.40f),
-                            topLeft = Offset(vLeft - pad - 3f, vTop - pad - 3f),
-                            size = Size(vRight - vLeft + (pad + 3f) * 2, vBottom - vTop + (pad + 3f) * 2)
-                        )
-                        drawRect(
-                            color = statusColors.skipBorder.copy(alpha = 0.33f),
-                            topLeft = Offset(vLeft - pad, vTop - pad),
-                            size = Size(vRight - vLeft + pad * 2, vBottom - vTop + pad * 2)
-                        )
-                        drawRect(
-                            color = statusColors.bad,
-                            topLeft = Offset(vLeft - pad, vTop - pad),
-                            size = Size(vRight - vLeft + pad * 2, vBottom - vTop + pad * 2),
-                            style = Stroke(width = 6f)
-                        )
+                // Highlight overlay for selected part; transformed together with image.
+                val statusColors = KKCThemeColors.statusColors
+                val selOutlines = selectedPartNumber?.let { partOutlines[it] }
+                val selBboxes = if (!selOutlines.isNullOrEmpty()) selOutlines else selectedPartNumber?.let { diagramBboxes[it] }
+                if (!selBboxes.isNullOrEmpty() && viewSize != IntSize.Zero) {
+                    // Outlines already span the whole part; only label boxes need breathing room.
+                    val pad = if (!selOutlines.isNullOrEmpty()) 2f else 12f
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        for (selBbox in selBboxes) {
+                            val (vLeft, vTop) = bitmapToView(selBbox.left.toFloat(), selBbox.top.toFloat())
+                            val (vRight, vBottom) = bitmapToView(selBbox.right.toFloat(), selBbox.bottom.toFloat())
+                            drawRect(
+                                color = statusColors.skip.copy(alpha = 0.40f),
+                                topLeft = Offset(vLeft - pad - 3f, vTop - pad - 3f),
+                                size = Size(vRight - vLeft + (pad + 3f) * 2, vBottom - vTop + (pad + 3f) * 2)
+                            )
+                            drawRect(
+                                color = statusColors.skipBorder.copy(alpha = 0.33f),
+                                topLeft = Offset(vLeft - pad, vTop - pad),
+                                size = Size(vRight - vLeft + pad * 2, vBottom - vTop + pad * 2)
+                            )
+                            drawRect(
+                                color = statusColors.bad,
+                                topLeft = Offset(vLeft - pad, vTop - pad),
+                                size = Size(vRight - vLeft + pad * 2, vBottom - vTop + pad * 2),
+                                style = Stroke(width = 6f)
+                            )
+                        }
                     }
                 }
             }
+            if (markupStrokes.isNotEmpty()) {
+                PdfMarkupOverlay(
+                    modifier = Modifier.fillMaxSize(),
+                    viewportState = viewportState,
+                    pageAspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat(),
+                    activeStrokes = markupStrokes,
+                    inputEnabled = false,
+                    activeTool = DrawingTool.PEN,
+                    activeColor = Color.Red,
+                    activeThickness = 4f,
+                    allowFingerDrawing = false,
+                    onStylusButtonEraserChanged = {},
+                    onStrokeAdded = {},
+                    onStrokeErased = {}
+                )
+            }
         }
-        if (markupStrokes.isNotEmpty()) {
-            PdfMarkupOverlay(
-                modifier = Modifier.fillMaxSize(),
-                viewportState = viewportState,
-                pageAspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat(),
-                activeStrokes = markupStrokes,
-                inputEnabled = false,
-                activeTool = DrawingTool.PEN,
-                activeColor = Color.Red,
-                activeThickness = 4f,
-                allowFingerDrawing = false,
-                onStylusButtonEraserChanged = {},
-                onStrokeAdded = {},
-                onStrokeErased = {}
-            )
+        val selectedPart = parts.firstOrNull { it.number == selectedPartNumber }
+        if (selectedPart != null && viewSize != IntSize.Zero) {
+            fun OcrBoxMetadata.previewBounds(): Rect {
+                val (left, top) = bitmapToView(left.toFloat(), top.toFloat())
+                val (right, bottom) = bitmapToView(right.toFloat(), bottom.toFloat())
+                val cx = viewSize.width / 2f
+                val cy = viewSize.height / 2f
+                return Rect((left - cx) * zoom + cx + panX, (top - cy) * zoom + cy + panY,
+                    (right - cx) * zoom + cx + panX, (bottom - cy) * zoom + cy + panY)
+            }
+            val bounds = (diagramBboxes.keys + partOutlines.keys).associateWith { number ->
+                partOutlines[number]?.takeIf { it.isNotEmpty() }.orEmpty()
+                    .ifEmpty { diagramBboxes[number].orEmpty() }.map { it.previewBounds() }
+            }
+            val viewport = Rect(0f, 0f, viewSize.width.toFloat(), viewSize.height.toFloat())
+            val anchor = bounds[selectedPart.number]?.maxByOrNull {
+                val visible = it.intersect(viewport)
+                visible.width.coerceAtLeast(0f) * visible.height.coerceAtLeast(0f)
+            }
+            SheetPartInfoPopup(selectedPart, anchor, bounds.values.flatten(), viewSize, partInfoHazeState)
         }
     }
 }
@@ -3337,10 +3366,12 @@ private fun PartsTable(
 }
 
 @Composable
-private fun PartMarkers(
+internal fun PartMarkers(
     rotated: Boolean,
     banding: String?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    rotationColor: Color = Color(0xFFE65100),
+    bandingColor: Color = MaterialTheme.colorScheme.primary
 ) {
     val markers = partMarkers(rotated, banding)
     if (markers.isEmpty()) {
@@ -3356,7 +3387,7 @@ private fun PartMarkers(
             Icon(
                 imageVector = StationEdgeBanderIcon,
                 contentDescription = "Edge banding",
-                tint = MaterialTheme.colorScheme.primary,
+                tint = bandingColor,
                 modifier = Modifier.size(22.dp)
             )
         }
@@ -3364,12 +3395,13 @@ private fun PartMarkers(
             Text(
                 "*",
                 modifier = Modifier
+                    .semantics { contentDescription = "Rotated" }
                     .align(Alignment.TopEnd)
                     .offset(x = 1.dp, y = (-5).dp),
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.sp,
                 lineHeight = 13.sp,
-                color = Color(0xFFE65100)
+                color = rotationColor
             )
         }
     }
