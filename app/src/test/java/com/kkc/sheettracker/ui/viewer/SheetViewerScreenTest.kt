@@ -456,6 +456,15 @@ class SheetViewerScreenTest {
     }
 
     @Test
+    fun isListItemFullyVisible_requiresWholeRowInsideViewport() {
+        assertTrue(isListItemFullyVisible(itemOffset = 100, itemSize = 60, viewportStart = 0, viewportEnd = 500))
+        assertTrue(isListItemFullyVisible(itemOffset = 0, itemSize = 60, viewportStart = 0, viewportEnd = 60))
+        // Clipped by the top edge, clipped by the bottom edge.
+        assertFalse(isListItemFullyVisible(itemOffset = -10, itemSize = 60, viewportStart = 0, viewportEnd = 500))
+        assertFalse(isListItemFullyVisible(itemOffset = 460, itemSize = 60, viewportStart = 0, viewportEnd = 500))
+    }
+
+    @Test
     fun hitSidecarPart_labelRadiusShrinksWithZoom() {
         // 60px from the label centre: inside 90px at 1x, outside 90/2 = 45px at 2x.
         assertEquals(2, hitSidecarPart(475f, 110f, emptyMap(), labels, zoom = 1f))

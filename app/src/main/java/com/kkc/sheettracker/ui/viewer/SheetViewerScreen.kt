@@ -11,6 +11,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -34,11 +35,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import com.kkc.sheettracker.ui.components.LocalLowEndMode
 import com.kkc.sheettracker.ui.components.icons.MarkupPenIcon
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Image
@@ -3047,6 +3050,9 @@ private fun SheetLoadingPlaceholder(modifier: Modifier = Modifier) {
 }
 
 
+/** Vertical nudges (px) a newly selected part row makes before settling, up and down then rest. */
+private val PART_ROW_WIGGLE_TARGETS_PX = listOf(-14f, 12f, -8f, 5f, -2f, 0f)
+
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 private fun PartsTable(
@@ -3116,6 +3122,30 @@ private fun PartsTable(
         var badOnly by rememberSaveable { mutableStateOf(false) }
         val shownParts = remember(parts, badOnly, badParts, draftBadParts) {
             if (badOnly) parts.filter { it.number in badParts || it.number in draftBadParts } else parts
+        }
+
+        // Selecting a part (e.g. by tapping the sheet diagram) scrolls its row into view if needed,
+        // then nudges it up and down briefly so the eye finds it.
+        val listState = rememberLazyListState()
+        val wiggleY = remember { Animatable(0f) }
+        val animationsDisabled = LocalLowEndMode.current.animationsDisabled
+        LaunchedEffect(selectedPartNumber, shownParts) {
+            val selected = selectedPartNumber ?: return@LaunchedEffect
+            val index = shownParts.indexOfFirst { it.number == selected }
+            if (index < 0) return@LaunchedEffect
+            val info = listState.layoutInfo
+            val row = info.visibleItemsInfo.firstOrNull { it.index == index }
+            if (row == null || !isListItemFullyVisible(row.offset, row.size, info.viewportStartOffset, info.viewportEndOffset)) {
+                // Leave a little context above the row instead of pinning it to the top edge.
+                val context = (info.viewportEndOffset - info.viewportStartOffset) / 4
+                if (animationsDisabled) listState.scrollToItem(index, -context)
+                else listState.animateScrollToItem(index, -context)
+            }
+            if (!animationsDisabled) {
+                for (target in PART_ROW_WIGGLE_TARGETS_PX) {
+                    wiggleY.animateTo(target, tween(durationMillis = 70))
+                }
+            }
         }
 
         // Sort header as a sliding pill: the pill sits behind the sorted column and slides to a
@@ -3209,7 +3239,7 @@ private fun PartsTable(
             )
         }
 
-        LazyColumn(contentPadding = PaddingValues(bottom = 160.dp)) {
+        LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 160.dp)) {
             itemsIndexed(items = shownParts, key = { _, part -> part.number }) { rowIndex, part ->
                 val isBad = part.number in badParts
                 val isDraft = part.number in draftBadParts
@@ -3219,7 +3249,7 @@ private fun PartsTable(
                 val baseColor = when {
                     isBad -> KKCThemeColors.statusColors.bad.copy(alpha = 0.12f)
                     isDraft -> KKCThemeColors.statusColors.skip.copy(alpha = 0.12f)
-                    isSelected -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.24f)
+                    isSelected -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.75f)
                     else -> zebra
                 }
                 val opaqueBackgroundColor = if (baseColor.alpha < 1f) {
@@ -3231,20 +3261,26 @@ private fun PartsTable(
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = opaqueBackgroundColor,
-                    border = BorderStroke(
-                        1.dp,
-                        when {
-                            isBad -> KKCThemeColors.statusColors.bad.copy(alpha = 0.4f)
-                            isDraft -> KKCThemeColors.statusColors.skip.copy(alpha = 0.4f)
-                            isSelected -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f)
-                            else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                        }
-                    ),
+                    // Selection border wins over bad/draft so a selected flagged row is still visibly selected;
+                    // its fill keeps the flag tint.
+                    border = if (isSelected) {
+                        BorderStroke(3.dp, MaterialTheme.colorScheme.tertiary)
+                    } else {
+                        BorderStroke(
+                            1.dp,
+                            when {
+                                isBad -> KKCThemeColors.statusColors.bad.copy(alpha = 0.4f)
+                                isDraft -> KKCThemeColors.statusColors.skip.copy(alpha = 0.4f)
+                                else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                            }
+                        )
+                    },
                     shadowElevation = 2.dp,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                         .animateEntrance(rowIndex, initialLoadComplete)
+                        .graphicsLayer { translationY = if (isSelected) wiggleY.value else 0f }
                 ) {
                     Row(
                         modifier = Modifier

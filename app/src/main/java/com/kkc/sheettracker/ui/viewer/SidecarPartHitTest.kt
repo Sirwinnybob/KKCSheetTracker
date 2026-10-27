@@ -31,6 +31,10 @@ internal fun PageMetadata?.toSidecarPartOutlines(): Map<Int, List<OcrBoxMetadata
     }.toMap()
 }
 
+/** True when a list row at [itemOffset] with [itemSize] sits entirely inside the viewport. */
+internal fun isListItemFullyVisible(itemOffset: Int, itemSize: Int, viewportStart: Int, viewportEnd: Int): Boolean =
+    itemOffset >= viewportStart && itemOffset + itemSize <= viewportEnd
+
 internal fun OcrBoxMetadata.contains(x: Float, y: Float): Boolean =
     x >= left && x <= right && y >= top && y <= bottom
 
