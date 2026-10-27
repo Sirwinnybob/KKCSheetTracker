@@ -3051,7 +3051,7 @@ private fun SheetLoadingPlaceholder(modifier: Modifier = Modifier) {
 
 
 /** Vertical nudges (px) a newly selected part row makes before settling, up and down then rest. */
-private val PART_ROW_WIGGLE_TARGETS_PX = listOf(-14f, 12f, -8f, 5f, -2f, 0f)
+private val PART_ROW_WIGGLE_TARGETS_PX = listOf(-7f, 6f, -4f, 2.5f, -1f, 0f)
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
@@ -3143,7 +3143,7 @@ private fun PartsTable(
             }
             if (!animationsDisabled) {
                 for (target in PART_ROW_WIGGLE_TARGETS_PX) {
-                    wiggleY.animateTo(target, tween(durationMillis = 140))
+                    wiggleY.animateTo(target, tween(durationMillis = 280))
                 }
             }
         }
