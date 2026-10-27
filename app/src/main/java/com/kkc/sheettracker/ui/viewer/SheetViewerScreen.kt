@@ -2909,8 +2909,12 @@ internal fun DiagramView(
             .pointerInput(diagramBboxes, partOutlines, bboxScale, viewSize, zoom, panX, panY) {
                 fun hitPart(tapX: Float, tapY: Float): Int? {
                     if (viewSize == IntSize.Zero) return null
-                    val ux = (tapX - panX) / zoom
-                    val uy = (tapY - panY) / zoom
+                    // graphicsLayer scales around the viewport center, then translates.
+                    // Undo that same pivot before mapping the fitted image to sidecar pixels.
+                    val cx = viewSize.width / 2f
+                    val cy = viewSize.height / 2f
+                    val ux = (tapX - cx - panX) / zoom + cx
+                    val uy = (tapY - cy - panY) / zoom + cy
                     val (bx, by) = viewToBitmap(ux, uy)
                     return hitSidecarPart(bx, by, partOutlines, diagramBboxes, zoom)
                 }
@@ -2960,13 +2964,20 @@ internal fun DiagramView(
                     // Outlines already span the whole part; only label boxes need breathing room.
                     val pad = if (!selOutlines.isNullOrEmpty()) 2f else 12f
                     Canvas(modifier = Modifier.fillMaxSize()) {
+                        // The graphics layer scales the canvas; keep the visible line 6px wide.
+                        val outlineWidth = 6f / zoom
                         for (selBbox in selBboxes) {
                             val (vLeft, vTop) = bitmapToView(selBbox.left.toFloat(), selBbox.top.toFloat())
                             val (vRight, vBottom) = bitmapToView(selBbox.right.toFloat(), selBbox.bottom.toFloat())
+                            val highlightBounds = Rect(vLeft - pad - 3f, vTop - pad - 3f,
+                                vRight + pad + 3f, vBottom + pad + 3f)
+                            // Stroke is centered on its path: move it out by half its width
+                            // so its inner edge follows the outermost highlight fill.
+                            val outlineBounds = highlightBounds.inflate(outlineWidth / 2f)
                             drawRect(
                                 color = statusColors.skip.copy(alpha = 0.40f),
-                                topLeft = Offset(vLeft - pad - 3f, vTop - pad - 3f),
-                                size = Size(vRight - vLeft + (pad + 3f) * 2, vBottom - vTop + (pad + 3f) * 2)
+                                topLeft = highlightBounds.topLeft,
+                                size = highlightBounds.size
                             )
                             drawRect(
                                 color = statusColors.skipBorder.copy(alpha = 0.33f),
@@ -2975,9 +2986,9 @@ internal fun DiagramView(
                             )
                             drawRect(
                                 color = statusColors.bad,
-                                topLeft = Offset(vLeft - pad, vTop - pad),
-                                size = Size(vRight - vLeft + pad * 2, vBottom - vTop + pad * 2),
-                                style = Stroke(width = 6f)
+                                topLeft = outlineBounds.topLeft,
+                                size = outlineBounds.size,
+                                style = Stroke(width = outlineWidth)
                             )
                         }
                     }
@@ -3015,10 +3026,16 @@ internal fun DiagramView(
                     .ifEmpty { diagramBboxes[number].orEmpty() }.map { it.previewBounds() }
             }
             val viewport = Rect(0f, 0f, viewSize.width.toFloat(), viewSize.height.toFloat())
-            val anchor = bounds[selectedPart.number]?.maxByOrNull {
-                val visible = it.intersect(viewport)
-                visible.width.coerceAtLeast(0f) * visible.height.coerceAtLeast(0f)
+            val selectedBounds = bounds[selectedPart.number].orEmpty()
+            // A double-sided sheet can show two copies of a part. Keep the same copy
+            // as the anchor while zooming rather than switching by visible area each frame.
+            val anchorIndex = remember(selectedPart.number, partOutlines, diagramBboxes, viewSize) {
+                selectedBounds.indices.maxByOrNull { index ->
+                    val visible = selectedBounds[index].intersect(viewport)
+                    visible.width.coerceAtLeast(0f) * visible.height.coerceAtLeast(0f)
+                }
             }
+            val anchor = anchorIndex?.let { selectedBounds.getOrNull(it) }
             SheetPartInfoPopup(selectedPart, anchor, bounds.values.flatten(), viewSize, partInfoHazeState)
         }
     }

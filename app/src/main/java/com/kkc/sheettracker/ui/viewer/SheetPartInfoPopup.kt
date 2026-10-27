@@ -122,7 +122,11 @@ internal fun SheetPartInfoPopup(
     val density = LocalDensity.current
     val gap = with(density) { 8.dp.toPx() }
     var popupSize by remember { mutableStateOf(IntSize.Zero) }
-    val position = sheetPartPopupPosition(viewport, popupSize, anchor, occupied, gap)
+    // Re-pick space only when selection or layout changes, never on each zoom/pan frame.
+    val placement = remember(part.number, popupSize, viewport, gap, anchor != null) {
+        SheetPartPopupPlacement(viewport, popupSize, anchor, occupied, gap)
+    }
+    val position = placement.position(anchor)
     val lowEnd = LocalLowEndMode.current
     val theme = LocalKKCThemeTokens.current
     val frosted = theme.frosted

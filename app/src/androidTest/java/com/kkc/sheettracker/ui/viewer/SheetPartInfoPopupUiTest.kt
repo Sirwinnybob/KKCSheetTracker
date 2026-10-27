@@ -15,15 +15,19 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pinch
+import androidx.compose.ui.test.swipe
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import com.kkc.sheettracker.data.models.OcrBoxMetadata
@@ -47,6 +51,7 @@ class SheetPartInfoPopupUiTest {
         width = 12.875, length = 27.5, room = "PANTRY", rotated = true, banding = "2WD2LD")
     private val plain = Part(number = 2, cabNumber = 8, name = "Shelf", width = 20.0, length = 24.0)
     private val selected = mutableStateOf<Int?>(null)
+    private val longPressed = mutableStateOf<Int?>(null)
     private val dark = mutableStateOf(false)
     private val tokens = mutableStateOf(BuiltInKKCThemeTokens)
     private val lowEnd = mutableStateOf(LowEndModeFlags(false, true, true, true, true))
@@ -69,7 +74,8 @@ class SheetPartInfoPopupUiTest {
                         selectedPartNumber = selected.value, diagramBboxes = emptyMap(),
                         partOutlines = if (withGeometry) boxes else emptyMap(), resetZoomTrigger = 0,
                         onTapPart = { selected.value = if (selected.value == it) null else it },
-                        onLongPressPart = {}, modifier = Modifier.fillMaxWidth().height(440.dp))
+                        onLongPressPart = { longPressed.value = it },
+                        modifier = Modifier.fillMaxWidth().height(440.dp).testTag("Sheet preview"))
                     Button(onClick = { selected.value = marked.number }) { Text("Select list part") }
                     Button(onClick = { selected.value = plain.number }) { Text("Select plain part") }
                 }
@@ -89,6 +95,104 @@ class SheetPartInfoPopupUiTest {
         diagram.performTouchInput { click(Offset(width * 0.55f, height * 0.55f)) }
         compose.onNodeWithText(sheetPartInfoText(marked)).assertDoesNotExist()
         compose.runOnIdle { assertEquals(null, selected.value) }
+    }
+
+    @Test fun zoomedAndPannedPreviewTapsAndLongPressesMatchVisiblePart() {
+        showViewer()
+        val preview = compose.onNodeWithTag("Sheet preview")
+        preview.performTouchInput {
+            pinch(center - Offset(60f, 60f), center + Offset(60f, 60f),
+                center - Offset(150f, 150f), center + Offset(150f, 150f))
+        }
+        preview.performTouchInput { click(center) }
+        compose.runOnIdle { assertEquals(marked.number, selected.value) }
+        compose.runOnIdle { selected.value = null }
+        preview.performTouchInput { swipe(center, center + Offset(120f, 60f)) }
+        preview.performTouchInput { click(center + Offset(120f, 60f)) }
+        compose.runOnIdle { assertEquals(marked.number, selected.value) }
+        compose.runOnIdle { selected.value = null }
+        preview.performTouchInput { longClick(center + Offset(120f, 60f)) }
+        compose.runOnIdle { assertEquals(marked.number, longPressed.value) }
+    }
+
+    @Test fun zoomAroundOffCenterPartKeepsTapsOnThatPart() {
+        showViewer()
+        val preview = compose.onNodeWithTag("Sheet preview")
+        preview.performTouchInput {
+            val fitSize = minOf(width, height).toFloat()
+            val partCenter = center + Offset(-0.275f * fitSize, -0.225f * fitSize)
+            pinch(partCenter - Offset(30f, 30f), partCenter + Offset(30f, 30f),
+                partCenter - Offset(75f, 75f), partCenter + Offset(75f, 75f))
+        }
+        preview.performTouchInput {
+            val fitSize = minOf(width, height).toFloat()
+            click(center + Offset(-0.275f * fitSize, -0.225f * fitSize))
+        }
+        compose.runOnIdle { assertEquals(plain.number, selected.value) }
+    }
+
+    @Test fun selectedPartOutlineKeepsItsScreenThicknessAndOuterEdgeWhenZoomed() {
+        showViewer()
+        compose.onNodeWithText("Select list part").performClick()
+        val preview = compose.onNodeWithTag("Sheet preview")
+        fun outlineThickness(): Int {
+            val pixels = preview.captureToImage().toPixelMap()
+            val borderColor = tokens.value.lightStatus.bad
+            var run = 0
+            var longestRun = 0
+            var firstBorderX: Int? = null
+            for (x in 0 until pixels.width) {
+                val color = pixels[x, pixels.height / 2]
+                val isBorder = kotlin.math.abs(color.red - borderColor.red) < 0.03f &&
+                    kotlin.math.abs(color.green - borderColor.green) < 0.03f &&
+                    kotlin.math.abs(color.blue - borderColor.blue) < 0.03f
+                run = if (isBorder) run + 1 else 0
+                if (isBorder && firstBorderX == null) firstBorderX = x
+                longestRun = maxOf(longestRun, run)
+            }
+            firstBorderX?.let { borderX ->
+                val outside = pixels[(borderX - 2).coerceAtLeast(0), pixels.height / 2]
+                assertTrue("Highlight fill extends outside the red outline",
+                    outside.red > 0.98f && outside.green > 0.98f && outside.blue > 0.98f)
+            }
+            return longestRun
+        }
+        val originalThickness = outlineThickness()
+        assertTrue("No outline found before zoom", originalThickness > 0)
+        preview.performTouchInput {
+            pinch(center - Offset(60f, 60f), center + Offset(60f, 60f),
+                center - Offset(150f, 150f), center + Offset(150f, 150f))
+        }
+        val zoomedThickness = outlineThickness()
+        assertTrue("No outline found after zoom", zoomedThickness > 0)
+        assertTrue("Outline grew from $originalThickness to $zoomedThickness pixels",
+            kotlin.math.abs(originalThickness - zoomedThickness) <= 1)
+        saveScreenshot("sheet-part-outline-zoom.png")
+    }
+
+    @Test fun popupKeepsItsSideWhileZoomingInAndBackOut() {
+        showViewer()
+        compose.onNodeWithText("Select list part").performClick()
+        val preview = compose.onNodeWithTag("Sheet preview")
+        val previewCenterY = preview.fetchSemanticsNode().boundsInRoot.center.y
+        val details = compose.onNodeWithText(sheetPartInfoText(marked))
+        assertTrue(details.fetchSemanticsNode().boundsInRoot.top > previewCenterY)
+        repeat(2) {
+            preview.performTouchInput {
+                pinch(center - Offset(60f, 60f), center + Offset(60f, 60f),
+                    center - Offset(150f, 150f), center + Offset(150f, 150f))
+            }
+            details.assertIsDisplayed()
+            assertTrue("Popup jumped away from its bottom attachment on zoom in",
+                details.fetchSemanticsNode().boundsInRoot.top > previewCenterY)
+            preview.performTouchInput {
+                pinch(center - Offset(150f, 150f), center + Offset(150f, 150f),
+                    center - Offset(60f, 60f), center + Offset(60f, 60f))
+            }
+            details.assertIsDisplayed()
+            assertTrue("Popup jumped away from its bottom attachment on zoom out",
+                details.fetchSemanticsNode().boundsInRoot.top > previewCenterY)
+        }
     }
 
     @Test fun listSelectionUpdatesPopupAndKeepsItReadableAtZoomInBothThemes() {

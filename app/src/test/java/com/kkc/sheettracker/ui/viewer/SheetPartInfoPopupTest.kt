@@ -8,8 +8,42 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.roundToInt
 
 class SheetPartInfoPopupTest {
+    @Test fun popupKeepsItsAttachmentThroughSmallZoomChanges() {
+        val viewport = IntSize(800, 600)
+        val popup = IntSize(240, 90)
+        val anchor = Rect(300f, 200f, 500f, 400f)
+        val placement = SheetPartPopupPlacement(viewport, popup, anchor,
+            listOf(anchor, Rect(250f, 0f, 600f, 190f)), 8f)
+        assertEquals(408, placement.position(anchor).y)
+        var previous = placement.position(anchor)
+        for (step in (0..50) + (50 downTo 0)) {
+            val scale = 1f + step / 100f
+            val nextAnchor = Rect(400f - 100f * scale, 300f - 100f * scale,
+                400f + 100f * scale, 300f + 100f * scale)
+            val next = placement.position(nextAnchor)
+            assertEquals("Popup switched away from its bottom attachment", (nextAnchor.bottom + 8f).roundToInt(), next.y)
+            assertTrue("Popup jumped horizontally", kotlin.math.abs(next.x - previous.x) <= 2)
+            assertTrue("Popup jumped vertically", kotlin.math.abs(next.y - previous.y) <= 2)
+            previous = next
+        }
+    }
+
+    @Test fun popupClampsItsOriginalSideAtViewportEdgesAndRestoresItWhenZoomingBack() {
+        val viewport = IntSize(800, 600)
+        val popup = IntSize(240, 90)
+        val anchor = Rect(300f, 200f, 500f, 400f)
+        val placement = SheetPartPopupPlacement(viewport, popup, anchor,
+            listOf(anchor, Rect(250f, 0f, 600f, 190f)), 8f)
+        val original = placement.position(anchor)
+        val enlarged = placement.position(Rect(0f, -100f, 800f, 700f))
+        assertEquals("Popup jumped to another side instead of clamping", 502, enlarged.y)
+        assertTrue(enlarged.x in 8..552)
+        assertEquals(original, placement.position(anchor))
+    }
+
     @Test fun rotationStarStaysRedUnlessPopupItselfHasARedTint() {
         for (background in listOf(Color.White, Color.Black, Color.Green, Color.Blue,
             Color(0xFF6A1B9A), Color(0xFFFF8800))) {
