@@ -2,6 +2,28 @@
     box-sizing: border-box;
 }
 
+#viewer-render-settings {
+    position: fixed;
+    top: 8px;
+    right: 8px;
+    z-index: 100;
+    width: min(232px, calc(100vw - 16px));
+    padding: 0 12px 12px;
+    border: 1px solid #666;
+    border-radius: 8px;
+    background: #242424;
+    color: #eee;
+    font-size: 14px;
+}
+#viewer-render-settings:not([open]) { padding-bottom: 0; width: auto; }
+body.light-mode #viewer-render-settings { background: #fff; color: #111; border-color: #aaa; }
+#viewer-render-settings summary { min-height: 48px; padding: 14px 0; cursor: pointer; }
+#viewer-render-settings label { display: block; margin-bottom: 8px; }
+#viewer-render-settings .render-outlines-option { display: flex; align-items: center; gap: 8px; min-height: 48px; cursor: pointer; }
+#mesh-edges-toggle { width: 20px; height: 20px; margin: 0; accent-color: #1976d2; }
+#antialiasing-quality { width: 100%; min-height: 48px; padding: 8px; font: inherit; background: inherit; color: inherit; border: 1px solid #888; border-radius: 6px; }
+#viewer-render-settings :focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
+
 body {
     margin: 0;
     overflow: hidden;

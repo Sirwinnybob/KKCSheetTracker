@@ -1,10 +1,14 @@
 import { CoreEngine } from './engine.js';
 import { frameModel, setupViewerControls } from './viewer-controls.js';
 import { loadModel } from './modelLoader.js';
+import { MeshEdges } from './meshEdges.js';
+import { IdleReveal } from './idleReveal.js';
+import { setupRenderSettings } from './renderSettings.js';
 
 let scene, camera, renderer, engine;
 let interaction;
 let loadedModel = null;
+let meshEdges = null;
 
 function withViewerBridge(action) {
     const bridge = window.KKCViewerBridge;
@@ -27,8 +31,9 @@ function updateRenderVisibility() {
 
 function disposeModel(model) {
     if (!model) return;
+    meshEdges?.remove(model);
     model.traverse(obj => {
-        if (!obj.isMesh) return;
+        if (!obj.isMesh || obj.isLineSegments2) return;
         if (obj.geometry) obj.geometry.dispose();
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
         mats.forEach(mat => { if (mat && typeof mat.dispose === 'function') mat.dispose(); });
@@ -105,6 +110,20 @@ async function init() {
         scene    = engine.scene;
         camera   = engine.camera;
         renderer = engine.renderer;
+        meshEdges = new MeshEdges(scene);
+        const idleReveal = new IdleReveal({ requestRender: () => engine.requestRender() });
+        idleReveal.register(visible => {
+            meshEdges.setRevealed(visible);
+            engine.setAntialiasingActive(visible);
+        });
+        const stopMotionReporting = engine.onCameraMotion(moving => idleReveal.frame(moving));
+        const renderSettings = setupRenderSettings(engine, meshEdges);
+        window.addEventListener('beforeunload', () => {
+            renderSettings.dispose();
+            stopMotionReporting();
+            idleReveal.dispose();
+            meshEdges.dispose();
+        });
         interaction = setupViewerControls(engine, () => loadedModel ? [loadedModel] : []);
         window.addEventListener('beforeunload', () => interaction.dispose());
 
@@ -137,6 +156,7 @@ async function init() {
             if (loadedModel) { scene.remove(loadedModel); disposeModel(loadedModel); }
             loadedModel = model;
             scene.add(loadedModel);
+            meshEdges.add(loadedModel);
             frameModel(engine, loadedModel);
             if (engine) engine.requestRender();
 

@@ -491,6 +491,7 @@ class MainActivity : ComponentActivity() {
                         onCheckForUpdates = { updateManager.checkForUpdates(checkSelf = true) },
                         hasPendingUpdates = hasPendingUpdateNotification(updateManager.pendingUpdateApk != null, updateManager.pendingExternalUpdates),
                         pendingSelfUpdate = updateManager.pendingUpdateApk,
+                        pendingSelfUpdateVersionCode = updateManager.pendingSelfUpdateVersionCode,
                         pendingExternalUpdates = updateManager.pendingExternalUpdates,
                         onInstallSelfUpdate = { updateManager.installPendingUpdate() },
                         onInstallExternalUpdate = { update -> updateManager.installExternalUpdate(update) },

@@ -103,6 +103,7 @@ fun SettingsScreen(
     uiPreferencesStore: UiPreferencesStore,
     idlePowerSaveStore: IdlePowerSaveStore,
     pendingSelfUpdate: File? = null,
+    pendingSelfUpdateVersionCode: Long? = null,
     pendingExternalUpdates: List<ExternalAppUpdate> = emptyList(),
     onInstallSelfUpdate: () -> Unit = {},
     onInstallExternalUpdate: (ExternalAppUpdate) -> Unit = {},
@@ -238,6 +239,7 @@ fun SettingsScreen(
                         )
                         SettingsSection.UPDATES_ABOUT -> UpdatesAboutPane(
                             pendingSelfUpdate = pendingSelfUpdate,
+                            pendingSelfUpdateVersionCode = pendingSelfUpdateVersionCode,
                             pendingExternalUpdates = offers.updates,
                             availableApps = offers.available,
                             onInstallSelfUpdate = onInstallSelfUpdate,

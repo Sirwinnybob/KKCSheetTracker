@@ -25,6 +25,7 @@ import java.io.File
 @Composable
 internal fun UpdatesAboutPane(
     pendingSelfUpdate: File?,
+    pendingSelfUpdateVersionCode: Long? = null,
     /** Updates for apps already installed on this tablet. */
     pendingExternalUpdates: List<ExternalAppUpdate>,
     /** Companion apps offered on the feed but not installed here; shown separately, not as updates. */
@@ -52,7 +53,7 @@ internal fun UpdatesAboutPane(
                     UpdateRow(
                         label = "KKC Sheet Tracker",
                         action = "Update",
-                        subtitle = "Installed ${BuildConfig.VERSION_NAME}, update ready",
+                        subtitle = "Installed ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) → available code ${pendingSelfUpdateVersionCode ?: "?"}",
                         onClick = onInstallSelfUpdate
                     )
                 }

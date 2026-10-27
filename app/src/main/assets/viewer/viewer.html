@@ -110,6 +110,21 @@
         <button id="wing-frame-btn" class="wing-control" type="button" aria-label="Frame model" title="Frame model">⌗</button>
     </div>
 
+    <details id="viewer-render-settings" hidden>
+        <summary>View Settings</summary>
+        <label class="render-outlines-option" for="mesh-edges-toggle">
+            <input type="checkbox" id="mesh-edges-toggle" checked>
+            Show Outlines
+        </label>
+        <label for="antialiasing-quality">Anti-aliasing Quality</label>
+        <select id="antialiasing-quality">
+            <option value="off">Off</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high" selected>High</option>
+        </select>
+    </details>
+
     <script type="importmap">
     {
         "imports": {

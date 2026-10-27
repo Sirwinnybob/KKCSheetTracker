@@ -4,6 +4,7 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { frameModel, setupViewerControls } from './viewer-controls.js';
+import { IdleReveal } from './idleReveal.js';
 import { wingControlAction } from './wing-interactions.js';
 import { addWingEdgeOverlay, applyWingTransform, doorFacePrimitives, fallbackWingMaterialColor, renderableWingParts } from './wing-scene.js';
 
@@ -30,6 +31,13 @@ const engine = new CoreEngine({
 });
 const { scene } = engine;
 const group = new THREE.Group(); scene.add(group);
+const edgeOverlays = [];
+const idleReveal = new IdleReveal({ requestRender: () => engine.requestRender() });
+idleReveal.register(visible => {
+  edgeOverlays.forEach(overlay => { overlay.visible = visible; });
+  engine.setAntialiasingActive(visible);
+});
+const stopMotionReporting = engine.onCameraMotion(moving => idleReveal.frame(moving));
 let capInspection = false;
 interaction = setupViewerControls(engine, () => [group]);
 function fit() { frameModel(engine, group); }
@@ -41,6 +49,7 @@ document.addEventListener('visibilitychange', updateVisibility);
 window.addEventListener('pagehide', () => engine.suspendRendering());
 window.addEventListener('pageshow', updateVisibility);
 window.addEventListener('beforeunload', () => {
+  stopMotionReporting(); idleReveal.dispose();
   interaction.dispose(); engine.suspendRendering();
 });
 updateVisibility();
@@ -80,7 +89,9 @@ function addSolid(part, solid) {
   }
   const mesh = new THREE.Mesh(geometry, material);
   applyWingTransform(mesh, part.transform.values, matrix);
-  addWingEdgeOverlay(mesh, THREE, { LineSegments2, LineSegmentsGeometry, LineMaterial });
+  const overlay = addWingEdgeOverlay(mesh, THREE, { LineSegments2, LineSegmentsGeometry, LineMaterial });
+  overlay.visible = idleReveal.visible;
+  edgeOverlays.push(overlay);
   mesh.userData = { ...part, doorFaceKind: solid.kind }; group.add(mesh);
 }
 

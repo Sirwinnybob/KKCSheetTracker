@@ -143,6 +143,9 @@ fun Model3DPane(
                             addJavascriptInterface(
                                 Viewer3DBridge(
                                     paneId,
+                                    renderPreferences = ViewerRenderPreferences(
+                                        ctx.getSharedPreferences("viewer3d_render", android.content.Context.MODE_PRIVATE)
+                                    ),
                                     onRoomSelected = { room -> latestOnRoomSelected?.invoke(room) },
                                     onRooms = { list, current ->
                                         rooms = list
@@ -226,8 +229,17 @@ fun Model3DPane(
 internal class Viewer3DBridge(
     private val paneId: String,
     private val onRoomSelected: (String) -> Unit = {},
-    private val onRooms: (List<String>, String) -> Unit = { _, _ -> }
+    private val onRooms: (List<String>, String) -> Unit = { _, _ -> },
+    private val renderPreferences: ViewerRenderPreferences? = null
 ) {
+    @JavascriptInterface
+    fun getRenderSettings(): String = renderPreferences?.readJson() ?: "{}"
+
+    @JavascriptInterface
+    fun setRenderSettings(showOutlines: Boolean, antialiasingQuality: String) {
+        renderPreferences?.save(showOutlines, antialiasingQuality)
+    }
+
     /** The page hands over its room list (JSON array) and the room it opened on. */
     @JavascriptInterface
     fun setRooms(roomsJson: String, current: String) {

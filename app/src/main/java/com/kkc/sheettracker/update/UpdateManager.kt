@@ -79,6 +79,9 @@ class UpdateManager(
     var pendingUpdateApk by mutableStateOf<File?>(null)
         private set
 
+    var pendingSelfUpdateVersionCode by mutableStateOf<Long?>(null)
+        private set
+
     var pendingExternalUpdates by mutableStateOf<List<ExternalAppUpdate>>(emptyList())
         private set
 
@@ -234,7 +237,10 @@ class UpdateManager(
     /** Main thread: apply the scan results (Compose state + manual-path dialog). */
     private fun applyUpdateScan(scan: UpdateScanResult, checkSelf: Boolean) {
         // Preserve prior behavior: pendingUpdateApk is only ever set, never cleared by a scan.
-        scan.selfApk?.let { pendingUpdateApk = it }
+        scan.selfApk?.let { apk ->
+            pendingUpdateApk = apk
+            pendingSelfUpdateVersionCode = getSelfApkInfo(apk)?.versionCode
+        }
         pendingExternalUpdates = scan.externalUpdates
         if (checkSelf && scan.selfUpdateDir == null) {
             showManualPathDialog()
