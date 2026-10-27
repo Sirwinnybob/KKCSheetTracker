@@ -3143,7 +3143,7 @@ private fun PartsTable(
             }
             if (!animationsDisabled) {
                 for (target in PART_ROW_WIGGLE_TARGETS_PX) {
-                    wiggleY.animateTo(target, tween(durationMillis = 70))
+                    wiggleY.animateTo(target, tween(durationMillis = 140))
                 }
             }
         }
