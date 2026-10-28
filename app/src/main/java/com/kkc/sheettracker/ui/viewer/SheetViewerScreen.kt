@@ -1714,6 +1714,7 @@ fun SheetViewerScreen(
                                     invertSheetBitmap = invertSheetBitmap,
                                     parts = parts,
                                     selectedPartNumber = selectedPartNumber,
+                                    badPartNumbers = badParts,
                                     diagramBboxes = diagramBboxes,
                                     partOutlines = diagramOutlines,
                                     bboxScale = diagramScale,
@@ -2828,6 +2829,8 @@ internal fun DiagramView(
     invertSheetBitmap: Boolean = false,
     parts: List<Part>,
     selectedPartNumber: Int?,
+    /** Bad part numbers; drawn with a faint red fill whether or not they are selected. */
+    badPartNumbers: Set<Int> = emptySet(),
     diagramBboxes: Map<Int, List<OcrBoxMetadata>>,
     /** Full part outlines (sidecar `partBoxes`); empty falls back to the [diagramBboxes] label boxes. */
     partOutlines: Map<Int, List<OcrBoxMetadata>> = emptyMap(),
@@ -2955,6 +2958,29 @@ internal fun DiagramView(
                     colorFilter = if (invertSheetBitmap) ColorFilter.colorMatrix(SHEET_BITMAP_INVERSION_COLOR_MATRIX) else null,
                     filterQuality = FilterQuality.None
                 )
+
+                // Faint red wash over every bad part, so they stay visible without a tap.
+                if (badPartNumbers.isNotEmpty() && viewSize != IntSize.Zero) {
+                    val badFill = KKCThemeColors.statusColors.bad.copy(alpha = 0.22f)
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        for (badNumber in badPartNumbers) {
+                            if (badNumber == selectedPartNumber) continue
+                            val outlines = partOutlines[badNumber]?.takeIf { it.isNotEmpty() }
+                                ?: diagramBboxes[badNumber]
+                                ?: continue
+                            val pad = if (partOutlines[badNumber].isNullOrEmpty()) 12f else 2f
+                            for (box in outlines) {
+                                val (vLeft, vTop) = bitmapToView(box.left.toFloat(), box.top.toFloat())
+                                val (vRight, vBottom) = bitmapToView(box.right.toFloat(), box.bottom.toFloat())
+                                drawRect(
+                                    color = badFill,
+                                    topLeft = Offset(vLeft - pad, vTop - pad),
+                                    size = Size(vRight - vLeft + pad * 2, vBottom - vTop + pad * 2)
+                                )
+                            }
+                        }
+                    }
+                }
 
                 // Highlight overlay for selected part; transformed together with image.
                 val statusColors = KKCThemeColors.statusColors
