@@ -1,5 +1,8 @@
 package com.kkc.sheettracker.ui.dashboard
 
+import com.kkc.sheettracker.data.cnc.*
+import com.kkc.sheettracker.ui.cnc.*
+
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
@@ -115,6 +118,7 @@ sealed interface UnifiedModeDashboardSpec {
         val appStateFlags: AppStateFeatureFlags,
         val onNavigateToJobs: () -> Unit,
         val onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit,
+        val onOpenLoadedSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit = onOpenSheet,
         val modeSwitcher: (@Composable RowScope.() -> Unit)? = null
     ) : UnifiedModeDashboardSpec
 
@@ -153,6 +157,7 @@ fun UnifiedModeDashboardScreen(spec: UnifiedModeDashboardSpec) {
             appStateFlags = spec.appStateFlags,
             onNavigateToJobs = spec.onNavigateToJobs,
             onOpenSheet = spec.onOpenSheet,
+            onOpenLoadedSheet = spec.onOpenLoadedSheet,
             modeSwitcher = spec.modeSwitcher
         )
         is UnifiedModeDashboardSpec.Hardwoods -> HardwoodsDashboardContent(
@@ -187,10 +192,13 @@ private fun CncDashboardContent(
     appStateFlags: AppStateFeatureFlags,
     onNavigateToJobs: () -> Unit,
     onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit,
+    onOpenLoadedSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit,
     modeSwitcher: (@Composable RowScope.() -> Unit)? = null
 ) {
     val scanState by scanCoordinator.state.collectAsState()
     val dashboard by appStateStore.dashboardUiModel.collectAsState()
+    val cncProjection by appStateStore.cncProjection.collectAsState()
+    val cncMarks = rememberCncSheetMarks(appStateStore)
     val appUiState by appStateStore.uiState.collectAsState()
     val appFlags = appStateFlags.snapshot()
     val lowEnd = LocalLowEndMode.current
@@ -246,7 +254,10 @@ private fun CncDashboardContent(
             items = dashboard.recentInProgressMaterials,
             hasLoadedOnce = hasLoadedOnce,
             jobRepository = jobRepository,
-            onOpenSheet = onOpenSheet
+            onOpenSheet = onOpenSheet,
+            cncProjection = cncProjection,
+            cncMarks = cncMarks,
+            onOpenLoadedSheet = onOpenLoadedSheet,
         )
         if (lowEnd.animationsDisabled) {
             if (!hasLoadedOnce || dashboard.incompleteRemakeMaterials.isNotEmpty()) {
@@ -349,12 +360,16 @@ private fun CncDashboardContent(
 }
 
 @Composable
-private fun CncRecentMaterialsSection(
+internal fun CncRecentMaterialsSection(
     items: List<DashboardRecentMaterialItem>,
     hasLoadedOnce: Boolean,
     jobRepository: JobRepository,
-    onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit
+    onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit,
+    cncProjection: CncAppStateProjection = CncAppStateProjection(),
+    cncMarks: CncSheetMarks = CncSheetMarks(),
+    onOpenLoadedSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit = onOpenSheet,
 ) {
+    val presentation = remember(items, cncProjection, cncMarks) { projectCncDashboard(items, cncProjection, cncMarks) }
     DashboardSurfaceCard {
         DashboardSectionHeader(
             title = "Recent In-Progress Materials",
@@ -365,7 +380,7 @@ private fun CncRecentMaterialsSection(
         // shadows and defeats scrollShadowBleed below.
         Box {
             when {
-                !hasLoadedOnce -> {
+                !hasLoadedOnce && presentation.rows.isEmpty() -> {
                     Row(
                         modifier = Modifier
                             .scrollShadowBleed()
@@ -376,7 +391,7 @@ private fun CncRecentMaterialsSection(
                         CncRecentMaterialCard(item = null, thumbnail = null, onClick = {})
                     }
                 }
-                items.isEmpty() -> {
+                presentation.rows.isEmpty() -> {
                     Text(
                         "Nothing is in progress right now.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -390,7 +405,17 @@ private fun CncRecentMaterialsSection(
                             .padding(horizontal = ScrollShadowBleed),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items.forEach { item ->
+                        presentation.rows.forEach { row ->
+                            if (row is CncDashboardRow.Unknown) {
+                                Column(Modifier.width(268.dp).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(row.name, style = MaterialTheme.typography.titleMedium)
+                                    Text(if (row.running) "Running" else "Loaded · idle",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                return@forEach
+                            }
+                            val materialRow = row as CncDashboardRow.Material
+                            val item = materialRow.item
                             key(item.jobFolderName, item.pdfFilename) {
                                 val thumbnail by produceState<Bitmap?>(
                                     initialValue = null,
@@ -406,8 +431,10 @@ private fun CncRecentMaterialsSection(
                                 CncRecentMaterialCard(
                                     item = item,
                                     thumbnail = thumbnail,
+                                    pill = materialRow.pill,
                                     onClick = {
-                                        onOpenSheet(item.jobFolderName, item.pdfFilename, item.nextIncompletePage)
+                                        val open = if (materialRow.pill != null) onOpenLoadedSheet else onOpenSheet
+                                        open(item.jobFolderName, item.pdfFilename, materialRow.openPage)
                                     }
                                 )
                             }
@@ -688,7 +715,8 @@ private fun renderPdfThumbnail(
 private fun CncRecentMaterialCard(
     item: DashboardRecentMaterialItem?,
     thumbnail: Bitmap?,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    pill: CncPill? = null,
 ) {
     val lowEnd = LocalLowEndMode.current
     val tileAccent = item?.let { recentMaterialAccent(it.counts) } ?: DashboardAccent.NEUTRAL
@@ -709,6 +737,7 @@ private fun CncRecentMaterialCard(
         Column(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            pill?.let { CncStatusPill(it, placement = CncPillPlacement.DASHBOARD) }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -739,7 +768,7 @@ private fun CncRecentMaterialCard(
                 maxLines = 1
             )
             Text(
-                item?.let { "${it.jobFolderName} • Next sheet ${it.nextIncompletePage}" } ?: " ",
+                item?.let { "${it.jobFolderName} • ${if (pill == null) "Next sheet" else "Sheet"} ${it.nextIncompletePage}" } ?: " ",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1
