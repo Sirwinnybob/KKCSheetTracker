@@ -37,14 +37,15 @@ class CncLiveDashboardTest {
                 }
             }
         }
-        compose.onNodeWithText("ON CNC").assertIsDisplayed().performClick()
-        compose.runOnIdle { assertEquals(ref, opened) }
+        compose.onNodeWithText("ON CNC").assertIsDisplayed()
         compose.onNodeWithText("1 recent material").assertExists()
         val before = compose.onNodeWithTag("cnc-status-dot", useUnmergedTree = true).captureToImage()
         compose.mainClock.advanceTimeBy(1_000)
         val after = compose.onNodeWithTag("cnc-status-dot", useUnmergedTree = true).captureToImage()
         val a = before.toPixelMap(); val b = after.toPixelMap()
         assertEquals(a[a.width / 2, a.height / 2], b[b.width / 2, b.height / 2])
+        compose.onNodeWithText("ON CNC").performClick()
+        compose.runOnIdle { assertEquals(ref, opened) }
         compose.runOnIdle { marks.value = CncSheetMarks() }
         compose.onNodeWithText("ON CNC").assertDoesNotExist()
         compose.onNodeWithText("${ref.jobFolderName} • Next sheet 6").assertExists()
