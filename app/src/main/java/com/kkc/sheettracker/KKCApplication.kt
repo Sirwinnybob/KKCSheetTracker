@@ -10,6 +10,15 @@ import com.kkc.sheettracker.data.mixservice.MixServiceClient
 import com.kkc.sheettracker.data.mixservice.mixOperationSessionStore
 
 class KKCApplication : Application() {
+    /** No network activity until a foreground CNC surface acquires a lease. */
+    val machineStatusStore: com.kkc.sheettracker.data.cnc.MachineStatusStore by lazy {
+        com.kkc.sheettracker.data.cnc.MachineStatusStore(
+            com.kkc.sheettracker.data.cnc.MachineStateClient(),
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
+            android.os.SystemClock::elapsedRealtime,
+        ) { available -> android.util.Log.i("MachineStatus", if (available) "available" else "unavailable") }
+    }
+
     /** One process-scoped client is shared by catalog reads and durable mutations. */
     val mixServiceClient: MixServiceClient by lazy { MixServiceClient() }
 
