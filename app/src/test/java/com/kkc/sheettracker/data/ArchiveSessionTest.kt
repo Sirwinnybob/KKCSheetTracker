@@ -34,6 +34,7 @@ class ArchiveSessionTest {
             assertEquals("100 - Alpha", session.archiveJobId)
             assertEquals("v1", session.contentVersion)
             assertTrue(session.readOnly)
+            assertFalse(session.appStateStore.machineStatusEnabled)
             assertEquals(cacheRoot, session.baseDir)
             assertEquals("100 - Alpha", session.folderName)
         } finally {

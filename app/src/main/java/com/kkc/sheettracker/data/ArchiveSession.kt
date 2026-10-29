@@ -143,7 +143,7 @@ class ArchiveSession private constructor(
             val hardwoodsScanCoordinator = HardwoodsScanCoordinator(hardwoodsRepository)
             val assemblyScanCoordinator = AssemblyScanCoordinator(cacheJobParentDir, jobRepository)
             val specialtyScanCoordinator = SpecialtyScanCoordinator(specialtyRepository)
-            val appStateStore = AppStateStore(scanCoordinator, progressStore)
+            val appStateStore = AppStateStore(scanCoordinator, progressStore, machineStatusEnabled = false)
             val assemblyStateStore = AssemblyStateStore(
                 assemblyScanCoordinator = assemblyScanCoordinator,
                 scanCoordinator = scanCoordinator,

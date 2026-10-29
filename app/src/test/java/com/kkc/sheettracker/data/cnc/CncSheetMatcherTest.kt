@@ -7,7 +7,7 @@ import org.junit.Test
 
 internal fun cncTestJob(folder: String = "709 - BRAD TAYLOR", stem: String = "R82010BN") =
     Job(folder, folder.substringBefore(" - "), "Test", listOf(Material(
-        "709 - 19mm Pre_Finished.pdf", "19mm Pre_Finished", 11, metadata = MaterialMetadata(
+        "709 - 19mm Pre_Finished.pdf", "19mm Pre_Finished", 11, fileFingerprint = "fp1", metadata = MaterialMetadata(
             pages = listOf(PageMetadata(pageNumber = 11, sheetId = stem, sheetFiles = listOf(stem), thumbnailPath = "11.png"))))))
 internal fun Job.cncInfo() = UnifiedJobInfo(folderName, jobNumber, jobName)
 

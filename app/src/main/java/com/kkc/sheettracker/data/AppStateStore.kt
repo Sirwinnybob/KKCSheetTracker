@@ -1,6 +1,8 @@
 package com.kkc.sheettracker.data
 
 import android.util.Log
+import com.kkc.sheettracker.data.cnc.*
+import kotlinx.coroutines.CoroutineDispatcher
 import com.kkc.sheettracker.data.models.AppDerivationStatus
 import com.kkc.sheettracker.data.models.AppUiState
 import com.kkc.sheettracker.data.models.DashboardRecentMaterialItem
@@ -38,10 +40,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** What a single app-state derive runs against. */
-internal data class DeriveInput(val scanState: ScanSnapshotState, val progressVersion: Long)
+internal data class DeriveInput(
+    val scanState: ScanSnapshotState,
+    val progressVersion: Long,
+    val cncProgramHints: CncProgramHints = CncProgramHints.EMPTY,
+)
 
 /**
- * Emits when the app state needs re-deriving. Keyed on scan generation + progress version ONLY:
+ * Emits when app state needs re-deriving: scan generation, progress, or structural CNC hints.
  * scan status (LOADING/READY) and error text carry no new data, and including them made every
  * rescan derive twice — once on LOADING with the old data, once on READY — and again on rescans
  * that changed nothing. See [withScanStatus] for how those flags are kept current instead.
@@ -51,14 +57,16 @@ internal fun deriveTriggers(
     scanState: Flow<ScanSnapshotState>,
     progressVersion: Flow<Long>,
     recomputeIntents: Flow<Long>,
-    progressDebounceMs: () -> Long
+    progressDebounceMs: () -> Long,
+    cncProgramHints: Flow<CncProgramHints> = MutableStateFlow(CncProgramHints.EMPTY),
 ): Flow<DeriveInput> =
     combine(
         scanState,
         progressVersion.debounce { progressDebounceMs() },
-        recomputeIntents
-    ) { scan, progress, _ -> DeriveInput(scan, progress) }
-        .distinctUntilChangedBy { "${it.scanState.snapshot.generation}|${it.progressVersion}" }
+        recomputeIntents,
+        cncProgramHints,
+    ) { scan, progress, _, hints -> DeriveInput(scan, progress, hints) }
+        .distinctUntilChangedBy { Triple(it.scanState.snapshot.generation, it.progressVersion, it.cncProgramHints) }
 
 /** True when the derived index lost jobs since the previous derive (ignores the first derive). */
 internal fun isIndexShrink(previousCount: Int, currentCount: Int): Boolean =
@@ -73,9 +81,20 @@ private const val DASHBOARD_RECENT_LIMIT = 4
 
 class AppStateStore(
     private val scanCoordinator: ScanCoordinator,
-    private val progressStore: ProgressStore
+    private val progressStore: ProgressStore,
+    val machineStatusEnabled: Boolean = true,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + dispatcher),
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val cncHints = MutableStateFlow(CncProgramHints.EMPTY)
+    private val _cncProjection = MutableStateFlow(CncAppStateProjection())
+    val cncProjection: StateFlow<CncAppStateProjection> = _cncProjection.asStateFlow()
+    private var cncIndexKey: Pair<Long, CncProgramHints>? = null
+    private var cncIndex = CncProgramIndex.EMPTY
+
+    fun setCncProgramHints(hints: CncProgramHints) {
+        if (machineStatusEnabled) cncHints.value = hints
+    }
     private val recomputeIntents = MutableSharedFlow<Long>(replay = 1, extraBufferCapacity = 1)
     private val _uiState = MutableStateFlow(AppUiState())
     private val _dashboardUiModel = MutableStateFlow(DashboardUiModel())
@@ -127,9 +146,10 @@ class AppStateStore(
                 scanState = scanCoordinator.state,
                 progressVersion = progressStore.progressVersion.onStart { emit(progressStore.progressVersion.value) },
                 recomputeIntents = recomputeIntents.onStart { emit(System.currentTimeMillis()) },
-                progressDebounceMs = { if (_activeJobFolderName.value != null) 3_000L else 120L }
+                progressDebounceMs = { if (_activeJobFolderName.value != null) 3_000L else 120L },
+                cncProgramHints = cncHints,
             )
-                .collectLatest { (scanState, progressVersion) ->
+                .collectLatest { (scanState, progressVersion, machineHints) ->
                 _lastProgressVersion.value = progressVersion
                 val derivingStartedAt = System.currentTimeMillis()
                 _uiState.value = _uiState.value.copy(
@@ -156,7 +176,9 @@ class AppStateStore(
                         }
                     }
                     val loadedJobs = scanState.snapshot.jobs.associateBy { it.folderName }.toMutableMap()
-                    dashboardCandidates.forEach { info ->
+                    val originalFolders = loadedJobs.keys.toSet() + dashboardCandidates.map { it.folderName }
+                    val machineFolders = cncHydrationFolders(machineHints, jobInfos)
+                    jobInfos.filter { it in dashboardCandidates || it.folderName in machineFolders }.forEach { info ->
                         val snapshot = engine.getCncSnapshot(info.folderName) ?: return@forEach
                         loadedJobs[info.folderName] = snapshot.job.copy(
                             lineupPosition = info.lineupPosition,
@@ -166,8 +188,13 @@ class AppStateStore(
                             boardSection = info.boardSection
                         )
                     }
-                    val derivation = withContext(Dispatchers.Default) {
-                        derive(loadedJobs.values.toList())
+                    val structuralKey = scanState.snapshot.generation to machineHints
+                    if (machineStatusEnabled && cncIndexKey != structuralKey) {
+                        cncIndex = buildCncProgramIndex(jobInfos, loadedJobs.values.toList())
+                        cncIndexKey = structuralKey
+                    }
+                    val derivation = withContext(dispatcher) {
+                        derive(loadedJobs.values.toList(), originalFolders, cncIndex)
                     }
                     val indexCncJobs = jobInfos.filter { it.indexProgress?.cnc != null }
                     val dashboard = DashboardUiModel(
@@ -248,10 +275,16 @@ class AppStateStore(
         val dashboard: DashboardUiModel,
         val jobs: List<JobUiModel>,
         val materialsByKey: Map<JobMaterialKey, MaterialUiModel>,
-        val sheetStatuses: Map<SheetStatusKey, SheetStatusSnapshot>
+        val sheetStatuses: Map<SheetStatusKey, SheetStatusSnapshot>,
+        val cncProjection: CncAppStateProjection,
     )
 
-    private fun derive(jobs: List<com.kkc.sheettracker.data.models.Job>): DerivationOutput {
+    private fun derive(
+        jobs: List<com.kkc.sheettracker.data.models.Job>,
+        pruneFolders: Set<String>,
+        machineIndex: CncProgramIndex,
+    ): DerivationOutput {
+        val cncRows = linkedMapOf<JobMaterialKey, DashboardRecentMaterialItem>()
         val sheetStatusMap = LinkedHashMap<SheetStatusKey, SheetStatusSnapshot>()
         val materialMap = LinkedHashMap<JobMaterialKey, MaterialUiModel>()
         val jobModels = ArrayList<JobUiModel>(jobs.size)
@@ -265,7 +298,7 @@ class AppStateStore(
         var skippedSheets = 0
 
         for (job in jobs) {
-            progressStore.pruneLocalStateForJob(job.folderName, job.materials)
+            if (job.folderName in pruneFolders) progressStore.pruneLocalStateForJob(job.folderName, job.materials)
             val lastTouchesByPdf = progressStore.getMaterialLastTouches(job.folderName)
 
             val materialModels = mutableListOf<MaterialUiModel>()
@@ -294,6 +327,11 @@ class AppStateStore(
                 jobTotal += materialUiModel.counts.total
 
                 val touch = lastTouchesByPdf[material.pdfFilename]
+                val materialKey = JobMaterialKey(job.folderName, material.pdfFilename)
+                if (machineStatusEnabled && materialKey in machineIndex.headPagesByMaterial) {
+                    cncRows[materialKey] = buildCncMaterialRow(job, material, materialUiModel,
+                        materialDerivation.pageStatusByNumber, touch)
+                }
                 if (touch != null) {
                     val counts = materialUiModel.counts
                     val isPartiallyWorked = isRecentInProgressMaterial(counts)
@@ -383,7 +421,8 @@ class AppStateStore(
             dashboard = dashboardModel,
             jobs = jobModels,
             materialsByKey = materialMap,
-            sheetStatuses = sheetStatusMap
+            sheetStatuses = sheetStatusMap,
+            cncProjection = if (machineStatusEnabled) CncAppStateProjection(machineIndex, cncRows) else CncAppStateProjection(),
         )
     }
 
@@ -488,6 +527,7 @@ class AppStateStore(
     }
 
     private fun emitDistinctSnapshots(output: DerivationOutput) {
+        _cncProjection.value = output.cncProjection
         if (_dashboardUiModel.value != output.dashboard) {
             _dashboardUiModel.value = output.dashboard
         }
