@@ -1,5 +1,8 @@
 package com.kkc.sheettracker.ui.viewer
 
+import com.kkc.sheettracker.data.cnc.inferSheetFiles
+import com.kkc.sheettracker.data.cnc.resolveHeadPage
+
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
@@ -233,12 +236,6 @@ private fun Material.visibleSheetPages(): List<Int> {
     return if (visibleFromMetadata.isNotEmpty()) visibleFromMetadata else (1..pageCount).toList()
 }
 
-private fun Material.resolveHeadPage(page: Int): Int {
-    val meta = metadata?.pages?.firstOrNull { it.pageNumber == page } ?: return page
-    if (!(meta.hiddenInApp || meta.trackingExcluded || meta.isPartListContinuation)) return page
-    val head = meta.continuationHeadPage ?: return page
-    return if (head in 1..pageCount) head else page
-}
 
 internal fun resolveSheetViewerRequestedPage(
     material: Material,
@@ -3461,22 +3458,6 @@ internal fun partMarkers(rotated: Boolean, banding: String?): List<PartMarker> =
 }
 
 
-internal fun inferSheetFiles(pageMeta: com.kkc.sheettracker.data.models.PageMetadata?): List<String> {
-    val fromSidecar = pageMeta?.sheetFiles?.filter { it.isNotBlank() }?.distinct().orEmpty()
-    if (fromSidecar.isNotEmpty()) return fromSidecar
-
-    val single = pageMeta?.sheetId?.trim().orEmpty()
-    if (single.isBlank()) return emptyList()
-
-    // Safe fallback: if sidecar has only one side id, infer the common Z/A partner.
-    // Example: R280602Z -> [R280602Z, R280602A]
-    val suffix = single.lastOrNull()
-    return when (suffix) {
-        'Z' -> listOf(single, single.dropLast(1) + "A")
-        'A' -> listOf(single.dropLast(1) + "Z", single)
-        else -> listOf(single)
-    }
-}
 
 private fun formatSheetDimensions(dimensions: List<Double>?): String? {
     if (dimensions == null || dimensions.size < 2) return null

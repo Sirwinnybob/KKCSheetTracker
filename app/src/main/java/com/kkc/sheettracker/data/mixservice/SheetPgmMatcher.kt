@@ -1,7 +1,7 @@
 package com.kkc.sheettracker.data.mixservice
 
 import com.kkc.sheettracker.data.models.PageMetadata
-import com.kkc.sheettracker.ui.viewer.inferSheetFiles
+import com.kkc.sheettracker.data.cnc.inferSheetFiles
 
 data class ManageCodeRow(
     val pageNumber: Int,
@@ -25,7 +25,7 @@ fun buildManageCodeRows(pages: List<PageMetadata>): List<ManageCodeRow> =
             )
         }
 
-// inferSheetFiles' single-sheetId fallback branch (SheetViewerScreen.kt) returns [Z, A] order,
+// inferSheetFiles' single-sheetId fallback branch (CncSheetIdentity.kt) returns [Z, A] order,
 // while its sidecar-array branch preserves whatever order the sidecar itself has (normally A
 // then Z). This app's business rule is A always precedes Z and A is never independently
 // editable, so this always re-sorts any 2-file result so the Z-suffixed stem is last,
