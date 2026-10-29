@@ -21,7 +21,7 @@ sealed class MixLookupResult {
     object NetworkError : MixLookupResult()
 }
 
-class MixServiceClient(private val baseUrl: String = "http://192.168.20.4:8477") : MixOperationService, MixCatalogReader {
+class MixServiceClient(private val baseUrl: String = MIX_SERVICE_BASE_URL) : MixOperationService, MixCatalogReader {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val gson = Gson()
     private val root: String get() = baseUrl.trimEnd('/')
