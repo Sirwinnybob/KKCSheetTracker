@@ -21,6 +21,19 @@ internal fun cncPillForSheet(marks: CncSheetMarks, sheet: CncSheetRef): CncPill?
     return CncPill(CncPillKind.FINISHED, "CUT ON CNC ${finished.endLabel}", "CUT ${finished.endLabel}", "CUT ON CNC ${finished.endLabel}")
 }
 
+internal fun cncPillsForMaterial(
+    marks: CncSheetMarks,
+    jobFolderName: String,
+    material: Material?,
+    visiblePages: List<Int>,
+): Map<Int, CncPill> {
+    if (material == null) return emptyMap()
+    return visiblePages.mapNotNull { page ->
+        cncPillForSheet(marks, CncSheetRef(jobFolderName, material.pdfFilename, material.resolveHeadPage(page)))
+            ?.let { page to it }
+    }.toMap()
+}
+
 sealed interface CncDashboardRow {
     data class Material(val item: DashboardRecentMaterialItem, val openPage: Int, val pill: CncPill?) : CncDashboardRow
     data class Unknown(val name: String, val running: Boolean) : CncDashboardRow

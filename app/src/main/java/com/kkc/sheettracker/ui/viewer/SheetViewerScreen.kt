@@ -2,6 +2,9 @@ package com.kkc.sheettracker.ui.viewer
 
 import com.kkc.sheettracker.data.cnc.inferSheetFiles
 import com.kkc.sheettracker.data.cnc.resolveHeadPage
+import com.kkc.sheettracker.data.cnc.CncSheetRef
+import com.kkc.sheettracker.ui.cnc.*
+import androidx.compose.ui.platform.testTag
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -202,7 +205,7 @@ private data class RenderedSheetPage(
     var wasDisplayed: Boolean = false
 )
 
-private data class TocSheetInfo(
+internal data class TocSheetInfo(
     val status: SheetStatus,
     val committedBadCount: Int,
     val draftBadCount: Int
@@ -242,9 +245,10 @@ internal fun resolveSheetViewerRequestedPage(
     visiblePages: List<Int>,
     localTouchPage: Int?,
     startPage: Int,
-    isMixScoped: Boolean
+    isMixScoped: Boolean,
+    preferStartPage: Boolean = false,
 ): Int {
-    val resumePage = material.resolveHeadPage(localTouchPage ?: startPage)
+    val resumePage = material.resolveHeadPage(if (preferStartPage) startPage else localTouchPage ?: startPage)
     // The material's last touch may belong to a different mix. Keep this selection scoped.
     return if (!isMixScoped || resumePage in visiblePages) resumePage else material.resolveHeadPage(startPage)
 }
@@ -332,7 +336,8 @@ fun SheetViewerScreen(
     onUiVisibilityChanged: (Boolean) -> Unit = {},
     clockInState: ClockInState? = null,
     overridePdfMarkupStore: PdfMarkupStore? = null,
-    pdfMarkupReadOnly: Boolean = false
+    pdfMarkupReadOnly: Boolean = false,
+    preferStartPage: Boolean = false,
 ) {
     val idlePhase by LocalIdlePhase.current.collectAsState()
     val invertSheetBitmap = shouldInvertCncSheetBitmap(
@@ -345,6 +350,7 @@ fun SheetViewerScreen(
     val progressVersion by progressStore.progressVersion.collectAsState()
     val appSheetStatusSnapshots by appStateStore.sheetStatusSnapshots.collectAsState()
     val appUiState by appStateStore.uiState.collectAsState()
+    val cncMarks = rememberCncSheetMarks(appStateStore)
     val appProgressVersion by appStateStore.lastProgressVersion.collectAsState()
     val appFlags = remember(appStateFlags) { appStateFlags.snapshot() }
     val useAppStateStatus = appFlags.viewerStatusEnabled
@@ -394,6 +400,8 @@ fun SheetViewerScreen(
     val currentPageMetadata = remember(currentMaterial, currentPage) {
         resolvePageMetadata(currentMaterial, currentPage)
     }
+    val cncHeaderPill = cncPillForSheet(cncMarks, CncSheetRef(jobFolderName, pdfFilename,
+        currentMaterial?.resolveHeadPage(currentPage) ?: currentPage))
     val parts = remember(currentPageMetadata) {
         currentPageMetadata?.parts ?: emptyList()
     }
@@ -791,7 +799,7 @@ fun SheetViewerScreen(
         unifiedEngine.getCachedJobInfos().find { it.folderName == jobFolderName }
     }
 
-    LaunchedEffect(jobFolderName, pdfFilename, scanState.snapshot.generation, selectedMixPages) {
+    LaunchedEffect(jobFolderName, pdfFilename, scanState.snapshot.generation, selectedMixPages, startPage, preferStartPage) {
         val job = withContext(Dispatchers.IO) {
             unifiedEngine.getCncSnapshot(jobFolderName)?.job
         }
@@ -822,13 +830,15 @@ fun SheetViewerScreen(
             selectedPages = selectedMixPages
         )
         if (nextMaterial != null) {
+            val preferInitialPage = preferStartPage && !hasBoundInitialMaterial
             hasBoundInitialMaterial = true
             didRedirectForUnavailableMaterial = false
             val localTouchPage = progressStore
                 .getLocalMaterialLastTouches(jobFolderName)[pdfFilename]
                 ?.page
             if (visiblePages.isEmpty()) {
-                val resolved = (localTouchPage ?: startPage).coerceIn(1, nextMaterial.pageCount.coerceAtLeast(1))
+                val resolved = (if (preferInitialPage) startPage else localTouchPage ?: startPage)
+                    .coerceIn(1, nextMaterial.pageCount.coerceAtLeast(1))
                 currentPage = resolved
             } else {
                 val requested = resolveSheetViewerRequestedPage(
@@ -836,7 +846,8 @@ fun SheetViewerScreen(
                     visiblePages = visiblePages,
                     localTouchPage = localTouchPage,
                     startPage = startPage,
-                    isMixScoped = selectedMixPages != null
+                    isMixScoped = selectedMixPages != null,
+                    preferStartPage = preferInitialPage,
                 )
                 val identityChanged = oldIdentity != nextIdentity
                 currentPage = when {
@@ -1469,7 +1480,7 @@ fun SheetViewerScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (sheetFilesLabel.isNotBlank() || currentPageRemake != null) {
+            if (sheetFilesLabel.isNotBlank() || currentPageRemake != null || cncHeaderPill != null) {
                 val chips = remember(currentPageMetadata) {
                     inferSheetFiles(currentPageMetadata)
                 }
@@ -1482,7 +1493,7 @@ fun SheetViewerScreen(
                         val leftChips = remember(chips, sheetSizeLabel) {
                             chips + listOfNotNull(sheetSizeLabel)
                         }
-                        if (leftChips.isNotEmpty()) {
+                        if (leftChips.isNotEmpty() || cncHeaderPill != null) {
                             Row(
                                 modifier = Modifier
                                     .weight(1f)
@@ -1492,6 +1503,7 @@ fun SheetViewerScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                cncHeaderPill?.let { CncStatusPill(it) }
                                 Surface(
                                     shape = RoundedCornerShape(9.dp),
                                     color = MaterialTheme.colorScheme.surface,
@@ -2066,7 +2078,8 @@ fun SheetViewerScreen(
                 selectedCabinetNumber = null
                 showSheetToc = false
             },
-            onDismiss = { showSheetToc = false }
+            onDismiss = { showSheetToc = false },
+            cncPillsByPage = cncPillsForMaterial(cncMarks, jobFolderName, currentMaterial, effectiveVisiblePages),
         )
     }
 
@@ -2087,7 +2100,7 @@ fun SheetViewerScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SheetNavigatorSheet(
+internal fun SheetNavigatorSheet(
     visiblePages: List<Int>,
     currentPage: Int,
     metadataPages: List<PageMetadata>,
@@ -2097,7 +2110,8 @@ private fun SheetNavigatorSheet(
     pdfFile: java.io.File,
     fileFingerprint: String,
     onSelectPage: (Int) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    cncPillsByPage: Map<Int, CncPill> = emptyMap(),
 ) {
     val pageMetaByNumber = remember(metadataPages) { metadataPages.associateBy { it.pageNumber } }
 
@@ -2166,6 +2180,8 @@ private fun SheetNavigatorSheet(
                         ?: inferSheetFiles(pageMeta).joinToString(" | ").ifBlank { "No sheet file id" }
                     val thumb = tocThumbCache[page]
                     val selected = page == currentPage
+                    val cncPill = cncPillsByPage[page]
+                    val loadedOnCnc = cncPill != null && cncPill.kind != CncPillKind.FINISHED
 
                     Surface(
                         tonalElevation = if (selected) 3.dp else 1.dp,
@@ -2178,6 +2194,9 @@ private fun SheetNavigatorSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onSelectPage(page) }
+                            .then(if (loadedOnCnc) Modifier
+                                .border(2.dp, KKCThemeColors.statusColors.inProgress, MaterialTheme.shapes.medium)
+                                .testTag("cnc-navigator-loaded-$page") else Modifier)
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 14.dp),
@@ -2212,6 +2231,7 @@ private fun SheetNavigatorSheet(
                             Spacer(Modifier.width(10.dp))
 
                             Column(modifier = Modifier.weight(1f)) {
+                                cncPill?.let { CncStatusPill(it, CncPillPlacement.NAVIGATOR) }
                                 Text(
                                     "Sheet $displayPage",
                                     style = MaterialTheme.typography.titleMedium,

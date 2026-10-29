@@ -24,6 +24,13 @@ import kotlin.math.abs
 
 class SheetViewerScreenTest {
 
+    @Test fun explicitCncOpenBeatsSavedPositionAndContinuationResolvesToHead() {
+        val material = Material("m.pdf", "m", 11, metadata = MaterialMetadata(pages = listOf(
+            PageMetadata(pageNumber = 10), PageMetadata(pageNumber = 11, isPartListContinuation = true, continuationHeadPage = 10))))
+        assertEquals(10, resolveSheetViewerRequestedPage(material, (1..10).toList(), 6, 11, false, true))
+        assertEquals(6, resolveSheetViewerRequestedPage(material, (1..10).toList(), 6, 11, false))
+    }
+
     private val preFinishedMaterial = Material(
         pdfFilename = "684 - 19mm Pre_Finished.pdf",
         materialName = "19mm Pre-Finished",

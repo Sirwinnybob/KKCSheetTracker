@@ -54,5 +54,15 @@ class CncStatusPresentationTest {
         assertNull(cncPillForSheet(reloaded, ref.copy(jobFolderName = "OTHER")))
         assertNull(cncPillForSheet(reloaded, ref.copy(pdfFilename = "OTHER.pdf")))
     }
+
+    @Test fun mixReorderingAndContinuationUsePhysicalHeadPage() {
+        val material = Material(ref.pdfFilename, "m", 12, metadata = MaterialMetadata(pages = listOf(
+            PageMetadata(pageNumber = 11), PageMetadata(pageNumber = 12, isPartListContinuation = true, continuationHeadPage = 11))))
+        val pills = cncPillsForMaterial(marks(), ref.jobFolderName, material, listOf(11, 3, 6, 12))
+        assertEquals(setOf(11, 12), pills.keys)
+        assertEquals("ON CNC", pills.getValue(11).navigatorText)
+        assertEquals(pills[11], pills[12])
+        assertTrue(cncPillsForMaterial(CncSheetMarks(), ref.jobFolderName, material, listOf(11, 3, 6)).isEmpty())
+    }
 }
 

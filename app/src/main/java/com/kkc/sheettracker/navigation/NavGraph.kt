@@ -1016,7 +1016,10 @@ private fun MultiBackStackNavigation(
                         },
                         onOpenSheet = { folderName, pdfFilename, page ->
                             coordinator.openSheetInJobs(folderName, pdfFilename, page)
-                        }
+                        },
+                        onOpenLoadedSheet = { folderName, pdfFilename, page ->
+                            coordinator.openSheetInJobs(folderName, pdfFilename, page, preferStartPage = true)
+                        },
                     )
                 }
 
@@ -1364,7 +1367,8 @@ private fun DashboardTabHost(
     onOpenJobInJobs: (String) -> Unit,
     onOpenSpecialtyJobInJobs: (String) -> Unit,
     onOpenHardwoodsJobInJobs: (String) -> Unit,
-    onOpenSheet: (String, String, Int) -> Unit
+    onOpenSheet: (String, String, Int) -> Unit,
+    onOpenLoadedSheet: (String, String, Int) -> Unit,
 ) {
     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
     NavHost(
@@ -1414,6 +1418,7 @@ private fun DashboardTabHost(
                             appStateFlags = appStateFlags,
                             onNavigateToJobs = onNavigateToJobs,
                             onOpenSheet = onOpenSheet,
+                            onOpenLoadedSheet = onOpenLoadedSheet,
                             modeSwitcher = switcher
                         )
                     )
@@ -1429,7 +1434,8 @@ private fun DashboardTabHost(
                                 progressStore = progressStore,
                                 appStateFlags = appStateFlags,
                                 onNavigateToJobs = onNavigateToJobs,
-                                onOpenSheet = onOpenSheet
+                                onOpenSheet = onOpenSheet,
+                                onOpenLoadedSheet = onOpenLoadedSheet,
                             )
                         )
                     }
@@ -1922,13 +1928,14 @@ private fun JobsTabHost(
         }
 
         composable(
-            "viewer/{folderName}/{pdfFilename}/{startPage}?mixName={mixName}&mixPages={mixPages}",
+            "viewer/{folderName}/{pdfFilename}/{startPage}?mixName={mixName}&mixPages={mixPages}&preferStartPage={preferStartPage}",
             arguments = listOf(
                 navArgument("folderName") { type = NavType.StringType },
                 navArgument("pdfFilename") { type = NavType.StringType },
                 navArgument("startPage") { type = NavType.IntType },
                 navArgument("mixName") { type = NavType.StringType; nullable = true; defaultValue = null },
-                navArgument("mixPages") { type = NavType.StringType; nullable = true; defaultValue = null }
+                navArgument("mixPages") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("preferStartPage") { type = NavType.BoolType; defaultValue = false }
             )
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
@@ -1952,6 +1959,7 @@ private fun JobsTabHost(
                 jobFolderName = folderName,
                 pdfFilename = pdfFilename,
                 startPage = startPage,
+                preferStartPage = backStack.arguments?.getBoolean("preferStartPage") ?: false,
                 selectedMixName = selectedMixName,
                 selectedMixPages = selectedMixPages,
                 isDarkTheme = cncSheetIsDarkTheme,
@@ -2771,11 +2779,12 @@ private fun LegacySingleStackNavigation(
         jobFolderName: String,
         pdfFilename: String,
         page: Int,
-        mixSelection: com.kkc.sheettracker.data.mixservice.ViewerMixSelection? = null
+        mixSelection: com.kkc.sheettracker.data.mixservice.ViewerMixSelection? = null,
+        preferStartPage: Boolean = false,
     ) {
-        if (isCurrentViewerTarget(backStackEntry, jobFolderName, pdfFilename, page, mixSelection)) return
-        navController.navigate(viewerRoute(jobFolderName, pdfFilename, page, mixSelection)) {
-            launchSingleTop = true
+        if (!preferStartPage && isCurrentViewerTarget(backStackEntry, jobFolderName, pdfFilename, page, mixSelection)) return
+        navController.navigate(viewerRoute(jobFolderName, pdfFilename, page, mixSelection, preferStartPage)) {
+            launchSingleTop = !preferStartPage
         }
     }
 
@@ -3060,6 +3069,9 @@ private fun LegacySingleStackNavigation(
                                         onOpenSheet = { folderName, pdfFilename, page ->
                                             openSheetLegacy(folderName, pdfFilename, page)
                                         },
+                                        onOpenLoadedSheet = { folderName, pdfFilename, page ->
+                                            openSheetLegacy(folderName, pdfFilename, page, preferStartPage = true)
+                                        },
                                         modeSwitcher = switcher
                                     )
                                 )
@@ -3081,7 +3093,10 @@ private fun LegacySingleStackNavigation(
                                             },
                                             onOpenSheet = { folderName, pdfFilename, page ->
                                                 openSheetLegacy(folderName, pdfFilename, page)
-                                            }
+                                            },
+                                            onOpenLoadedSheet = { folderName, pdfFilename, page ->
+                                                openSheetLegacy(folderName, pdfFilename, page, preferStartPage = true)
+                                            },
                                         )
                                     )
                                 }
@@ -3492,13 +3507,14 @@ private fun LegacySingleStackNavigation(
                 }
 
                 composable(
-                    "viewer/{folderName}/{pdfFilename}/{startPage}?mixName={mixName}&mixPages={mixPages}",
+                    "viewer/{folderName}/{pdfFilename}/{startPage}?mixName={mixName}&mixPages={mixPages}&preferStartPage={preferStartPage}",
                     arguments = listOf(
                         navArgument("folderName") { type = NavType.StringType },
                         navArgument("pdfFilename") { type = NavType.StringType },
                         navArgument("startPage") { type = NavType.IntType },
                         navArgument("mixName") { type = NavType.StringType; nullable = true; defaultValue = null },
-                        navArgument("mixPages") { type = NavType.StringType; nullable = true; defaultValue = null }
+                        navArgument("mixPages") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("preferStartPage") { type = NavType.BoolType; defaultValue = false }
                     )
                 ) { backStack ->
                     val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
@@ -3522,6 +3538,7 @@ private fun LegacySingleStackNavigation(
                         jobFolderName = folderName,
                         pdfFilename = pdfFilename,
                         startPage = startPage,
+                preferStartPage = backStack.arguments?.getBoolean("preferStartPage") ?: false,
                         selectedMixName = selectedMixName,
                         selectedMixPages = selectedMixPages,
                         isDarkTheme = isDarkTheme,
@@ -4192,13 +4209,18 @@ internal fun viewerRoute(
     jobFolderName: String,
     pdfFilename: String,
     page: Int,
-    mixSelection: com.kkc.sheettracker.data.mixservice.ViewerMixSelection? = null
+    mixSelection: com.kkc.sheettracker.data.mixservice.ViewerMixSelection? = null,
+    preferStartPage: Boolean = false,
 ): String {
     val base = "viewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(pdfFilename, "UTF-8")}/$page"
-    val selection = mixSelection ?: return base
-    val mixName = URLEncoder.encode(selection.name, "UTF-8")
-    val mixPages = selection.pageOrder.joinToString(",")
-    return "$base?mixName=$mixName&mixPages=$mixPages"
+    val query = buildList {
+        mixSelection?.let { selection ->
+            add("mixName=${URLEncoder.encode(selection.name, "UTF-8")}")
+            add("mixPages=${selection.pageOrder.joinToString(",")}")
+        }
+        if (preferStartPage) add("preferStartPage=true")
+    }
+    return base + if (query.isEmpty()) "" else "?" + query.joinToString("&")
 }
 
 internal fun parseViewerMixPages(value: String?): List<Int>? = value?.split(',')
