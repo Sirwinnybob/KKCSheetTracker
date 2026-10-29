@@ -439,6 +439,57 @@ class UnifiedMetadataEngineTest {
     }
 
     @Test
+    fun zeroSizedCncPartIsFilledFromCvJobDataOnCacheStaticAndDeepScanPaths() {
+        val cvJobData = """
+            {"parts":[{"id":"1","cabinet":"8","description":"Finished Right End","width":"11.25","length":"37.5","hidden":false}]}
+        """.trimIndent()
+        val pageJson = """
+            {"pageNumber":1,"parts":[
+              {"number":1,"width":0.0,"length":0.0,"name":"Finished Right End","cabNumber":8,"room":"KITCHEN"},
+              {"number":2,"width":20.25,"length":31.75,"name":"Finished Left End","cabNumber":14,"room":"VANITIES"}
+            ]}
+        """.trimIndent()
+
+        // Published cache_static.json (sanitizeStaticJobData path).
+        val cachedBase = createTempBaseDir()
+        val cachedMetadata = File(File(cachedBase, jobFolder), ".metadata").apply { mkdirs() }
+        File(cachedMetadata, "deployment_gate.json").writeText("""{"deployed": true}""")
+        File(File(cachedMetadata, "cv_job").apply { mkdirs() }, "job_data.json").writeText(cvJobData)
+        File(cachedMetadata, "cache_static.json").writeText(
+            """
+            {"jobInfo":{"folderName":"$jobFolder","jobNumber":"1234","jobName":"Test Job"},
+             "cncJob":{"folderName":"$jobFolder","jobNumber":"1234","jobName":"Test Job","materials":[
+               {"pdfFilename":"1234 - Armor.pdf","materialName":"Armor","pageCount":1,
+                "metadata":{"material":"Armor","pdfFilename":"1234 - Armor.pdf","pages":[$pageJson]}}]},
+             "cncIssues":[],"boardStockRows":[],
+             "pdfCatalog":{"managedDocs":[],"otherDocs":[]}}
+            """.trimIndent()
+        )
+        val cachedEngine = FileBackedUnifiedMetadataEngine(cachedBase.absolutePath, isDebugBuild = true)
+        assertNotNull(cachedEngine.loadJobFromCacheFile(jobFolder))
+        val cached = cachedEngine.getCncSnapshot(jobFolder)!!.job.materials.single().metadata!!.pages.single().parts
+        assertEquals(11.25, cached[0].width, 0.0)
+        assertEquals(37.5, cached[0].length, 0.0)
+        assertEquals(20.25, cached[1].width, 0.0)
+
+        // Fresh filesystem scan (buildCncJob path): no cache_static.json.
+        val scanBase = createTempBaseDir()
+        val scanJobDir = File(scanBase, jobFolder).apply { mkdirs() }
+        val scanMetadata = File(scanJobDir, ".metadata").apply { mkdirs() }
+        File(scanMetadata, "deployment_gate.json").writeText("""{"deployed": true}""")
+        File(File(scanMetadata, "cv_job").apply { mkdirs() }, "job_data.json").writeText(cvJobData)
+        val cncDir = File(scanJobDir, "CNC").apply { mkdirs() }
+        File(cncDir, "1234 - Armor.pdf").writeText("%PDF-1.4")
+        File(File(cncDir, ".metadata").apply { mkdirs() }, "1234 - Armor.json").writeText(
+            """{"jobNumber":"1234","jobName":"Test Job","material":"Armor","pdfFilename":"1234 - Armor.pdf","pages":[$pageJson]}"""
+        )
+        val scanned = FileBackedUnifiedMetadataEngine(scanBase.absolutePath, isDebugBuild = true)
+            .getCncSnapshot(jobFolder)!!.job.materials.single().metadata!!.pages.single().parts
+        assertEquals(11.25, scanned[0].width, 0.0)
+        assertEquals(37.5, scanned[0].length, 0.0)
+    }
+
+    @Test
     fun hasReferenceDocumentIsFalseForPullsWhenFileMissing() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)

@@ -6,6 +6,8 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.kkc.sheettracker.data.DeploymentGateRules
 import com.kkc.sheettracker.data.compareJobNumbersDesc
+import com.kkc.sheettracker.data.cvjob.fillMissingCncPartSizes
+import com.kkc.sheettracker.data.cvjob.loadCvPartSizeIndex
 import com.kkc.sheettracker.data.models.CacheIndexProgressSummary
 import com.kkc.sheettracker.data.models.CacheIndexRoot
 import com.kkc.sheettracker.data.models.AssemblyBomEntry
@@ -890,7 +892,7 @@ class FileBackedUnifiedMetadataEngine(
 
         val next = StaticJobData(
             jobInfo = jobInfo,
-            cncJob = cnc.job,
+            cncJob = withCvPartSizes(jobFolderName, cnc.job),
             cncIssues = cnc.issues,
             hardwoodJob = hardwoodJob,
             hardwoodRevisionHistory = hardwoodRevisionHistory,
@@ -1379,6 +1381,13 @@ class FileBackedUnifiedMetadataEngine(
         return hash
     }
 
+    /**
+     * CNC sidecars can carry `w=0 l=0` when Cabinet Vision exported a part without a size and the
+     * splitter found no match. Fill those from the job's `cv_job/job_data.json` (read only when needed).
+     */
+    private fun withCvPartSizes(jobFolderName: String, job: Job): Job =
+        fillMissingCncPartSizes(job) { loadCvPartSizeIndex(baseDir.absolutePath, jobFolderName) }
+
     private fun sanitizeStaticJobData(data: StaticJobData): StaticJobData {
         val rawInfo = data.jobInfo
         val sanitizedJobInfo = UnifiedJobInfo(
@@ -1394,16 +1403,19 @@ class FileBackedUnifiedMetadataEngine(
 
         val cnc = data.cncJob
         val sanitizedCncJob = if (cnc != null) {
-            Job(
-                folderName = gsonNullable(cnc.folderName) ?: "",
-                jobNumber = gsonNullable(cnc.jobNumber) ?: "",
-                jobName = gsonNullable(cnc.jobName) ?: "",
-                materials = gsonNullable(cnc.materials) ?: emptyList(),
-                hiddenFromProduction = cnc.hiddenFromProduction,
-                lineupPosition = cnc.lineupPosition,
-                labels = gsonNullable(cnc.labels) ?: emptyList(),
-                isPending = cnc.isPending,
-                boardSection = cnc.boardSection
+            withCvPartSizes(
+                sanitizedJobInfo.folderName,
+                Job(
+                    folderName = gsonNullable(cnc.folderName) ?: "",
+                    jobNumber = gsonNullable(cnc.jobNumber) ?: "",
+                    jobName = gsonNullable(cnc.jobName) ?: "",
+                    materials = gsonNullable(cnc.materials) ?: emptyList(),
+                    hiddenFromProduction = cnc.hiddenFromProduction,
+                    lineupPosition = cnc.lineupPosition,
+                    labels = gsonNullable(cnc.labels) ?: emptyList(),
+                    isPending = cnc.isPending,
+                    boardSection = cnc.boardSection
+                )
             )
         } else null
 
