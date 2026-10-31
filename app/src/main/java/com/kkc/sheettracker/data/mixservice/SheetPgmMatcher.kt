@@ -2,6 +2,7 @@ package com.kkc.sheettracker.data.mixservice
 
 import com.kkc.sheettracker.data.models.PageMetadata
 import com.kkc.sheettracker.data.cnc.inferSheetFiles
+import com.kkc.sheettracker.data.mixfiles.orderedPgmFiles
 
 data class ManageCodeRow(
     val pageNumber: Int,
@@ -24,17 +25,6 @@ fun buildManageCodeRows(pages: List<PageMetadata>): List<ManageCodeRow> =
                 thumbnailPath = page.thumbnailPath
             )
         }
-
-// inferSheetFiles' single-sheetId fallback branch (CncSheetIdentity.kt) returns [Z, A] order,
-// while its sidecar-array branch preserves whatever order the sidecar itself has (normally A
-// then Z). This app's business rule is A always precedes Z and A is never independently
-// editable, so this always re-sorts any 2-file result so the Z-suffixed stem is last,
-// regardless of which inferSheetFiles branch produced it.
-private fun orderedPgmFiles(stems: List<String>): List<String> {
-    val files = stems.map { "$it.pgm" }
-    if (files.size != 2) return files
-    return files.sortedBy { file -> if (file.substringBeforeLast('.').endsWith("Z", ignoreCase = true)) 1 else 0 }
-}
 
 fun applyExistingOrder(rows: List<ManageCodeRow>, orderedPgms: List<String>): List<ManageCodeRow> {
     val indexOf = orderedPgms.withIndex().associate { (i, pgm) -> pgm to i }
