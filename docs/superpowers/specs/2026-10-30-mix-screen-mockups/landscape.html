@@ -1,0 +1,125 @@
+<style>
+  .tab { --p:#1E5FAF; --sc:#D8E6F7; --ok:#388E3C; --okbg:#E8F3E9; --mut:#5f6b7a; --line:#e3e8ef;
+    font-family: Roboto, "Segoe UI", sans-serif; background:#f4f6f9; border-radius:14px; border:1px solid #d5dbe3;
+    padding:14px; color:#1b1f24; font-size:13px; }
+  .tab .top { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .tab .top b { font-size:17px; }
+  .chip { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; background:#D8E6F7; color:#123a6b; white-space:nowrap; }
+  .chip.frz { background:#FFE7D1; color:#8a3a00; }
+  .chip.ok { background:#E8F3E9; color:#388E3C; }
+  .chip.warn { background:#FDECEA; color:#C62828; }
+  .chip.grey { background:#eceff3; color:#5f6b7a; }
+  .tab .card { background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.12); padding:6px; }
+  .tab .cap { font-size:10px; font-weight:700; letter-spacing:1px; color:var(--mut); text-transform:uppercase; margin:10px 8px 4px; }
+  .tab .rail-item { padding:9px 10px; border-radius:9px; display:flex; justify-content:space-between; align-items:center; gap:6px; }
+  .tab .rail-item.sel { background:var(--sc); font-weight:700; }
+  .tab .row { display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid var(--line); }
+  .tab .row:last-child { border-bottom:none; }
+  .tab .row.done { background:#f5f9f5; color:#56705a; }
+  .tab .row.bad { background:#fff6f5; }
+  .tab .grip { color:#9aa5b1; width:16px; text-align:center; font-size:15px; }
+  .tab .thumb { width:58px; height:38px; border-radius:5px; background:repeating-linear-gradient(45deg,#e6ebf2,#e6ebf2 4px,#dde3ec 4px,#dde3ec 8px); flex:none; }
+  .tab .pgm { font-weight:600; }
+  .tab .sub { font-size:11px; color:var(--mut); }
+  .tab .btn { background:var(--p); color:#fff; border-radius:999px; padding:6px 14px; font-size:12px; font-weight:600; display:inline-block; white-space:nowrap; }
+  .tab .btn.o { background:#fff; color:var(--p); border:1px solid #b9c9de; }
+  .tab .btn.t { background:transparent; color:var(--p); padding:6px 8px; }
+  .tab .prog { height:6px; border-radius:3px; background:#e6ebf2; overflow:hidden; margin:8px 0 4px; }
+  .tab .prog i { display:block; height:100%; background:var(--ok); }
+  .tab .cbs { display:flex; gap:10px; }
+  .tab .cb { display:flex; flex-direction:column; align-items:center; font-size:9px; font-weight:700; color:var(--mut); }
+  .tab .cb span { width:16px; height:16px; border:2px solid #8796a8; border-radius:3px; margin-bottom:2px; }
+  .tab .cb span.on { background:var(--p); border-color:var(--p); }
+  .tab .tabs { display:flex; gap:6px; align-items:center; }
+  .tab .mixtab { padding:6px 12px; border-radius:999px; border:1px solid #c9d4e2; background:#fff; font-weight:600; font-size:12px; }
+  .tab .mixtab.sel { background:var(--sc); border-color:var(--sc); }
+  .tab .dd { position:absolute; right:0; top:34px; width:230px; background:#fff; border-radius:12px; box-shadow:0 6px 20px rgba(0,0,0,.18); padding:8px; z-index:2; }
+  .tab .dd .ddrow { display:flex; align-items:center; gap:8px; padding:7px 6px; }
+  .tab .dd .box { width:16px; height:16px; border:2px solid #8796a8; border-radius:3px; }
+  .tab .dd .box.on { background:var(--p); border-color:var(--p); }
+  .tab .dd .box.part { background:linear-gradient(#1E5FAF,#1E5FAF) center/8px 2px no-repeat; border-color:var(--p); }
+  .tab .drawer { width:250px; flex:none; }
+</style>
+
+<h2>Option A, filled in</h2>
+<p class="subtitle">Interrupted 19mm mix selected. Second-pass dropdown is shown open on the material. Revisions drawer on the right. Everything here is a first guess for you to correct.</p>
+
+<div class="tab">
+  <div class="top"><span style="font-size:18px">←</span><b>711 · WIECHERT 88141 WYMORE</b><span class="chip">Mixes</span><span style="flex:1"></span><span class="chip ok">● CNC online · idle</span></div>
+  <div style="display:flex; gap:12px; align-items:flex-start;">
+
+    <!-- rail -->
+    <div style="width:210px; flex:none;">
+      <div class="card">
+        <div class="cap">SCM CNC</div>
+        <div class="rail-item sel"><span>19mm Pre_Finished</span><span class="chip frz">9 left</span></div>
+        <div class="rail-item"><span>3/4 Maple Ply</span><span class="chip">12</span></div>
+        <div class="rail-item"><span>3/4 Melamine</span><span class="chip warn">no mix</span></div>
+        <div class="rail-item"><span>1/4 Back</span><span class="chip ok">done</span></div>
+        <div class="cap" style="color:#b0b8c2">CNC 2 · later</div>
+        <div class="rail-item" style="color:#b0b8c2"><span>—</span></div>
+      </div>
+    </div>
+
+    <!-- main pane -->
+    <div style="flex:1; display:flex; flex-direction:column; gap:10px; min-width:0;">
+      <!-- material header -->
+      <div style="display:flex; align-items:center; gap:10px; position:relative;">
+        <div style="flex:1"><b style="font-size:16px">19mm Pre_Finished</b><div class="sub">15 sheets · 1 mix</div></div>
+        <span class="btn o">Second pass ▾</span>
+        <span class="btn o">⋯</span>
+        <div class="dd">
+          <div class="cap" style="margin:2px 6px 6px">Apply to all 15 files</div>
+          <div class="ddrow"><span class="box part"></span>Remove P-unload <span class="sub" style="margin-left:auto">4 of 15</span></div>
+          <div class="ddrow"><span class="box on"></span>2nd pass <span class="sub" style="margin-left:auto">all</span></div>
+          <div class="ddrow"><span class="box"></span>Super pass</div>
+          <div style="text-align:right; padding:6px 4px 2px"><span class="btn">Apply</span></div>
+        </div>
+      </div>
+
+      <!-- mix tabs -->
+      <div class="tabs"><span class="mixtab sel">19mm Pre_FinishedMix <span class="chip frz">Interrupted</span></span><span class="mixtab" style="color:var(--p); border-style:dashed">+ New mix</span></div>
+
+      <!-- mix card -->
+      <div class="card" style="padding:12px 14px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div style="flex:1"><span class="sub">.mix + .FRZ edited together</span></div>
+          <span class="btn t">Rename</span><span class="btn t">Split</span><span class="btn t">Delete</span>
+          <span class="btn o">Revisions · 3</span>
+          <span class="btn">Save</span>
+        </div>
+        <div class="prog"><i style="width:40%"></i></div>
+        <div class="sub">6 of 15 cut · 9 remaining · updated just now</div>
+      </div>
+
+      <!-- sheet list -->
+      <div class="card">
+        <div class="cap">Remaining · drag to reorder</div>
+        <div class="row"><span class="grip">⋮⋮</span><span class="thumb"></span><div style="flex:1"><div class="pgm">R87010FN</div><div class="sub">Sheet 7 · qty 1</div></div>
+          <div class="cbs"><div class="cb"><span></span>PUN</div><div class="cb"><span class="on"></span>2ND</div><div class="cb"><span></span>SUP</div></div><span class="grip">⋯</span></div>
+        <div class="row"><span class="grip">⋮⋮</span><span class="thumb"></span><div style="flex:1"><div class="pgm">R870108N + R870109N</div><div class="sub">Sheet 9 · A/Z · qty 1</div></div>
+          <div class="cbs"><div class="cb"><span class="on"></span>PUN</div><div class="cb"><span class="on"></span>2ND</div><div class="cb"><span></span>SUP</div></div><span class="grip">⋯</span></div>
+        <div class="row bad"><span class="grip" style="color:#C62828">!</span><span class="thumb"></span><div style="flex:1"><div class="pgm">R87010KN</div><div class="sub" style="color:#C62828">No matching sheet in the job PDF · blocks saving</div></div><span class="chip warn">Unmatched</span><span class="grip">⋯</span></div>
+
+        <div class="cap">Not in this mix</div>
+        <div class="row"><span class="grip">+</span><span class="thumb"></span><div style="flex:1"><div class="pgm">R87010MN</div><div class="sub">Sheet 14</div></div><span class="btn o">Add</span></div>
+
+        <div class="cap">Completed · locked</div>
+        <div class="row done"><span class="grip">🔒</span><span class="thumb"></span><div style="flex:1"><div class="pgm">R870101N</div><div class="sub">Sheet 1</div></div><span class="chip ok">Complete</span></div>
+        <div class="row done"><span class="grip">🔒</span><span class="thumb"></span><div style="flex:1"><div class="pgm">R870104N</div><div class="sub">Sheet 4</div></div><span class="chip grey">Re-nested</span></div>
+      </div>
+    </div>
+
+    <!-- revisions drawer -->
+    <div class="drawer card" style="padding:8px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 6px;"><b>Revisions</b><span>✕</span></div>
+      <div class="cap">Current</div>
+      <div class="rail-item sel"><span>Now · 15 sheets</span><span class="chip frz">9 left</span></div>
+      <div class="cap">Earlier</div>
+      <div class="rail-item"><div><div>OLD3 · Oct 30 9:12</div><div class="sub">tablet reorder</div></div><span class="btn t">View</span></div>
+      <div class="rail-item"><div><div>OLD2 · Oct 29 4:40</div><div class="sub">2 sheets added</div></div><span class="btn t">View</span></div>
+      <div class="rail-item"><div><div>OLD1 · Oct 28 7:02</div><div class="sub">made at CNC</div></div><span class="btn t">View</span></div>
+      <div style="padding:8px 6px; font-size:11px; color:var(--mut)">View shows the old order side by side with now, with a Restore button.</div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,129 @@
+<style>
+  .ph { --p:#1E5FAF; --sc:#D8E6F7; --ok:#388E3C; --mut:#5f6b7a; --line:#e3e8ef;
+    font-family: Roboto, "Segoe UI", sans-serif; background:#f4f6f9; border-radius:22px; border:8px solid #2b2f36;
+    width:440px; height:700px; padding:10px; color:#1b1f24; font-size:11px; position:relative; overflow:hidden; box-sizing:border-box; }
+  .chip { display:inline-block; padding:1px 7px; border-radius:999px; font-size:10px; font-weight:600; background:#D8E6F7; color:#123a6b; white-space:nowrap; }
+  .chip.frz { background:#FFE7D1; color:#8a3a00; }
+  .chip.ok { background:#E8F3E9; color:#388E3C; }
+  .chip.warn { background:#FDECEA; color:#C62828; }
+  .chip.grey { background:#eceff3; color:#5f6b7a; }
+  .ph .card { background:#fff; border-radius:11px; box-shadow:0 1px 3px rgba(0,0,0,.12); padding:4px; }
+  .ph .cap { font-size:9px; font-weight:700; letter-spacing:1px; color:var(--mut); text-transform:uppercase; margin:8px 6px 3px; }
+  .ph .ri { padding:7px 8px; border-radius:8px; display:flex; justify-content:space-between; align-items:center; gap:4px; }
+  .ph .ri.sel { background:var(--sc); font-weight:700; }
+  .ph .row { display:flex; align-items:center; gap:7px; padding:6px 7px; border-bottom:1px solid var(--line); }
+  .ph .row:last-child { border-bottom:none; }
+  .ph .row.done { background:#f5f9f5; color:#56705a; }
+  .ph .grip { color:#9aa5b1; width:12px; text-align:center; }
+  .ph .thumb { width:44px; height:29px; border-radius:4px; background:repeating-linear-gradient(45deg,#e6ebf2,#e6ebf2 4px,#dde3ec 4px,#dde3ec 8px); flex:none; }
+  .ph .pgm { font-weight:600; }
+  .ph .sub { font-size:9.5px; color:var(--mut); }
+  .ph .btn { background:var(--p); color:#fff; border-radius:999px; padding:4px 10px; font-size:10px; font-weight:600; display:inline-block; white-space:nowrap; }
+  .ph .btn.o { background:#fff; color:var(--p); border:1px solid #b9c9de; }
+  .ph .btn.t { background:transparent; color:var(--p); padding:4px 5px; }
+  .ph .prog { height:5px; border-radius:3px; background:#e6ebf2; overflow:hidden; margin:6px 0 3px; }
+  .ph .prog i { display:block; height:100%; background:var(--ok); }
+  .ph .cbs { display:flex; gap:6px; }
+  .ph .cb { display:flex; flex-direction:column; align-items:center; font-size:8px; font-weight:700; color:var(--mut); }
+  .ph .cb span { width:13px; height:13px; border:2px solid #8796a8; border-radius:3px; margin-bottom:1px; }
+  .ph .cb span.on { background:var(--p); border-color:var(--p); }
+  .ph .nav { position:absolute; left:50%; transform:translateX(-50%); bottom:10px; background:#fff; border-radius:999px; box-shadow:0 3px 12px rgba(0,0,0,.2); padding:7px 18px; display:flex; gap:22px; color:var(--mut); font-size:10px; }
+  .ph .drop { border:2px dashed var(--p); background:#eef4fc; border-radius:8px; padding:8px; text-align:center; color:var(--p); font-weight:600; }
+  .ph .lift { box-shadow:0 8px 18px rgba(0,0,0,.25); background:#fff; transform:rotate(-2deg); border:1px solid #c9d4e2; }
+  .wrap { display:flex; gap:28px; flex-wrap:wrap; align-items:flex-start; }
+</style>
+
+<h2>Portrait (operator's normal view)</h2>
+<p class="subtitle">Tablet is 824dp wide in portrait. Settings keeps its rail in portrait, so P1 does too. P2 swaps the rail for a material picker so the sheet list gets the full width. Both show a material being dragged onto the CNC 2 drop zone.</p>
+
+<div class="options">
+
+<div class="option" data-choice="p1" onclick="toggleSelect(this)">
+<div class="letter">P1</div>
+<div class="content">
+<h3>Keep the rail, slimmer</h3>
+<p>Same as landscape with a narrower rail. Revisions open as a sheet sliding up from the bottom instead of a side drawer.</p>
+<div class="wrap">
+<div class="ph">
+  <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;"><span>←</span><b style="font-size:13px">711 · WIECHERT</b><span style="flex:1"></span><span class="chip ok">● CNC idle</span></div>
+  <div style="display:flex; gap:8px;">
+    <div style="width:132px; flex:none;">
+      <div class="card">
+        <div class="cap">SCM CNC</div>
+        <div class="ri sel"><span>19mm Pre_Fin.</span><span class="chip frz">9</span></div>
+        <div class="ri lift"><span>⋮⋮ 3/4 Maple</span><span class="chip">12</span></div>
+        <div class="ri"><span>3/4 Melam.</span><span class="chip warn">–</span></div>
+        <div class="ri"><span>1/4 Back</span><span class="chip ok">✓</span></div>
+        <div class="cap">CNC 2</div>
+        <div class="drop">Drop to move</div>
+      </div>
+    </div>
+    <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:7px;">
+      <div style="display:flex; align-items:center; gap:5px;"><b style="font-size:12px; flex:1">19mm Pre_Finished</b><span class="btn o">2nd pass ▾</span></div>
+      <div><span class="chip" style="padding:3px 8px">Pre_FinishedMix · <span style="color:#8a3a00">Interrupted</span></span> <span class="btn t">+ New</span></div>
+      <div class="card" style="padding:8px;">
+        <div style="display:flex; gap:2px; align-items:center;"><span class="btn o">Revisions 3</span><span style="flex:1"></span><span class="btn t">⋯</span><span class="btn">Save</span></div>
+        <div class="prog"><i style="width:40%"></i></div><div class="sub">6 of 15 cut · 9 left</div>
+      </div>
+      <div class="card">
+        <div class="cap">Remaining</div>
+        <div class="row"><span class="grip">⋮⋮</span><span class="thumb"></span><div style="flex:1"><div class="pgm">R87010FN</div><div class="sub">Sheet 7</div></div><div class="cbs"><div class="cb"><span></span>PUN</div><div class="cb"><span class="on"></span>2ND</div><div class="cb"><span></span>SUP</div></div></div>
+        <div class="row"><span class="grip">⋮⋮</span><span class="thumb"></span><div style="flex:1"><div class="pgm">R870107N</div><div class="sub">Sheet 8</div></div><div class="cbs"><div class="cb"><span></span>PUN</div><div class="cb"><span class="on"></span>2ND</div><div class="cb"><span></span>SUP</div></div></div>
+        <div class="row"><span class="grip">⋮⋮</span><span class="thumb"></span><div style="flex:1"><div class="pgm">R870108N+9N</div><div class="sub">Sheet 9 A/Z</div></div><div class="cbs"><div class="cb"><span class="on"></span>PUN</div><div class="cb"><span class="on"></span>2ND</div><div class="cb"><span></span>SUP</div></div></div>
+        <div class="row"><span class="grip">⋮⋮</span><span class="thumb"></span><div style="flex:1"><div class="pgm">R87010AN</div><div class="sub">Sheet 10</div></div><div class="cbs"><div class="cb"><span></span>PUN</div><div class="cb"><span class="on"></span>2ND</div><div class="cb"><span></span>SUP</div></div></div>
+        <div class="cap">Completed · locked</div>
+        <div class="row done"><span class="grip">🔒</span><span class="thumb"></span><div style="flex:1"><div class="pgm">R870101N</div><div class="sub">Sheet 1</div></div><span class="chip ok">Done</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="nav"><span>Jobs</span><span style="color:var(--p); font-weight:700">CNC</span><span>Settings</span></div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="option" data-choice="p2" onclick="toggleSelect(this)">
+<div class="letter">P2</div>
+<div class="content">
+<h3>Material picker on top, full-width sheets</h3>
+<p>Materials become a row of cards across the top, grouped by machine. Long-press a card to drag it to the other machine. Sheet rows get the full width, so thumbnails and checkboxes are bigger.</p>
+<div class="wrap">
+<div class="ph">
+  <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;"><span>←</span><b style="font-size:13px">711 · WIECHERT</b><span style="flex:1"></span><span class="chip ok">● CNC idle</span></div>
+  <div class="card" style="padding:6px; margin-bottom:7px;">
+    <div style="display:flex; gap:6px; align-items:stretch;">
+      <div style="flex:3;">
+        <div class="cap" style="margin-top:2px">SCM CNC</div>
+        <div style="display:flex; gap:5px; flex-wrap:wrap;">
+          <div class="ri sel" style="flex:1; flex-direction:column; align-items:flex-start;"><span>19mm Pre_Fin.</span><span class="chip frz">9 left</span></div>
+          <div class="ri lift" style="flex:1; flex-direction:column; align-items:flex-start;"><span>3/4 Maple</span><span class="chip">12</span></div>
+          <div class="ri" style="flex:1; flex-direction:column; align-items:flex-start; background:#f6f8fb"><span>3/4 Melam.</span><span class="chip warn">no mix</span></div>
+          <div class="ri" style="flex:1; flex-direction:column; align-items:flex-start; background:#f6f8fb"><span>1/4 Back</span><span class="chip ok">done</span></div>
+        </div>
+      </div>
+      <div style="flex:1;">
+        <div class="cap" style="margin-top:2px">CNC 2</div>
+        <div class="drop" style="height:34px; display:flex; align-items:center; justify-content:center;">Drop here</div>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex; align-items:center; gap:5px; margin-bottom:6px;"><b style="font-size:13px; flex:1">19mm Pre_Finished</b><span class="btn o">2nd pass ▾</span><span class="btn o">⋯</span></div>
+  <div style="margin-bottom:6px;"><span class="chip" style="padding:3px 9px">19mm Pre_FinishedMix · <span style="color:#8a3a00">Interrupted</span></span> <span class="btn t">+ New mix</span></div>
+  <div class="card" style="padding:8px; margin-bottom:7px;">
+    <div style="display:flex; gap:4px; align-items:center;"><div style="flex:1"><div class="prog" style="margin:0 0 3px"><i style="width:40%"></i></div><div class="sub">6 of 15 cut · 9 left</div></div><span class="btn t">Rename</span><span class="btn t">Split</span><span class="btn o">Revisions 3</span><span class="btn">Save</span></div>
+  </div>
+  <div class="card">
+    <div class="cap">Remaining · drag to reorder</div>
+    <div class="row"><span class="grip">⋮⋮</span><span class="thumb" style="width:64px;height:40px"></span><div style="flex:1"><div class="pgm">R87010FN</div><div class="sub">Sheet 7 · qty 1</div></div><div class="cbs"><div class="cb"><span></span>PUN</div><div class="cb"><span class="on"></span>2ND</div><div class="cb"><span></span>SUP</div></div><span class="grip">⋯</span></div>
+    <div class="row"><span class="grip">⋮⋮</span><span class="thumb" style="width:64px;height:40px"></span><div style="flex:1"><div class="pgm">R870107N</div><div class="sub">Sheet 8 · qty 1</div></div><div class="cbs"><div class="cb"><span></span>PUN</div><div class="cb"><span class="on"></span>2ND</div><div class="cb"><span></span>SUP</div></div><span class="grip">⋯</span></div>
+    <div class="row"><span class="grip">⋮⋮</span><span class="thumb" style="width:64px;height:40px"></span><div style="flex:1"><div class="pgm">R870108N + R870109N</div><div class="sub">Sheet 9 · A/Z</div></div><div class="cbs"><div class="cb"><span class="on"></span>PUN</div><div class="cb"><span class="on"></span>2ND</div><div class="cb"><span></span>SUP</div></div><span class="grip">⋯</span></div>
+    <div class="cap">Completed · locked</div>
+    <div class="row done"><span class="grip">🔒</span><span class="thumb" style="width:64px;height:40px"></span><div style="flex:1"><div class="pgm">R870101N</div><div class="sub">Sheet 1</div></div><span class="chip ok">Complete</span></div>
+  </div>
+  <div class="nav"><span>Jobs</span><span style="color:var(--p); font-weight:700">CNC</span><span>Settings</span></div>
+</div>
+</div>
+</div>
+</div>
+
+</div>
