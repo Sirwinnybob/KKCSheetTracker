@@ -45,11 +45,12 @@ class MixFilesClient(
     override suspend fun deleteRevision(job: String, material: String, file: String, expectedRevision: String): MixFilesResult<MixFilesCatalog> =
         post(job, material, "delete-revision", fileBody(file, expectedRevision))
 
-    override suspend fun restore(job: String, material: String, revisionFile: String, targetFile: String, expectedTargetRevision: String?): MixFilesResult<MixFilesCatalog> =
+    override suspend fun restore(job: String, material: String, revisionFile: String, targetFile: String, expectedTargetRevision: String?, completion: Completion?): MixFilesResult<MixFilesCatalog> =
         post(job, material, "restore", JsonObject().apply {
             addProperty("revisionFile", revisionFile)
             addProperty("targetFile", targetFile)
             revision("expectedTargetRevision", expectedTargetRevision)
+            completion?.let { add("completion", MixFilesJson.completion(it)) }
         })
 
     override suspend fun split(job: String, material: String, file: String, expectedRevision: String, entries: List<EntrySpec>, newMixes: List<NewMix>, completion: Completion?): MixFilesResult<MixFilesCatalog> =

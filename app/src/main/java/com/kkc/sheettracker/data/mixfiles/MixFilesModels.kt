@@ -64,7 +64,7 @@ interface MixFilesApi {
     suspend fun rename(job: String, material: String, file: String, newFile: String, expectedRevision: String): MixFilesResult<MixFilesCatalog>
     suspend fun delete(job: String, material: String, file: String, expectedRevision: String): MixFilesResult<MixFilesCatalog>
     suspend fun deleteRevision(job: String, material: String, file: String, expectedRevision: String): MixFilesResult<MixFilesCatalog>
-    suspend fun restore(job: String, material: String, revisionFile: String, targetFile: String, expectedTargetRevision: String?): MixFilesResult<MixFilesCatalog>
+    suspend fun restore(job: String, material: String, revisionFile: String, targetFile: String, expectedTargetRevision: String?, completion: Completion? = null): MixFilesResult<MixFilesCatalog>
     suspend fun split(job: String, material: String, file: String, expectedRevision: String, entries: List<EntrySpec>, newMixes: List<NewMix>, completion: Completion?): MixFilesResult<MixFilesCatalog>
     suspend fun features(): Set<String>
 }

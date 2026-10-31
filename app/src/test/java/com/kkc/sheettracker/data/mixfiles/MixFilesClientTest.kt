@@ -146,6 +146,26 @@ class MixFilesClientTest {
         }
     }
 
+    @Test fun frzRestoreSendsCompletionForCreateAndOverwrite() = runBlocking {
+        val api: MixFilesApi = client()
+        val completion = Completion(listOf("R1.pgm", "R2.pgm"), linkedMapOf("R3.pgm" to "frz"), null)
+        listOf(null, "target-sha").forEach { targetRevision ->
+            success()
+            val result = api.restore("J", "M", "OLD1_A.frz", "A.frz", targetRevision, completion)
+            assertEquals(MixFilesResult.Ok(MixFilesCatalog("J", "M", "new", emptyList())), result)
+            val request = server.takeRequest()
+            assertEquals("POST", request.method)
+            assertEquals("/jobs/J/materials/M/mix-files/restore", request.path)
+            val sent = JsonParser.parseString(request.body.readUtf8()).asJsonObject
+            assertEquals("OLD1_A.frz", sent["revisionFile"].asString)
+            assertEquals("A.frz", sent["targetFile"].asString)
+            assertTrue(sent.has("expectedTargetRevision"))
+            if (targetRevision == null) assertTrue(sent["expectedTargetRevision"].isJsonNull)
+            else assertEquals("target-sha", sent["expectedTargetRevision"].asString)
+            assertEquals(JsonParser.parseString("""{"completedPgms":["R1.pgm","R2.pgm"],"resolutions":{"R3.pgm":"frz"}}"""), sent["completion"])
+        }
+    }
+
     @Test fun rejectionRetainsOptionalRecoveryDetails() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(500).setBody("""{"ok":false,"code":"companion_write_failed","error":"disk failure","current":null,"edit":"count","pgm":"R1.pgm","reason":"details","frzRestored":false}"""))
         val error = (client().catalog("J", "M") as MixFilesResult.Rejected).error
