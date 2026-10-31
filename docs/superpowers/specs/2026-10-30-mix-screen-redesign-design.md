@@ -272,9 +272,12 @@ The default name for the first mix is `defaultMixName(material)`.
     PGMs). Apply is blocked until the user picks one. The same banner shows
     after a `revision_conflict`.
 - **Revisions panel.** Lists the current file and then every `OLDn_` and legacy
-  revision of the mix, newest first by file time. For a pair it has two lists,
+  revision of the mix, newest first: `OLDn_` by `revisionNumber` descending,
+  then legacy `name — stamp` archives by stamp. For a pair it has two lists,
   **.mix** and **.FRZ**, because their numbers drift apart (`.mix`-only edits,
   and PanelMac's own FRZ writes make no `OLDn_` copy). Each shows its file time
+  when the catalog provides one (an optional `modifiedAt` the service may add;
+  otherwise the `OLDn` number or the legacy stamp)
   and a short summary the tablet computes by comparing it with the next newer
   one ("reordered", "2 sheets added", "made at CNC" for the oldest). **View**
   shows the revision's order beside the current order.
@@ -362,7 +365,10 @@ The default name for the first mix is `defaultMixName(material)`.
   in the app, excluded from tracking, or part-list continuations. Those pages
   show a "hidden page" chip. They lock only if their tablet status is a locked
   state, and otherwise count as not cut. That keeps a hidden page from showing
-  as unmatched and blocking FRZ saves.
+  as unmatched and blocking FRZ saves. When several pages carry the same PGM
+  (a part-list continuation repeats its head's files), the entry matches the
+  visible head page first, and continuation pages are used only when no other
+  page matches.
 - One function maps catalog entries to sheet pages for the whole app:
   - An entry matches a page when the entry's PGM file name equals one of the
     page's `pgmFiles` (case-insensitive, the `buildManageCodeRows` rule).
@@ -422,8 +428,10 @@ The default name for the first mix is `defaultMixName(material)`.
   shows "The CNC mix service needs updating" and stays read-only from the last
   cached data. Job Detail falls back to natural order.
 - Second-pass revert needs the service's `pgm-edits/revert` route (section
-  6a). The tablet detects it (404 means not there yet) and greys out applied
-  edits until it exists, so the tablet can ship before the route does.
+  6a). The tablet reads `GET /status` and treats revert as available only when
+  its `features` list contains `"pgm-edits-revert"`, which the service adds with
+  the route. Probing with a POST is unsafe once the route exists. Until then it
+  greys out applied edits, so the tablet can ship before the route does.
 - Ships through the usual updater after the service's CNC acceptance check.
 
 ## Constraints
