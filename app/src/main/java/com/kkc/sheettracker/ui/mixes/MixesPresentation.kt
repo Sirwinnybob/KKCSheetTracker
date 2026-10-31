@@ -218,7 +218,7 @@ private fun buildSheetGroups(
                 if (sheet == null) add(RowChip.UNMATCHED)
                 if (fileEntries.any { !it.pgmExists }) add(RowChip.PGM_MISSING)
                 if (fileEntries.any { it.headerDrift }) add(RowChip.NEEDS_REFRESH)
-                if (sheet?.page?.hidden == true) add(RowChip.HIDDEN_PAGE)
+                if (sheet != null && (sheet.page.hidden || sheet.page.continuation)) add(RowChip.HIDDEN_PAGE)
                 if (fileEntries.any { it.pgm.key() in otherMembership }) add(RowChip.IN_OTHER_MIX)
             }, editable, values.map { it.id }, values.map { sourceIndices[it.id] }, values,
             !readOnly && (!locked || !interrupted), editable && !new, editable && !new && !interrupted,
@@ -230,8 +230,9 @@ private fun buildSheetGroups(
                 else -> null
             })
     }
-    val matchedPages = rows.mapNotNull { (it.item as? MixItem.Sheet)?.page?.pageNumber }.toSet()
-    val notInMix = material.pages.filterNot { it.pageNumber in matchedPages }
+    val includedPgms = effective.map { it.pgm.key() }.toSet()
+    // A continuation shares its head's PGM; it must not offer Add for the same file a second time.
+    val notInMix = material.pages.filterNot { page -> page.pgmFiles.any { it.key() in includedPgms } }
     return SheetGroups(rows.filter { !it.locked && it.item is MixItem.Sheet }, rows.filter { it.item is MixItem.Unmatched },
         notInMix, rows.filter { it.locked }, notInMix.mapNotNull { page ->
             val names = page.pgmFiles.flatMap { otherMembership[it.key()].orEmpty() }.distinct()

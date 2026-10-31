@@ -280,4 +280,13 @@ class MixesPresentationTest {
         assertEquals(listOf(1L, 2L), ui.groups!!.remaining.map { it.key })
         assertTrue(ui.groups.remaining.none { it.canEditCounts || it.canEditParameters })
     }
+
+    @Test fun continuationPagesAreMarkedAndDoNotOfferDuplicateAddsForMatchedHeadPgms() {
+        val continuation = page(2, "P1.pgm").copy(continuation = true)
+        val withHead = buildMixesUi(input(material(catalog(row()), listOf(page(1), continuation))))
+        assertTrue(withHead.groups!!.notInMix.isEmpty())
+        val fallback = buildMixesUi(input(material(catalog(row()), listOf(continuation))))
+        assertEquals(listOf(RowChip.HIDDEN_PAGE), fallback.groups!!.remaining.single().chips)
+        assertFalse(fallback.groups.remaining.single().locked)
+    }
 }

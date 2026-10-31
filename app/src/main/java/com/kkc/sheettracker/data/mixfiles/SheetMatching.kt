@@ -20,7 +20,7 @@ data class SheetPage(
 
 fun sheetPages(pages: List<PageMetadata>): List<SheetPage> = pages.sortedBy { it.pageNumber }.mapNotNull { page ->
     val files = orderedPgmFiles(inferSheetFiles(page))
-    if (files.isEmpty()) null else SheetPage(page.pageNumber, files, page.hiddenInApp, page.isPartListContinuation, page.thumbnailPath)
+    if (files.isEmpty()) null else SheetPage(page.pageNumber, files, page.hiddenInApp || page.trackingExcluded, page.isPartListContinuation, page.thumbnailPath)
 }
 
 // inferSheetFiles can return [Z, A] from its sheetId fallback. Keep the shared

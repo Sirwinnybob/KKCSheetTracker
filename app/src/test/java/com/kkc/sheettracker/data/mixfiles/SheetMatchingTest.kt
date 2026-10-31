@@ -55,6 +55,21 @@ class SheetMatchingTest {
         assertEquals(9, item.page.pageNumber)
     }
 
+    @Test fun excludedMetadataIsHiddenAndVisibleHeadStillWinsMatching() {
+        val pages = sheetPages(listOf(
+            PageMetadata(1, sheetFiles = listOf("R1"), trackingExcluded = true),
+            PageMetadata(2, sheetFiles = listOf("R1")),
+        ))
+        assertTrue(pages.first().hidden)
+        assertFalse(pages.first().continuation)
+        val preferred = matchEntries(listOf(entry("R1.pgm")), pages).single() as MixItem.Sheet
+        assertEquals(2, preferred.page.pageNumber)
+        val fallback = matchEntries(listOf(entry("R1.pgm")), pages.take(1)).single() as MixItem.Sheet
+        assertEquals(1, fallback.page.pageNumber)
+        assertTrue(fallback.page.hidden)
+        assertTrue(completedPgms(listOf(fallback)) { SheetStatus.NOT_STARTED }.isEmpty())
+    }
+
     @Test fun continuationLosesToHeadPage() {
         val pages = sheetPages(listOf(
             PageMetadata(1, sheetFiles = listOf("R1"), isPartListContinuation = true),
