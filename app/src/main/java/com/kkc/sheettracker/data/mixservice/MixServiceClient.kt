@@ -40,6 +40,8 @@ class MixServiceClient(private val baseUrl: String = MIX_SERVICE_BASE_URL) : Mix
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .build()
+        // POST acceptance may be lost after the CNC has already queued the mutation.
+        private val mutationClient = client.newBuilder().retryOnConnectionFailure(false).build()
     }
 
     suspend fun isReachable(): Boolean = withContext(Dispatchers.IO) {
@@ -340,7 +342,7 @@ class MixServiceClient(private val baseUrl: String = MIX_SERVICE_BASE_URL) : Mix
             .url(url)
             .method(method, gson.toJson(payload).toRequestBody(jsonMediaType))
             .build()
-        runCatching { client.newCall(request).execute().use(::parseAcceptedOperation) }
+        runCatching { mutationClient.newCall(request).execute().use(::parseAcceptedOperation) }
             .getOrElse { throw MixOperationClientException(it.message ?: "operation submission failed") }
     }
 

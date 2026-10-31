@@ -2,6 +2,10 @@ package com.kkc.sheettracker.data.mixfiles
 
 import com.google.gson.JsonObject
 import com.kkc.sheettracker.data.cnc.CncMachine
+import com.kkc.sheettracker.data.mixservice.MixOperationClientException
+import com.kkc.sheettracker.data.mixservice.MixServiceOperation
+import com.google.gson.Gson
+import com.google.gson.JsonArray
 import com.kkc.sheettracker.data.mixfiles.MixFilesJson.revision
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -71,6 +75,34 @@ class MixFilesClient(
             emptySet()
         }
     }
+
+    /** Capability is checked before POST: old services must never be probed with a mutation. */
+    suspend fun submitPgmEditRevert(job: String, material: String, requestId: String, pgms: List<String>): MixServiceOperation {
+        if ("pgm-edits-revert" !in features()) throw MixOperationClientException("Second-pass revert is not supported by this CNC")
+        val body = JsonObject().apply {
+            addProperty("requestId", requestId)
+            add("files", JsonArray().apply { pgms.forEach { pgm -> add(JsonObject().apply {
+                addProperty("name", pgm)
+                addProperty("to", "original")
+            }) } })
+        }
+        val endpoint = root().addPathSegment("jobs").addPathSegment(job)
+            .addPathSegment("materials").addPathSegment(material)
+            .addPathSegment("pgm-edits").addPathSegment("revert").build()
+        return withContext(Dispatchers.IO) {
+            val request = Request.Builder().url(endpoint).post(MixFilesJson.stringify(body).toRequestBody(JSON_MEDIA_TYPE)).build()
+            // Do not automatically repeat an uncertain write, including on a stale pooled socket.
+            http.newBuilder().retryOnConnectionFailure(false).build().newCall(request).execute().use { response ->
+                val envelope = Gson().fromJson(response.body?.string().orEmpty(), RevertEnvelope::class.java)
+                if (response.code != 202 || envelope?.ok != true || envelope.operation == null || envelope.operation.id.isBlank()) {
+                    throw MixOperationClientException("Second-pass revert submission failed")
+                }
+                envelope.operation
+            }
+        }
+    }
+
+    private data class RevertEnvelope(val ok: Boolean = false, val operation: MixServiceOperation? = null)
 
     private fun root(): HttpUrl.Builder = machine.baseUrl.trimEnd('/').toHttpUrl().newBuilder()
 

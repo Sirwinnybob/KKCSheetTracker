@@ -50,8 +50,27 @@ data class PgmEditCurrentState(
     val mixFiles: List<String> = emptyList()
 )
 
+/** Canonical ledger events, decoded directly by MixServiceClient.listPgmEdits. */
+data class PgmEditHistoryEvent(
+    val eventId: String = "",
+    val requestId: String? = null,
+    val at: String? = null,
+    val actor: String? = null,
+    val action: String = "",
+    val requestedMode: String? = null,
+    val punloadRequested: Boolean? = null,
+    val before: PgmEditCurrentState? = null,
+    val final: PgmEditCurrentState? = null,
+    val result: PgmEditCurrentState? = null,
+    val backup: String? = null,
+    val restoredFrom: String? = null,
+    val mixFiles: List<String> = emptyList(),
+    val error: String? = null,
+)
+
 data class PgmEditFileHistory(
-    val current: PgmEditCurrentState? = null
+    val current: PgmEditCurrentState? = null,
+    val history: List<PgmEditHistoryEvent> = emptyList(),
 )
 
 data class PgmEditHistoryView(
