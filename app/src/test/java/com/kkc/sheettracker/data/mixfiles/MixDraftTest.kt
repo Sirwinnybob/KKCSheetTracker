@@ -292,4 +292,30 @@ class MixDraftTest {
         val next = MixDrafts.add(MixDrafts.remove(added, added.entries.last().id), "B.pgm")
         assertNotEquals(added.entries.last().id, next.entries.last().id)
     }
+
+    @Test fun rebaseRemainingEditClampsToFreshReducedQuantity() {
+        val g = group(listOf(entry("A.pgm", 3, 1)), frzOnly = true)
+        val d = MixDrafts.start(g)
+        val changed = MixDrafts.setQuantity(d, d.entries.single().id, 3, 3)
+        val fresh = group(listOf(entry("A.pgm", 2, 1)), frzOnly = true)
+        val result = MixDrafts.rebase(changed, fresh).draft
+        assertEquals(2, result.entries.single().quantity)
+        assertEquals(2, result.entries.single().remaining)
+        assertEquals(listOf(EntrySpec.Pending("A.pgm", null, 2)), (write(result, fresh) as MixWrite.Frz).pending)
+    }
+
+    @Test fun rebaseQuantityEditClampsFreshIncreasedRemainingAndPreservesLocks() {
+        val g = group(listOf(entry("A.pgm", 3, 2), entry("Done.pgm", 3, 0)), interrupted = true)
+        val d = MixDrafts.start(g, listOf("Done.pgm"))
+        val pending = d.entries.first { it.source!!.pgm == "A.pgm" }
+        val changed = MixDrafts.setQuantity(d, pending.id, 2, 2)
+        val fresh = group(listOf(entry("A.pgm", 3, 3), entry("Done.pgm", 2, 0)), interrupted = true)
+        val result = MixDrafts.rebase(changed, fresh).draft
+        val rebased = result.entries.first { it.id == pending.id }
+        assertEquals(2, rebased.quantity)
+        assertEquals(2, rebased.remaining)
+        assertEquals(0, result.entries.first { it.source!!.pgm == "Done.pgm" }.remaining)
+        assertEquals(listOf(EntrySpec.Pending("A.pgm", 2, 2)),
+            (write(result, fresh, listOf("Done.pgm")) as MixWrite.Frz).pending)
+    }
 }

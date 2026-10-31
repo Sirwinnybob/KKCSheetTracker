@@ -156,9 +156,11 @@ object MixDrafts {
             val original = oldBaseline[entry.id] ?: return entry.takeUnless { current.locked(it) }
             val updated = byOldId[entry.id] ?: run { dropped += entry.pgm(); return null }
             if (current.locked(updated)) return updated
+            val quantity = if (entry.quantity != original.quantity) entry.quantity else updated.quantity
+            val remaining = if (entry.remaining != original.remaining) entry.remaining else updated.remaining
             return updated.copy(
-                quantity = if (entry.quantity != original.quantity) entry.quantity else updated.quantity,
-                remaining = if (entry.remaining != original.remaining) entry.remaining else updated.remaining,
+                quantity = quantity,
+                remaining = if (current.isInterrupted) (remaining ?: quantity).coerceIn(1, quantity) else remaining,
                 parameters = mergeParameters(original.parameters, entry.parameters, updated.parameters),
             )
         }
