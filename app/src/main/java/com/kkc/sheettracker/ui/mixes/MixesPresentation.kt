@@ -30,15 +30,18 @@ data class RowModel(
     val draggable: Boolean,
     /** All IDs in a collapsed A/Z row must move together, preserving their order. */
     val draftEntryIds: List<Long>,
-    /** Indices in the selected catalog file, aligned with entries; additions/restored sources have null. */
+    /** Indices in sourceFile, aligned with entries; additions/restored sources have null. */
     val sourceEntryIndices: List<Int?>,
-    /** Current draft values, including opaque parameter spellings. item.entryIndices indexes this draft's full list. */
+    /** Current draft values; companion-only rows carry the unchanged companion source entry. */
     val entries: List<DraftEntry>,
     val canRemove: Boolean,
     val canEditCounts: Boolean,
     val canEditParameters: Boolean,
     val canSplit: Boolean,
     val editBlockedReason: String?,
+    val sourceFile: String? = null,
+    /** Not part of the editable FRZ draft. item.entryIndices indexes sourceFile rather than the draft. */
+    val companionOnly: Boolean = false,
 )
 enum class RowChip { UNMATCHED, PGM_MISSING, NEEDS_REFRESH, HIDDEN_PAGE, IN_OTHER_MIX }
 data class SheetGroups(
@@ -228,8 +231,8 @@ private fun buildSheetGroups(
                 locked -> "Completed sheets are locked"
                 new -> "Apply the new sheet before editing its quantity or parameters"
                 else -> null
-            })
-    }
+            }, sourceFile = group?.primary?.file)
+    } + companionOnlyUnmatchedRows(group, material.pages, otherMembership.keys)
     val includedPgms = effective.map { it.pgm.key() }.toSet()
     // A continuation shares its head's PGM; it must not offer Add for the same file a second time.
     val notInMix = material.pages.filterNot { page -> page.pgmFiles.any { it.key() in includedPgms } }
@@ -238,6 +241,41 @@ private fun buildSheetGroups(
             val names = page.pgmFiles.flatMap { otherMembership[it.key()].orEmpty() }.distinct()
             (page.pageNumber to names).takeIf { names.isNotEmpty() }
         }.toMap())
+}
+
+/** Compare original files, not draft membership: an intentional FRZ removal must not resurrect its MIX occurrence. */
+private fun companionOnlyUnmatchedRows(group: MixGroup?, pages: List<SheetPage>, inOtherMixes: Set<String>): List<RowModel> {
+    val frz = group?.frz ?: return emptyList()
+    val mix = group.mix ?: return emptyList()
+    fun MixFileEntry.identity() = path.key() to pgm.key()
+    val sharedOccurrences = frz.entries.groupingBy { it.identity() }.eachCount().toMutableMap()
+    val unmatchedIndices = matchEntries(mix.entries, pages).filterIsInstance<MixItem.Unmatched>()
+        .flatMap { it.entryIndices }.toSet()
+    return mix.entries.mapIndexedNotNull { index, entry ->
+        val identity = entry.identity()
+        val shared = sharedOccurrences[identity] ?: 0
+        if (shared > 0) {
+            sharedOccurrences[identity] = shared - 1
+            return@mapIndexedNotNull null
+        }
+        if (index !in unmatchedIndices) return@mapIndexedNotNull null
+        // Draft IDs are positive. A negative file-occurrence key stays stable without pretending this is a draft edit.
+        val key = -index.toLong() - 1L
+        RowModel(
+            key = key, item = MixItem.Unmatched(listOf(index), entry.pgm), label = entry.pgm,
+            locked = false, tabletStatus = null, frzRemaining = null, disagreement = false,
+            chips = buildList {
+                add(RowChip.UNMATCHED)
+                if (!entry.pgmExists) add(RowChip.PGM_MISSING)
+                if (entry.headerDrift) add(RowChip.NEEDS_REFRESH)
+                if (entry.pgm.key() in inOtherMixes) add(RowChip.IN_OTHER_MIX)
+            },
+            draggable = false, draftEntryIds = emptyList(), sourceEntryIndices = listOf(index), entries = listOf(entry.asDraft(key)),
+            canRemove = false, canEditCounts = false, canEditParameters = false, canSplit = false,
+            editBlockedReason = "This unmatched entry exists only in ${mix.file}. Reconcile the companion files before saving.",
+            sourceFile = mix.file, companionOnly = true,
+        )
+    }
 }
 
 private fun MixFileEntry.asDraft(id: Long) = DraftEntry(id, this, null, quantity, remaining, LinkedHashMap(parameters))

@@ -21,6 +21,10 @@ class MixesPresentationTest {
     private fun input(m: MaterialMixesInput = material(), draft: MixDraft? = null) =
         MixesUiInput(listOf(m), "Oak", draft = draft)
     private fun group(c: MixFilesCatalog) = groupMixFiles(c).first()
+    private fun pair(frzEntries: List<MixFileEntry>, mixEntries: List<MixFileEntry>) = catalog(
+        row("Run.mix", mixEntries).copy(companion = "Run.FRZ", companionMismatch = true),
+        row("Run.FRZ", frzEntries).copy(companion = "Run.mix", companionMismatch = true),
+    )
     private fun edited(c: MixFilesCatalog) = MixDrafts.start(group(c)).copy(changeCount = 1)
     private fun error(code: String, edit: String? = null, restored: Boolean? = null) =
         MixFilesError(422, code, "wire diagnostic", null, emptyList(), edit, "Lost.pgm", null, restored)
@@ -288,5 +292,59 @@ class MixesPresentationTest {
         val fallback = buildMixesUi(input(material(catalog(row()), listOf(continuation))))
         assertEquals(listOf(RowChip.HIDDEN_PAGE), fallback.groups!!.remaining.single().chips)
         assertFalse(fallback.groups.remaining.single().locked)
+    }
+
+    @Test fun companionOnlyUnmatchedIsVisibleReadOnlyAndBlocksInterruptedApply() {
+        val lost = entry("Lost.pgm").copy(pgmExists = false, headerDrift = true)
+        val c = pair(listOf(entry("P1.pgm", left = 1)), listOf(entry("P1.pgm"), lost))
+        val ui = buildMixesUi(input(material(c), edited(c)))
+        assertEquals(listOf("Lost.pgm"), ui.groups!!.unmatched.map { it.label })
+        assertFalse(ui.card!!.applyEnabled)
+        assertEquals("1 sheets in this mix don't match the job — fix them before saving", ui.card.applyBlockedReason)
+        val orphan = ui.groups.unmatched.single()
+        assertTrue(orphan.companionOnly)
+        assertEquals("Run.mix", orphan.sourceFile)
+        assertEquals(lost, orphan.entries.single().source)
+        assertEquals(listOf(1), orphan.sourceEntryIndices)
+        assertTrue(orphan.draftEntryIds.isEmpty())
+        assertFalse(orphan.draggable || orphan.canRemove || orphan.canEditCounts || orphan.canEditParameters || orphan.canSplit)
+        assertEquals(setOf(RowChip.UNMATCHED, RowChip.PGM_MISSING, RowChip.NEEDS_REFRESH), orphan.chips.toSet())
+        assertTrue(orphan.editBlockedReason!!.contains("Run.mix"))
+        assertEquals(listOf("P1.pgm"), ui.groups.remaining.flatMap { (it.item as MixItem.Sheet).pgms })
+    }
+
+    @Test fun pairUnmatchedDedupesSharedPathsButPreservesExtraOccurrencesAndDifferentPaths() {
+        val shared = entry("Shared.pgm", left = 1)
+        val sharedMix = entry("shared.PGM", 3).copy(path = shared.path.lowercase())
+        val differentPath = entry("Shared.pgm").copy(path = "D:\\OtherJob\\Shared.pgm")
+        val repeated = entry("Extra.pgm")
+        val c = pair(listOf(entry("P1.pgm", left = 1), shared), listOf(
+            entry("P1.pgm"), sharedMix, sharedMix, differentPath, repeated, repeated,
+        ))
+        val ui = buildMixesUi(input(material(c), edited(c)))
+        val unmatched = ui.groups!!.unmatched
+        assertEquals(listOf("Shared.pgm", "shared.PGM", "Shared.pgm", "Extra.pgm", "Extra.pgm"), unmatched.map { it.label })
+        assertEquals(listOf(shared.path, sharedMix.path, differentPath.path, repeated.path, repeated.path), unmatched.map { it.entries.single().source!!.path })
+        assertEquals(listOf(listOf(1), listOf(2), listOf(3), listOf(4), listOf(5)), unmatched.map { it.sourceEntryIndices })
+        assertEquals(5, unmatched.map { it.key }.distinct().size)
+        assertEquals(1, unmatched.count { it.canRemove })
+        assertEquals(listOf(false, true, true, true, true), unmatched.map { it.companionOnly })
+        assertEquals(listOf("Run.FRZ", "Run.mix", "Run.mix", "Run.mix", "Run.mix"), unmatched.map { it.sourceFile })
+        assertFalse(ui.card!!.applyEnabled)
+        assertEquals("5 sheets in this mix don't match the job — fix them before saving", ui.card.applyBlockedReason)
+        val noDraft = buildMixesUi(input(material(c))).groups!!.unmatched
+        assertEquals(unmatched.map { it.key }, noDraft.map { it.key })
+    }
+
+    @Test fun removingSharedUnmatchedFromPrimaryDraftDoesNotResurrectItFromCompanion() {
+        val shared = entry("Shared.pgm", left = 1)
+        val c = pair(listOf(entry("P1.pgm", left = 1), shared), listOf(entry("P1.pgm"), shared.copy(remaining = null)))
+        val start = MixDrafts.start(group(c))
+        val removed = MixDrafts.remove(start, start.entries.last().id)
+        val ui = buildMixesUi(input(material(c), removed))
+        assertTrue(ui.groups!!.unmatched.isEmpty())
+        assertEquals(listOf(1L), ui.groups.remaining.map { it.key })
+        assertTrue(ui.card!!.applyEnabled)
+        assertNull(ui.card.applyBlockedReason)
     }
 }
