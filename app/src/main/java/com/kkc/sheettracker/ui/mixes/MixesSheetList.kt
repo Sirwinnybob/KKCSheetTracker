@@ -36,7 +36,7 @@ internal fun MixesSheetList(groups: SheetGroups, secondPass: SecondPassDraft?, r
     pdf: File?, onDragStart: () -> Unit, onDrop: (List<Pair<RowModel, RowModel>>) -> Unit,
     onAdd: (SheetPage) -> Unit, onSecondPass: (List<String>, SecondPassField, Boolean) -> Unit,
     onRowAction: ((RowModel, MixRowAction) -> Unit)?, modifier: Modifier = Modifier,
-    supportedRowActions: Set<MixRowAction> = setOf(MixRowAction.REMOVE)) {
+    supportedRowActions: Set<MixRowAction> = setOf(MixRowAction.REMOVE), secondPassEnabled: Boolean = enabled) {
     val listState = rememberLazyListState()
     var rows by remember(groups.remaining, groups.unmatched) { mutableStateOf(groups.remaining + groups.unmatched) }
     val moves = remember { mutableListOf<Pair<RowModel, RowModel>>() }
@@ -57,7 +57,7 @@ internal fun MixesSheetList(groups: SheetGroups, secondPass: SecondPassDraft?, r
                     val drag = if (row.draggable && enabled) Modifier.draggableHandle(
                         onDragStarted = { moves.clear(); onDragStart() },
                         onDragStopped = { onDrop(moves.toList()); moves.clear() }) else Modifier
-                    MixesSheetRow(row, secondPass, revertSupported, enabled, pdf, drag, onSecondPass, onRowAction, supportedRowActions)
+                    MixesSheetRow(row, secondPass, revertSupported, secondPassEnabled, pdf, drag, onSecondPass, onRowAction, supportedRowActions)
                 }
             }
         }

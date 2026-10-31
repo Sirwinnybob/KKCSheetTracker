@@ -1,9 +1,10 @@
 package com.kkc.sheettracker.ui.mixes
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.test.platform.app.InstrumentationRegistry
 import com.kkc.sheettracker.data.cnc.CncMachines
@@ -13,9 +14,60 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import com.kkc.sheettracker.data.mixservice.PgmEditHistoryView
 
 /** Uses the actual renderer and presentation reducer, with no CNC calls or production fixtures. */
 class MixesScreenUiTest {
+    @Test fun catalogCollectorKeepsDestinationWhenMaterialMembershipChanges() {
+        fun catalog(revision: String) = CatalogState.Live(MixFilesCatalog("J", "A", revision, emptyList()))
+        val a = MutableStateFlow<CatalogState>(catalog("old"))
+        val b = MutableStateFlow<CatalogState>(CatalogState.Loading)
+        var sources by mutableStateOf(mapOf("A" to a))
+        compose.setContent {
+            val states = rememberMixCatalogStates("J", sources)
+            Text("${states["A"].catalogSnapshot()?.folderRevision}:${states.keys.sorted().joinToString()}")
+        }
+        compose.onNodeWithText("old:A").assertExists()
+        compose.runOnIdle { sources = mapOf("A" to a, "B" to b) }
+        compose.waitForIdle()
+        compose.runOnIdle { a.value = catalog("fresh") }
+        compose.onNodeWithText("fresh:A, B").assertExists()
+        compose.runOnIdle { sources = mapOf("A" to a) }
+        compose.waitForIdle()
+        compose.runOnIdle { a.value = catalog("newest") }
+        compose.onNodeWithText("newest:A").assertExists()
+    }
+
+    @Test fun healthyCatalogStillOffersHistoryRetryAndPreservesWantedEdits() {
+        val session = MixesSession()
+        val material = Material("m.pdf", "Maple", 1, metadata = MaterialMetadata(pages = listOf(PageMetadata(pageNumber = 1, sheetFiles = listOf("a")))))
+        val entry = MixFileEntry("Z:\\a.pgm", "a.pgm", linkedMapOf(), null, 1, null, true, false)
+        val catalog = MixFilesCatalog("J", "Maple", "r", listOf(MixFileRow("Maple.mix", MixFileKind.MIX, null, null, "r", null, false, null, null, listOf(entry))))
+        runBlocking {
+            session.onCatalog(catalog)
+            session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView() }
+            session.updateSecond(listOf("a.pgm"), SecondPassField.SECOND, true, emptyList())
+            session.reloadHistory(listOf("a.pgm")) { null }
+        }
+        compose.setContent { MaterialTheme {
+            val scope = rememberCoroutineScope()
+            val presentation = buildMixesUi(MixesUiInput(listOf(MaterialMixesInput(CncMachines.scm, material, CatalogState.Live(catalog))), "Maple", secondPassDraft = session.secondPass))
+            val ui = presentation.copy(secondPassApplyEnabled = presentation.secondPassApplyEnabled && session.secondHistoryConfirmed)
+            MixesWorkspace("History fixture", "Maple", 1, ui, session.secondPass, false, listOf("a.pgm"), null,
+                onBack = {}, onMaterial = {}, onTab = {}, onNew = {}, onDiscard = {}, onApply = {},
+                onRefresh = {}, onLoadTheirs = {}, onReapply = {}, onDragStart = {}, onDrop = {}, onAdd = {},
+                onSecondPass = { _, _, _ -> }, onSecondDiscard = {}, onSecondApply = {}, secondMessage = session.secondMessage,
+                historyRetryVisible = !session.secondHistoryConfirmed,
+                onHistoryRetry = { scope.launch { session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView() } } })
+        } }
+        compose.onNodeWithText("Apply 2nd pass (1)").assertIsNotEnabled()
+        compose.onNodeWithText("Retry second-pass history").performClick()
+        compose.onNodeWithText("Apply 2nd pass (1)").assertIsEnabled()
+        compose.onNodeWithText("Retry second-pass history").assertDoesNotExist()
+    }
     @get:Rule val compose = createComposeRule()
     @Test fun workspaceShowsMaterialsRowsAndIndependentApplyStates() {
         val material = Material("m.pdf", "Maple", 3, metadata = MaterialMetadata(pages = listOf(
@@ -35,14 +87,18 @@ class MixesScreenUiTest {
             current = baseline.current + ("a.pgm" to completedState))
         val second = SecondPassDrafts.set(appliedHistory, "b.pgm", SecondPassState(true, false, false))
         var conflict by mutableStateOf(false)
+        var mixBusy by mutableStateOf(false)
+        var secondBusy by mutableStateOf(false)
         compose.setContent { MaterialTheme {
             val ui = buildMixesUi(MixesUiInput(listOf(MaterialMixesInput(CncMachines.scm, material, CatalogState.Live(catalog),
-                statusByPage = mapOf(1 to SheetStatus.COMPLETE))), "Maple", draft = draft, secondPassDraft = second, conflict = conflict))
+                statusByPage = mapOf(1 to SheetStatus.COMPLETE))), "Maple", draft = draft, secondPassDraft = second, conflict = conflict,
+                applying = mixBusy, secondPassApplying = secondBusy))
             MixesWorkspace("Fixture · Mixes", "Maple", 3, ui, second, false, second.wanted.keys.toList(), null,
                 onBack = {}, onMaterial = {}, onTab = {}, onNew = {}, onDiscard = {}, onApply = { applied++ },
                 onRefresh = {}, onLoadTheirs = {}, onReapply = {}, onDragStart = {}, onDrop = {},
                 onAdd = { page -> added++; draft = page.pgmFiles.fold(draft) { d, pgm -> MixDrafts.add(d, pgm) } },
-                onSecondPass = { _, _, _ -> }, onSecondDiscard = {}, onSecondApply = {}, secondMessage = null)
+                onSecondPass = { _, _, _ -> }, onSecondDiscard = {}, onSecondApply = {}, secondMessage = null,
+                mixEditingEnabled = !mixBusy, secondEditingEnabled = !secondBusy, secondDiscardEnabled = !secondBusy)
         } }
         compose.onNodeWithTag("mixes-apply").assertIsEnabled().performClick()
         assertEquals(1, applied)
@@ -61,5 +117,16 @@ class MixesScreenUiTest {
         compose.onNodeWithText("Load theirs").assertExists()
         compose.onNodeWithText("Re-apply my changes").assertExists()
         compose.onNodeWithText("Apply 2nd pass (1)").assertIsEnabled()
+        compose.runOnIdle { conflict = false; mixBusy = true }
+        compose.onNodeWithText("Discard").assertIsNotEnabled()
+        compose.onNodeWithTag("mixes-sheet-list").performScrollToNode(hasContentDescription("2ND · b.pgm"))
+        compose.onNodeWithContentDescription("2ND · b.pgm").assertIsEnabled()
+        compose.onNodeWithTag("mixes-sheet-list").performScrollToNode(hasText("Add"))
+        compose.onAllNodesWithText("Add").onFirst().assertIsNotEnabled()
+        compose.runOnIdle { mixBusy = false; secondBusy = true }
+        compose.onAllNodesWithText("Add").onFirst().assertIsEnabled()
+        compose.onNodeWithText("Discard 2nd pass").assertIsNotEnabled()
+        compose.onNodeWithTag("mixes-sheet-list").performScrollToNode(hasContentDescription("2ND · b.pgm"))
+        compose.onNodeWithContentDescription("2ND · b.pgm").assertIsNotEnabled()
     }
 }

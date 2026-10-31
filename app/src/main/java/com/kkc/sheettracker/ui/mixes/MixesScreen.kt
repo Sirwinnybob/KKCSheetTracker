@@ -26,8 +26,6 @@ import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.cnc.*
 import com.kkc.sheettracker.data.mixfiles.*
 import com.kkc.sheettracker.data.mixservice.MixServiceClient
-import com.kkc.sheettracker.data.mixservice.PgmEditHistoryView
-import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.ui.components.kkcCardDepth
 import com.kkc.sheettracker.ui.settings.GroupCard
@@ -37,7 +35,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.Locale
 
 internal enum class MixCardAction { RENAME, SPLIT, DELETE, REVISIONS, COMPARE }
 
@@ -62,174 +59,105 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     }
     ForegroundMixLeases(stores.values.toList(), app.machineStatusStore)
     val machineStatus by app.machineStatusStore.status.collectAsState()
-    val catalogStates = remember(stores) { mutableStateMapOf<String, CatalogState>() }
-    stores.forEach { (name, store) -> LaunchedEffect(store) { store.state.collect { catalogStates[name] = it } } }
+    val catalogStates = rememberMixCatalogStates(jobFolderName, stores.mapValues { it.value.state })
     var selectedMaterial by remember(jobFolderName) { mutableStateOf(initialMaterial) }
     LaunchedEffect(materials) { selectedMaterial = selectAvailableMaterial(selectedMaterial, materials.map { it.materialName }) }
     val material = materials.firstOrNull { it.materialName == selectedMaterial }
-    val gates = remember(jobFolderName) { mutableMapOf<String, CatalogGate>() }
-    val gate = selectedMaterial?.let { gates.getOrPut(it) { CatalogGate() } }
-    var catalog by remember(selectedMaterial) { mutableStateOf<MixFilesCatalog?>(gate?.appliedCatalog) }
-    var tab by remember(selectedMaterial) { mutableStateOf<String?>(null) }
-    var draft by remember(selectedMaterial) { mutableStateOf<MixDraft?>(null) }
-    var draftFolderRevision by remember(selectedMaterial) { mutableStateOf<String?>(null) }
-    var conflict by remember(selectedMaterial) { mutableStateOf(false) }
-    var dragging by remember(selectedMaterial) { mutableStateOf(false) }
-    var applyResult by remember(selectedMaterial) { mutableStateOf<MixFilesResult<MixFilesCatalog>?>(null) }
-    var applying by remember(selectedMaterial) { mutableStateOf(false) }
-    var savedInterrupted by remember(selectedMaterial) { mutableStateOf(false) }
-    var history by remember(selectedMaterial) { mutableStateOf<PgmEditHistoryView?>(null) }
-    var secondPass by remember(selectedMaterial) { mutableStateOf<SecondPassDraft?>(null) }
+    val session = remember(jobFolderName, selectedMaterial) { MixesSession() }
     var inventory by remember(selectedMaterial) { mutableStateOf<List<String>>(emptyList()) }
-    var secondApplying by remember(selectedMaterial) { mutableStateOf(false) }
-    var secondHistoryConfirmed by remember(selectedMaterial) { mutableStateOf(false) }
-    var secondMessage by remember(selectedMaterial) { mutableStateOf<String?>(null) }
     var revertSupported by remember(machine) { mutableStateOf(false) }
     var pendingLeave by remember { mutableStateOf<(() -> Unit)?>(null) }
-    val dirty = draft != null || (secondPass?.changeCount ?: 0) > 0
-    fun leave(action: () -> Unit) { if (!applying && !secondApplying) { if (dirty) pendingLeave = action else action() } }
+    fun latestCatalog() = stores[selectedMaterial]?.state?.value.catalogSnapshot() ?: session.gate.deferredCatalog ?: session.catalog
+    fun leave(action: () -> Unit) {
+        if (session.saving) return
+        val abandonAndLeave = { if (session.abandonAll(latestCatalog())) action() }
+        if (session.dirty) pendingLeave = abandonAndLeave else abandonAndLeave()
+    }
     BackHandler { leave(onBack) }
     val latest = catalogStates[selectedMaterial].catalogSnapshot()
-    LaunchedEffect(selectedMaterial, latest) {
-        if (latest != null && gate != null) {
-            when (gate.onCatalog(latest, dragging, draft != null)) {
-                GateDecision.APPLY -> catalog = gate.appliedCatalog
-                GateDecision.CONFLICT -> conflict = true
-                GateDecision.DEFER -> Unit
-            }
-        }
-    }
+    LaunchedEffect(session, latest) { latest?.let(session::onCatalog) }
     LaunchedEffect(machine) { revertSupported = "pgm-edits-revert" in api.features() }
-    LaunchedEffect(selectedMaterial) {
-        val name = selectedMaterial ?: return@LaunchedEffect
-        try {
-            inventory = service.listPgms(jobFolderName, name).map { it.name }
-            history = service.listPgmEdits(jobFolderName, name)
-            val pgms = (inventory + material?.let { sheetPages(it.metadata?.pages.orEmpty()).flatMap { page -> page.pgmFiles } }.orEmpty()).distinct()
-            secondHistoryConfirmed = history != null
-            if (history != null) secondPass = SecondPassDrafts.from(history, pgms)
-            else secondMessage = "Couldn't load second-pass history. Refresh before editing."
-        } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { secondMessage = "Couldn't load second-pass history. Refresh before editing." }
+    fun historyPgms() = (inventory + material?.let { sheetPages(it.metadata?.pages.orEmpty()).flatMap { page -> page.pgmFiles } }.orEmpty()).distinct()
+    suspend fun retryHistory(name: String) { session.reloadHistory(historyPgms()) { service.listPgmEdits(jobFolderName, name) } }
+    LaunchedEffect(session, material?.materialName) {
+        val name = material?.materialName ?: return@LaunchedEffect
+        try { inventory = service.listPgms(jobFolderName, name).map { it.name } }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { /* Metadata PGMs still allow a separate history recovery. */ }
+        retryHistory(name)
     }
     val materialInputs = materials.map { m ->
         val state = catalogStates[m.materialName] ?: CatalogState.Loading
-        val visible = if (m == material && catalog != null) state.withCatalog(catalog!!) else state
-        // progressVersion is the authoritative invalidation signal; reads are synchronous tablet status.
+        val visible = if (m == material && session.catalog != null) state.withCatalog(session.catalog!!) else state
         @Suppress("UNUSED_VARIABLE") val version = progressVersion
         MaterialMixesInput(machine, m, visible, statusByPage = m.metadata?.pages.orEmpty().associate {
             it.pageNumber to progressStore.getSheetStatus(jobFolderName, m.pdfFilename, it.pageNumber, m.fileFingerprint)
         }, hasPgms = sheetPages(m.metadata?.pages.orEmpty()).isNotEmpty() || (m == material && inventory.isNotEmpty()))
     }
     val selected = materialInputs.firstOrNull { it.material == material }
-    val presentation = buildMixesUi(MixesUiInput(materialInputs, selectedMaterial, selectedTab = tab, draft = draft,
-        secondPassDraft = secondPass, draftFolderRevision = draftFolderRevision, conflict = conflict,
-        applyResult = applyResult, savedInterrupted = savedInterrupted, applying = applying, secondPassApplying = secondApplying, machineStatus = machineStatus))
-    val ui = presentation.copy(secondPassApplyEnabled = presentation.secondPassApplyEnabled && secondHistoryConfirmed)
-    val group = catalog?.let(::groupMixFiles)?.firstOrNull { it.key == ui.selectedTab }
-    fun locks(): List<String> = selected?.pages.orEmpty().filter { isLockedStatus(selected!!.statusOf(it.pageNumber)) }.flatMap { it.pgmFiles }.distinct()
-    fun edit(block: (MixDraft) -> MixDraft) {
-        val initial = draft ?: group?.let { MixDrafts.start(it, locks()) } ?: return
-        if (draft == null) draftFolderRevision = catalog?.folderRevision
-        draft = block(initial.copy(completedPgms = locks().map { it.lowercase(Locale.ROOT) }.toSet()))
-        savedInterrupted = false
-        if (applyResult !is MixFilesResult.Offline) applyResult = null
-    }
-    fun updateSecond(pgms: List<String>, field: SecondPassField, on: Boolean) {
-        secondPass?.let { secondPass = SecondPassDrafts.setAll(it, pgms.filterNot { pgm -> locks().any { name -> name.equals(pgm, true) } }, field, on) }
-    }
+    val presentation = buildMixesUi(MixesUiInput(materialInputs, selectedMaterial, selectedTab = session.selectedTab, draft = session.draft,
+        secondPassDraft = session.secondPass, draftFolderRevision = session.draftFolderRevision, conflict = session.conflict,
+        applyResult = session.applyResult, savedInterrupted = session.savedInterrupted, applying = session.applying,
+        secondPassApplying = session.secondApplying, machineStatus = machineStatus))
+    val ui = presentation.copy(secondPassApplyEnabled = presentation.secondPassApplyEnabled && session.secondHistoryConfirmed && !session.historyLoading)
+    val group = session.catalog?.let(::groupMixFiles)?.firstOrNull { it.key == ui.selectedTab }
+    // Read ProgressStore at the action boundary, rather than a status map from the last composition.
+    fun locks(): List<String> = material?.let { m -> sheetPages(m.metadata?.pages.orEmpty()).filter {
+        isLockedStatus(progressStore.getSheetStatus(jobFolderName, m.pdfFilename, it.pageNumber, m.fileFingerprint))
+    }.flatMap { it.pgmFiles }.distinct() }.orEmpty()
+    fun edit(change: (MixDraft) -> MixDraft) = session.edit(group, locks(), change)
     MixesWorkspace(job?.let { "${it.jobNumber} · ${it.jobName}" } ?: jobFolderName, selectedMaterial, selected?.pages?.size ?: 0,
-        ui, secondPass, revertSupported, inventory, material?.let { File(File(scan.snapshot.basePath, "$jobFolderName/CNC"), it.pdfFilename) },
+        ui, session.secondPass, revertSupported, inventory, material?.let { File(File(scan.snapshot.basePath, "$jobFolderName/CNC"), it.pdfFilename) },
         onBack = { leave(onBack) }, onMaterial = { name -> leave { selectedMaterial = name } },
-        onTab = { key -> leave { draft = null; secondPass = secondPass?.let { it.copy(wanted = it.current) }; tab = key; conflict = false; applyResult = null } },
-        onNew = {
-            leave {
-                val files = catalog?.files.orEmpty().map { it.file.lowercase() }.toSet()
-                val base = "${selectedMaterial ?: "Material"}Mix"
-                val name = generateSequence(1) { it + 1 }.map { n -> "$base${if (n == 1) "" else " $n"}.mix" }.first { it.lowercase() !in files }
-                val other = catalog?.let(::groupMixFiles).orEmpty().filter { it.mix != null || it.frz != null }.flatMap { it.primary.entries }.map { it.pgm }.toSet()
-                draft = MixDrafts.startNew(name, selected?.pages.orEmpty(), other).copy(completedPgms = locks().map { it.lowercase(Locale.ROOT) }.toSet())
-                draftFolderRevision = catalog?.folderRevision; tab = draft?.groupKey; conflict = false; applyResult = null
-            }
-        }, onDiscard = { draft = null; conflict = false; applyResult = null; latest?.let { gate?.accept(it); catalog = it } },
+        onTab = { key -> leave { session.selectedTab = key } },
+        onNew = { leave { session.startNew(selectedMaterial ?: "Material", selected?.pages.orEmpty(), locks()) } },
+        onDiscard = { session.discardMix(latestCatalog()) },
         onApply = {
-            val d = draft
             val name = selectedMaterial
-            if (d != null && name != null && ui.card?.applyEnabled == true) scope.launch {
-                applying = true
-                try {
-                    val result = when (val write = buildWrite(d, group, locks(), emptyMap())) {
+            if (name != null && ui.card?.applyEnabled == true && !session.applying) scope.launch {
+                val result = session.saveMix { draft ->
+                    when (val write = buildWrite(draft, group, locks(), emptyMap())) {
                         is MixWrite.Write -> api.write(jobFolderName, name, write.file, write.expectedRevision, write.entries, write.completion)
                         is MixWrite.Frz -> api.frz(jobFolderName, name, write.file, write.expectedRevision, write.completion, write.pending)
                         is MixWrite.Split -> api.split(jobFolderName, name, write.file, write.expectedRevision, write.entries, write.newMixes, write.completion)
                     }
-                    applyResult = result
-                    if (result is MixFilesResult.Ok) {
-                        stores[name]?.publish(result.value); gate?.accept(result.value); catalog = result.value
-                        savedInterrupted = d.isInterrupted; draft = null; draftFolderRevision = null; conflict = false
-                    } else if (result is MixFilesResult.Offline || (result is MixFilesResult.Rejected && result.error.code == "revision_conflict")) stores[name]?.refreshNow()
-                } finally { applying = false }
+                }
+                if (result is MixFilesResult.Ok) stores[name]?.publish(result.value)
+                else if (result is MixFilesResult.Offline || (result is MixFilesResult.Rejected && result.error.code == "revision_conflict")) stores[name]?.refreshNow()
             }
         }, onRefresh = { selectedMaterial?.let { name -> scope.launch {
             stores[name]?.refreshNow()
-            if (stores[name]?.state?.value is CatalogState.Live) applyResult = null
-            history = service.listPgmEdits(jobFolderName, name)
-            secondHistoryConfirmed = history != null
-            history?.let {
-                val fresh = SecondPassDrafts.from(it, (inventory + selected?.pages.orEmpty().flatMap { page -> page.pgmFiles }).distinct())
-                secondPass = secondPass?.takeIf { d -> d.changeCount > 0 }?.let { d -> fresh.copy(wanted = d.wanted) } ?: fresh
-            }
+            session.acknowledgeRefresh(stores[name]?.state?.value is CatalogState.Live)
+            retryHistory(name)
         } } },
-        onLoadTheirs = { draft = null; conflict = false; applyResult = null; gate?.deferredCatalog?.let { gate.accept(it); catalog = it } },
-        onReapply = {
-            val fresh = gate?.deferredCatalog
-            val d = draft
-            if (fresh != null && d != null && d.newFile == null) {
-                val freshGroup = groupMixFiles(fresh).firstOrNull { it.key == d.groupKey }
-                if (freshGroup != null) {
-                    val rebased = MixDrafts.rebase(d, freshGroup, locks())
-                    draft = rebased.draft; draftFolderRevision = fresh.folderRevision; gate.accept(fresh); catalog = fresh; conflict = false; applyResult = null
-                    secondMessage = rebased.dropped.takeIf { it.isNotEmpty() }?.let { "No longer on CNC: ${it.joinToString()}" }
-                }
-            }
-        }, onDragStart = { dragging = true }, onDrop = { moves ->
-            // Create the draft against the visible snapshot BEFORE allowing a deferred catalog through.
-            if (moves.isNotEmpty()) edit { initial -> moves.fold(initial) { d, (from, to) -> moveRowBlock(d, from.draftEntryIds, to.draftEntryIds) } }
-            dragging = false
-            if (gate?.onDrop(draft != null) == GateDecision.CONFLICT) conflict = true else catalog = gate?.appliedCatalog
-        }, onAdd = { page -> edit { d -> page.pgmFiles.fold(d) { next, pgm -> MixDrafts.add(next, pgm) } } },
-        onSecondPass = ::updateSecond, onSecondDiscard = { secondPass = secondPass?.let { it.copy(wanted = it.current) }; secondMessage = null },
+        onLoadTheirs = { session.discardMix(latestCatalog()) }, onReapply = { session.reapply(locks()) },
+        onDragStart = session::beginDrag, onDrop = { session.drop(group, locks(), it) },
+        onAdd = { page -> edit { d -> page.pgmFiles.fold(d) { next, pgm -> MixDrafts.add(next, pgm) } } },
+        onSecondPass = { pgms, field, on -> session.updateSecond(pgms, field, on, locks()) },
+        onSecondDiscard = { session.discardSecond() },
         onSecondApply = {
             val name = selectedMaterial
-            val d = secondPass
-            if (name != null && d != null && ui.secondPassApplyEnabled) scope.launch {
-                secondApplying = true
-                try {
+            if (name != null && ui.secondPassApplyEnabled && !session.secondApplying) scope.launch {
+                session.saveSecond(::locks, { submitted ->
                     val deviceId = context.getSharedPreferences("kkc_tracker", Context.MODE_PRIVATE).getString("tablet_id", null)
                         ?.takeIf { it.isNotBlank() } ?: Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
                     val runner = SecondPassRunner(service, api::submitPgmEditRevert, secondPassRequestIds(deviceId))
-                    val outcome = runner.apply(jobFolderName, name, planSecondPass(d)) { secondMessage = it }
-                    history = service.listPgmEdits(jobFolderName, name)
-                    secondMessage = when (outcome) { SecondPassOutcome.Done -> "Second-pass changes applied"; is SecondPassOutcome.Failed -> outcome.message }
-                    secondHistoryConfirmed = history != null
-                    if (history != null) {
-                        val fresh = SecondPassDrafts.from(history, d.wanted.keys.toList())
-                        secondPass = if (outcome == SecondPassOutcome.Done) fresh else fresh.copy(wanted = d.wanted)
-                    }
-                } catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { secondHistoryConfirmed = false; secondMessage = "Couldn't confirm second-pass changes. Reload history before applying again." }
-                finally { secondApplying = false }
+                    runner.apply(jobFolderName, name, planSecondPass(submitted)) { session.secondMessage = it }
+                }, { service.listPgmEdits(jobFolderName, name) })
             }
-        }, secondMessage = secondMessage,
-        recoveryEnabled = gate?.deferredCatalog != null,
-        reapplyEnabled = draft?.newFile == null && gate?.deferredCatalog?.let { c -> groupMixFiles(c).any { it.key == draft?.groupKey } } == true,
+        }, secondMessage = session.secondMessage,
+        recoveryEnabled = session.gate.deferredCatalog != null,
+        reapplyEnabled = session.draft?.newFile == null && session.gate.deferredCatalog?.let { c -> groupMixFiles(c).any { it.key == session.draft?.groupKey } } == true,
+        mixEditingEnabled = !session.applying, secondEditingEnabled = !session.secondApplying && session.secondHistoryConfirmed && !session.historyLoading,
+        secondDiscardEnabled = !session.secondApplying, navigationEnabled = !session.saving,
+        historyRetryVisible = !session.secondHistoryConfirmed, historyLoading = session.historyLoading,
+        onHistoryRetry = { selectedMaterial?.let { name -> scope.launch { retryHistory(name) } } },
         onRowAction = { row, action -> if (action == MixRowAction.REMOVE) edit { d -> row.draftEntryIds.fold(d) { next, id -> MixDrafts.remove(next, id) } } })
     pendingLeave?.let { action -> AlertDialog(onDismissRequest = { pendingLeave = null }, title = { Text("Discard unsaved changes?") },
         text = { Text("Mix and second-pass changes haven't been applied.") }, confirmButton = {
-            TextButton(onClick = { draft = null; secondPass = secondPass?.let { it.copy(wanted = it.current) }; pendingLeave = null; action() }) { Text("Discard") }
+            TextButton(onClick = { pendingLeave = null; action() }) { Text("Discard") }
         }, dismissButton = { TextButton(onClick = { pendingLeave = null }) { Text("Keep editing") } }) }
 }
-
 /** STARTED leases also release on backgrounding, even when the composition remains retained. */
 @Composable
 private fun ForegroundMixLeases(stores: List<MixFilesStore>, machineStore: MachineStatusStore) {
@@ -278,11 +206,14 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
     onDragStart: () -> Unit, onDrop: (List<Pair<RowModel, RowModel>>) -> Unit, onAdd: (SheetPage) -> Unit,
     onSecondPass: (List<String>, SecondPassField, Boolean) -> Unit, onSecondDiscard: () -> Unit, onSecondApply: () -> Unit,
     secondMessage: String?, onRowAction: ((RowModel, MixRowAction) -> Unit)? = null,
-    onCardAction: ((MixCardAction) -> Unit)? = null, recoveryEnabled: Boolean = true, reapplyEnabled: Boolean = true) {
+    onCardAction: ((MixCardAction) -> Unit)? = null, recoveryEnabled: Boolean = true, reapplyEnabled: Boolean = true,
+    mixEditingEnabled: Boolean = true, secondEditingEnabled: Boolean = true, secondDiscardEnabled: Boolean = true,
+    navigationEnabled: Boolean = true, historyRetryVisible: Boolean = false, historyLoading: Boolean = false,
+    onHistoryRetry: () -> Unit = {}) {
     val status = LocalKKCStatusColors.current
     Scaffold(topBar = {
         TopAppBar(title = { Column { Text(title, style = MaterialTheme.typography.titleMedium); Text("Mixes", style = MaterialTheme.typography.labelMedium) } },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onClick = onBack, enabled = navigationEnabled) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = {
                 Text(when (val machine = ui.machineStatus) {
                     MachineStatus.Unavailable -> "CNC unavailable"
@@ -307,13 +238,13 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
                                 Text("$sheetCount sheets · ${ui.tabs.size} ${if (ui.tabs.size == 1) "mix" else "mixes"}", style = MaterialTheme.typography.bodySmall)
                             }
                             val pgms = secondPass?.wanted?.keys?.toList() ?: inventory
-                            SecondPassMenu(secondPass, pgms, !ui.readOnly, revertSupported, { field, on -> onSecondPass(pgms, field, on) })
+                            SecondPassMenu(secondPass, pgms, !ui.readOnly && secondEditingEnabled, revertSupported, { field, on -> onSecondPass(pgms, field, on) })
                         }
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            ui.tabs.forEach { tab -> FilterChip(selected = tab.key == ui.selectedTab, onClick = { onTab(tab.key) }, label = {
+                            ui.tabs.forEach { tab -> FilterChip(selected = tab.key == ui.selectedTab, enabled = navigationEnabled, onClick = { onTab(tab.key) }, label = {
                                 Text(tab.title + when { tab.error -> " · Error"; tab.interrupted -> " · Interrupted"; else -> "" } + if (tab.companionMismatch) " · Files differ" else "")
                             }) }
-                            TextButton(onClick = onNew, enabled = !ui.readOnly) { Text("+ New mix") }
+                            TextButton(onClick = onNew, enabled = !ui.readOnly && navigationEnabled) { Text("+ New mix") }
                         }
                         ui.banner?.let { banner ->
                             GroupCard {
@@ -346,7 +277,7 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
                                         TextButton(onClick = { onCardAction?.invoke(MixCardAction.DELETE) }, enabled = onCardAction != null && !ui.readOnly) { Text("Delete") }
                                         TextButton(onClick = { onCardAction?.invoke(MixCardAction.REVISIONS) }, enabled = onCardAction != null) { Text("Revisions") }
                                         if (card.applyVisible) {
-                                            TextButton(onClick = onDiscard) { Text("Discard") }
+                                            TextButton(onClick = onDiscard, enabled = mixEditingEnabled) { Text("Discard") }
                                             Button(onClick = onApply, enabled = card.applyEnabled, modifier = Modifier.testTag("mixes-apply")) { Text(card.applyLabel) }
                                         }
                                     }
@@ -356,14 +287,18 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
                         }
                         if (ui.secondPassApply != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Button(onClick = onSecondApply, enabled = ui.secondPassApplyEnabled) { Text(ui.secondPassApply) }
-                            TextButton(onClick = onSecondDiscard) { Text("Discard 2nd pass") }
+                            TextButton(onClick = onSecondDiscard, enabled = secondDiscardEnabled) { Text("Discard 2nd pass") }
                         }
                         secondMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        if (historyRetryVisible) TextButton(onClick = onHistoryRetry, enabled = !historyLoading && !ui.readOnly) {
+                            Text(if (historyLoading) "Loading second-pass history" else "Retry second-pass history")
+                        }
                         val groups = ui.groups
                         if (groups != null) {
                             Box(Modifier.weight(1f).fillMaxWidth().kkcCardDepth(RoundedCornerShape(12.dp), elevation = 2.dp).background(MaterialTheme.colorScheme.surface)) {
-                                MixesSheetList(groups, secondPass, revertSupported, !ui.readOnly && ui.banner != Banner.ChangedOnCnc,
-                                    pdf, onDragStart, onDrop, onAdd, onSecondPass, onRowAction, Modifier.fillMaxSize())
+                                MixesSheetList(groups, secondPass, revertSupported, !ui.readOnly && mixEditingEnabled && ui.banner != Banner.ChangedOnCnc,
+                                    pdf, onDragStart, onDrop, onAdd, onSecondPass, onRowAction, Modifier.fillMaxSize(),
+                                    secondPassEnabled = !ui.readOnly && secondEditingEnabled)
                             }
                         } else {
                             Text(if (ui.readOnly) "Waiting for the CNC catalog. Refresh to reconnect." else "No mix yet. Create a new mix from this material's sheets.", Modifier.padding(16.dp))
