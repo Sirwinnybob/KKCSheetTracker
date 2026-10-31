@@ -80,6 +80,17 @@ class MixFilesJsonTest {
     }
 
     @Test
+    fun serializesOptionalExistingCountsForPairSplitWithoutChangingPlainShape() {
+        val plain = EntrySpec.Existing("C:\\Job\\A.pgm", linkedMapOf("V" to "010.0"), "AD")
+        assertEquals(setOf("path", "parameters", "fields"), MixFilesJson.entry(plain).keySet())
+        val counted = MixFilesJson.entry(plain.copy(quantity = 3, remaining = 2))
+        assertEquals(setOf("path", "parameters", "fields", "quantity", "remaining"), counted.keySet())
+        assertEquals(3, counted["quantity"].asInt)
+        assertEquals(2, counted["remaining"].asInt)
+        assertEquals("010.0", counted.getAsJsonObject("parameters")["V"].asString)
+    }
+
+    @Test
     fun rejectsMalformedOrMistypedCatalogs() {
         listOf("not json", "[]", "{}", SAMPLE.replace("\"ok\":true", "\"ok\":false"),
             SAMPLE.replace("\"quantity\":1", "\"quantity\":\"1\""),

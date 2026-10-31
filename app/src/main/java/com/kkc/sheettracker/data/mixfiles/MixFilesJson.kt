@@ -59,6 +59,8 @@ internal object MixFilesJson {
                 addProperty("path", spec.path)
                 add("parameters", stringMap(spec.parameters))
                 spec.fields?.let { addProperty("fields", it) }
+                spec.quantity?.let { addProperty("quantity", it) }
+                spec.remaining?.let { addProperty("remaining", it) }
             }
             is EntrySpec.Pending -> {
                 addProperty("pgm", spec.pgm)

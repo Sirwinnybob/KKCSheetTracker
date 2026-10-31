@@ -49,7 +49,13 @@ sealed interface MixFilesResult<out T> {
 
 sealed interface EntrySpec {
     data class NewPgm(val pgm: String) : EntrySpec
-    data class Existing(val path: String, val parameters: Map<String, String>, val fields: String?) : EntrySpec
+    data class Existing(
+        val path: String,
+        val parameters: Map<String, String>,
+        val fields: String?,
+        val quantity: Int? = null,
+        val remaining: Int? = null,
+    ) : EntrySpec
     data class Pending(val pgm: String, val quantity: Int?, val remaining: Int?) : EntrySpec
 }
 
