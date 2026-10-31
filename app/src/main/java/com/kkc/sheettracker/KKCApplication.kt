@@ -8,8 +8,20 @@ import com.kkc.sheettracker.data.mixservice.MixCatalogRepository
 import com.kkc.sheettracker.data.mixservice.MixOperationCoordinator
 import com.kkc.sheettracker.data.mixservice.MixServiceClient
 import com.kkc.sheettracker.data.mixservice.mixOperationSessionStore
+import com.kkc.sheettracker.data.mixfiles.MixFilesCatalogCache
+import com.kkc.sheettracker.data.mixfiles.MixFilesClient
+import com.kkc.sheettracker.data.mixfiles.MixFilesStoreRegistry
 
 class KKCApplication : Application() {
+    /** Shared per-machine/material catalogs; foreground screens own their polling leases. */
+    val mixFilesStores: MixFilesStoreRegistry by lazy {
+        MixFilesStoreRegistry(
+            api = { machine -> MixFilesClient(machine) },
+            cache = MixFilesCatalogCache(java.io.File(filesDir, "mix-files-cache")),
+            scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
+        )
+    }
+
     /** No network activity until a foreground CNC surface acquires a lease. */
     val machineStatusStore: com.kkc.sheettracker.data.cnc.MachineStatusStore by lazy {
         com.kkc.sheettracker.data.cnc.MachineStatusStore(
