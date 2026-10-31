@@ -2011,12 +2011,11 @@ private fun JobsTabHost(
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
             val material = backStack.arguments?.getString("material")?.let { URLDecoder.decode(it, "UTF-8") }
-            com.kkc.sheettracker.ui.managecode.ManageCodeScreen(
+            com.kkc.sheettracker.ui.mixes.MixesScreen(
                 scanCoordinator = scanCoordinator,
-                jobRepository = jobRepository,
                 progressStore = progressStore,
                 jobFolderName = folderName,
-                onlyMaterialName = material,
+                initialMaterial = material,
                 onBack = { navController.popBackStack() }
             )
         }
@@ -3590,12 +3589,11 @@ private fun LegacySingleStackNavigation(
                 ) { backStack ->
                     val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
                     val material = backStack.arguments?.getString("material")?.let { URLDecoder.decode(it, "UTF-8") }
-                    com.kkc.sheettracker.ui.managecode.ManageCodeScreen(
+                    com.kkc.sheettracker.ui.mixes.MixesScreen(
                         scanCoordinator = scanCoordinator,
-                        jobRepository = jobRepository,
                         progressStore = progressStore,
                         jobFolderName = folderName,
-                        onlyMaterialName = material,
+                        initialMaterial = material,
                         onBack = { navController.popBackStack() }
                     )
                 }

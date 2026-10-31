@@ -25,6 +25,16 @@ class MixFilesClientTest {
     private fun success() { server.enqueue(MockResponse().setBody("""{"ok":true,"catalog":{"job":"J","material":"M","folderRevision":"new","files":[]}}""")) }
     private fun body(): JsonObject = JsonParser.parseString(server.takeRequest().body.readUtf8()).asJsonObject
 
+    @Test fun synchronousMutationDoesNotReplayAfterLostResponse() = runBlocking {
+        val api = client()
+        server.enqueue(MockResponse().setBody(MixFilesJsonTest.SAMPLE))
+        assertTrue(api.catalog("J", "M") is MixFilesResult.Ok) // Reuse the pooled socket.
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+        success() // A replay would incorrectly look like a confirmed save.
+        assertEquals(MixFilesResult.Offline, api.write("J", "M", "A.mix", "r", emptyList(), null))
+        assertEquals(2, server.requestCount)
+    }
+
     @Test fun encodesJobAndMaterialAsPathSegments() = runBlocking {
         server.enqueue(MockResponse().setBody(MixFilesJsonTest.SAMPLE))
         assertTrue(client().catalog("530a - DC BIGLEY 2", "3_4 Elegant Black Super Matte") is MixFilesResult.Ok)

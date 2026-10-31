@@ -22,6 +22,7 @@ class MixFilesClient(
     private val machine: CncMachine,
     private val http: OkHttpClient = DEFAULT_HTTP,
 ) : MixFilesApi {
+    private val mutationHttp = http.newBuilder().retryOnConnectionFailure(false).build()
     override suspend fun catalog(job: String, material: String): MixFilesResult<MixFilesCatalog> =
         execute(Request.Builder().url(url(job, material)).get().build(), MixFilesJson::parseCatalog)
 
@@ -124,7 +125,7 @@ class MixFilesClient(
 
     private suspend fun <T> execute(request: Request, parse: (String) -> T?): MixFilesResult<T> = withContext(Dispatchers.IO) {
         try {
-            http.newCall(request).execute().use { response ->
+            (if (request.method == "GET") http else mutationHttp).newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: return@use MixFilesResult.Offline
                 if (response.isSuccessful) {
                     parse(body)?.let { MixFilesResult.Ok(it) } ?: MixFilesResult.Offline
