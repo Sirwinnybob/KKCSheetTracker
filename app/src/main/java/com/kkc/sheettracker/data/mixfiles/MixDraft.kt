@@ -158,9 +158,12 @@ object MixDrafts {
             if (current.locked(updated)) return updated
             val quantity = if (entry.quantity != original.quantity) entry.quantity else updated.quantity
             val remaining = if (entry.remaining != original.remaining) entry.remaining else updated.remaining
+            val countEdited = entry.quantity != original.quantity || entry.remaining != original.remaining
+            // An untouched FRZ zero is a completion disagreement; the service resolution owns its restoration.
+            val normalize = current.isInterrupted && (countEdited || remaining != 0)
             return updated.copy(
                 quantity = quantity,
-                remaining = if (current.isInterrupted) (remaining ?: quantity).coerceIn(1, quantity) else remaining,
+                remaining = if (normalize) (remaining ?: quantity).coerceIn(1, quantity) else remaining,
                 parameters = mergeParameters(original.parameters, entry.parameters, updated.parameters),
             )
         }

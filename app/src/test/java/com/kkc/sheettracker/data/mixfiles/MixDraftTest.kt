@@ -318,4 +318,17 @@ class MixDraftTest {
         assertEquals(listOf(EntrySpec.Pending("A.pgm", 2, 2)),
             (write(result, fresh, listOf("Done.pgm")) as MixWrite.Frz).pending)
     }
+
+    @Test fun rebaseUntouchedZeroCountdownLeavesTabletResolutionToService() {
+        val g = group(listOf(entry("A.pgm", 3, 0)), frzOnly = true)
+        val d = MixDrafts.start(g)
+        val result = MixDrafts.rebase(d, g).draft
+        assertEquals(3, result.entries.single().quantity)
+        assertEquals(0, result.entries.single().remaining)
+        assertEquals(0, result.changeCount)
+        val request = buildWrite(result, g, emptyList(), mapOf("A.pgm" to "tablet")) as MixWrite.Frz
+        assertEquals(listOf(EntrySpec.Pending("A.pgm", null, null)), request.pending)
+        assertEquals(mapOf("A.pgm" to "tablet"), request.completion.resolutions)
+        assertEquals(setOf("pgm"), MixFilesJson.entry(request.pending.single()).keySet())
+    }
 }
