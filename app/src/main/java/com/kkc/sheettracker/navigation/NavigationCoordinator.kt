@@ -232,6 +232,7 @@ class NavigationCoordinator(
         val currentFolder = args.getString("folderName") ?: return false
         val currentPdf = args.getString("pdfFilename") ?: return false
         val currentPage = args.getInt("startPage")
-        return currentFolder == jobFolderName && currentPdf == pdfFilename && currentPage == page
+        return currentFolder == jobFolderName && currentPdf == pdfFilename && currentPage == page &&
+            args.getString("mixFile") == null && args.getString("mixName") == null
     }
 }

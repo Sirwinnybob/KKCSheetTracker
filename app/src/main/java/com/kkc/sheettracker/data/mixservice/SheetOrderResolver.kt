@@ -7,7 +7,7 @@ import com.kkc.sheettracker.data.models.StatusCounts
 
 data class ViewerMixSelection(
     val name: String,
-    val pageOrder: List<Int>
+    val mixFile: String
 )
 
 data class MaterialMixEntry(
@@ -71,7 +71,7 @@ fun resolveMaterialMixEntries(
             MaterialMixEntry(
                 material = material,
                 title = "${mix.name} - ${material.materialName}",
-                mixSelection = ViewerMixSelection(mix.name, pageOrder)
+                mixSelection = ViewerMixSelection(mix.name, "${mix.name}.mix")
             )
         }
     }

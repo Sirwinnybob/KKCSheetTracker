@@ -1928,25 +1928,20 @@ private fun JobsTabHost(
         }
 
         composable(
-            "viewer/{folderName}/{pdfFilename}/{startPage}?mixName={mixName}&mixPages={mixPages}&preferStartPage={preferStartPage}",
+            VIEWER_ROUTE_PATTERN,
             arguments = listOf(
                 navArgument("folderName") { type = NavType.StringType },
                 navArgument("pdfFilename") { type = NavType.StringType },
                 navArgument("startPage") { type = NavType.IntType },
                 navArgument("mixName") { type = NavType.StringType; nullable = true; defaultValue = null },
-                navArgument("mixPages") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("mixFile") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("preferStartPage") { type = NavType.BoolType; defaultValue = false }
             )
         ) { backStack ->
-            val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
-            val pdfFilename = URLDecoder.decode(backStack.arguments?.getString("pdfFilename") ?: "", "UTF-8")
+            val folderName = backStack.arguments?.getString("folderName").orEmpty()
+            val pdfFilename = backStack.arguments?.getString("pdfFilename").orEmpty()
             val startPage = backStack.arguments?.getInt("startPage") ?: 1
-            val selectedMixName = backStack.arguments?.getString("mixName")
-                ?.takeIf { it.isNotBlank() }
-                ?.let { URLDecoder.decode(it, "UTF-8") }
-            val selectedMixPages = if (selectedMixName == null) null else {
-                parseViewerMixPages(backStack.arguments?.getString("mixPages")) ?: emptyList()
-            }
+            val mixSelection = viewerMixSelection(backStack.arguments?.getString("mixName"), backStack.arguments?.getString("mixFile"))
             val isClockedInHere = clockInState.snapshot.isActive &&
                 clockInState.snapshot.folderName == folderName &&
                 clockInState.snapshot.tabType == "cnc"
@@ -1960,8 +1955,8 @@ private fun JobsTabHost(
                 pdfFilename = pdfFilename,
                 startPage = startPage,
                 preferStartPage = backStack.arguments?.getBoolean("preferStartPage") ?: false,
-                selectedMixName = selectedMixName,
-                selectedMixPages = selectedMixPages,
+                selectedMixName = mixSelection?.name,
+                selectedMixFile = mixSelection?.mixFile,
                 isDarkTheme = cncSheetIsDarkTheme,
                 useStandardSheets = useStandardSheets,
                 isClockedInHere = isClockedInHere,
@@ -3506,25 +3501,20 @@ private fun LegacySingleStackNavigation(
                 }
 
                 composable(
-                    "viewer/{folderName}/{pdfFilename}/{startPage}?mixName={mixName}&mixPages={mixPages}&preferStartPage={preferStartPage}",
+                    VIEWER_ROUTE_PATTERN,
                     arguments = listOf(
                         navArgument("folderName") { type = NavType.StringType },
                         navArgument("pdfFilename") { type = NavType.StringType },
                         navArgument("startPage") { type = NavType.IntType },
                         navArgument("mixName") { type = NavType.StringType; nullable = true; defaultValue = null },
-                        navArgument("mixPages") { type = NavType.StringType; nullable = true; defaultValue = null },
-                navArgument("preferStartPage") { type = NavType.BoolType; defaultValue = false }
+                        navArgument("mixFile") { type = NavType.StringType; nullable = true; defaultValue = null },
+                        navArgument("preferStartPage") { type = NavType.BoolType; defaultValue = false }
                     )
                 ) { backStack ->
-                    val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
-                    val pdfFilename = URLDecoder.decode(backStack.arguments?.getString("pdfFilename") ?: "", "UTF-8")
+                    val folderName = backStack.arguments?.getString("folderName").orEmpty()
+                    val pdfFilename = backStack.arguments?.getString("pdfFilename").orEmpty()
                     val startPage = backStack.arguments?.getInt("startPage") ?: 1
-                    val selectedMixName = backStack.arguments?.getString("mixName")
-                        ?.takeIf { it.isNotBlank() }
-                        ?.let { URLDecoder.decode(it, "UTF-8") }
-                    val selectedMixPages = if (selectedMixName == null) null else {
-                        parseViewerMixPages(backStack.arguments?.getString("mixPages")) ?: emptyList()
-                    }
+                    val mixSelection = viewerMixSelection(backStack.arguments?.getString("mixName"), backStack.arguments?.getString("mixFile"))
                     val isClockedInHere = clockInState.snapshot.isActive &&
                         clockInState.snapshot.folderName == folderName &&
                         clockInState.snapshot.tabType == "cnc"
@@ -3537,9 +3527,9 @@ private fun LegacySingleStackNavigation(
                         jobFolderName = folderName,
                         pdfFilename = pdfFilename,
                         startPage = startPage,
-                preferStartPage = backStack.arguments?.getBoolean("preferStartPage") ?: false,
-                        selectedMixName = selectedMixName,
-                        selectedMixPages = selectedMixPages,
+                        preferStartPage = backStack.arguments?.getBoolean("preferStartPage") ?: false,
+                        selectedMixName = mixSelection?.name,
+                        selectedMixFile = mixSelection?.mixFile,
                         isDarkTheme = isDarkTheme,
                         useStandardSheets = useStandardSheets,
                         isClockedInHere = isClockedInHere,
@@ -4203,28 +4193,6 @@ private fun LegacySingleStackNavigation(
     } // LocalOnOpenSettings CompositionLocalProvider
 }
 
-internal fun viewerRoute(
-    jobFolderName: String,
-    pdfFilename: String,
-    page: Int,
-    mixSelection: com.kkc.sheettracker.data.mixservice.ViewerMixSelection? = null,
-    preferStartPage: Boolean = false,
-): String {
-    val base = "viewer/${URLEncoder.encode(jobFolderName, "UTF-8")}/${URLEncoder.encode(pdfFilename, "UTF-8")}/$page"
-    val query = buildList {
-        mixSelection?.let { selection ->
-            add("mixName=${URLEncoder.encode(selection.name, "UTF-8")}")
-            add("mixPages=${selection.pageOrder.joinToString(",")}")
-        }
-        if (preferStartPage) add("preferStartPage=true")
-    }
-    return base + if (query.isEmpty()) "" else "?" + query.joinToString("&")
-}
-
-internal fun parseViewerMixPages(value: String?): List<Int>? = value?.split(',')
-    ?.mapNotNull { it.toIntOrNull()?.takeIf { page -> page > 0 } }
-    ?.distinct()
-
 internal fun homeTopLevelTabForWorkMode(workMode: WorkMode): TopLevelTab {
     return if (workMode == WorkMode.ASSEMBLY || workMode == WorkMode.SPECIALTY) {
         TopLevelTab.JOBS
@@ -4337,15 +4305,8 @@ private fun isCurrentViewerTarget(
     val currentFolder = args.getString("folderName") ?: return false
     val currentPdf = args.getString("pdfFilename") ?: return false
     val currentPage = args.getInt("startPage")
-    val currentMixName = args.getString("mixName")
-        ?.takeIf { it.isNotBlank() }
-        ?.let { URLDecoder.decode(it, "UTF-8") }
-    val currentMixPages = if (currentMixName == null) null else parseViewerMixPages(args.getString("mixPages"))
-    return currentFolder == jobFolderName &&
-        currentPdf == pdfFilename &&
-        currentPage == page &&
-        currentMixName == mixSelection?.name &&
-        currentMixPages == mixSelection?.pageOrder
+    val currentMix = viewerMixSelection(args.getString("mixName"), args.getString("mixFile"))
+    return currentFolder == jobFolderName && currentPdf == pdfFilename && currentPage == page && currentMix == mixSelection
 }
 
 private data class PendingClockOut(

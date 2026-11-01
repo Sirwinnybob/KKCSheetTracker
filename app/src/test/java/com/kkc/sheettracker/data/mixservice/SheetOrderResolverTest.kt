@@ -87,8 +87,8 @@ class SheetOrderResolverTest {
 
         assertEquals(
             listOf(
-                MaterialMixEntry(material, "MIX A - Maple", ViewerMixSelection("MIX A", listOf(2, 1))),
-                MaterialMixEntry(material, "MIX B - Maple", ViewerMixSelection("MIX B", listOf(3, 2)))
+                MaterialMixEntry(material, "MIX A - Maple", ViewerMixSelection("MIX A", "MIX A.mix")),
+                MaterialMixEntry(material, "MIX B - Maple", ViewerMixSelection("MIX B", "MIX B.mix"))
             ),
             entries
         )
@@ -137,7 +137,7 @@ class SheetOrderResolverTest {
         )
 
         assertEquals(
-            listOf(MaterialMixEntry(material, "GOOD - Maple", ViewerMixSelection("GOOD", listOf(2, 1)))),
+            listOf(MaterialMixEntry(material, "GOOD - Maple", ViewerMixSelection("GOOD", "GOOD.mix"))),
             resolveMaterialMixEntries(
                 listOf(material),
                 listOf(
@@ -151,7 +151,7 @@ class SheetOrderResolverTest {
     @Test
     fun `pending bad part action is material wide and hidden on mix cards`() {
         assertEquals(true, shouldShowPendingBadPartAction(mixSelection = null, pendingCount = 2))
-        assertEquals(false, shouldShowPendingBadPartAction(ViewerMixSelection("MIX A", listOf(2, 1)), pendingCount = 2))
+        assertEquals(false, shouldShowPendingBadPartAction(ViewerMixSelection("MIX A", "MIX A.mix"), pendingCount = 2))
         assertEquals(false, shouldShowPendingBadPartAction(mixSelection = null, pendingCount = 0))
     }
 

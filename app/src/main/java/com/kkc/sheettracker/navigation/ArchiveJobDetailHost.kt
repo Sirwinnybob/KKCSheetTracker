@@ -139,7 +139,7 @@ internal fun ArchiveJobDetailHost(
                 navArgument("startPage") { type = NavType.IntType },
             ),
         ) { backStackEntry ->
-            val pdfFilename = URLDecoder.decode(backStackEntry.arguments?.getString("pdfFilename").orEmpty(), "UTF-8")
+            val pdfFilename = backStackEntry.arguments?.getString("pdfFilename").orEmpty()
             val startPage = backStackEntry.arguments?.getInt("startPage") ?: 1
             SheetViewerScreen(
                 scanCoordinator = session.scanCoordinator,
@@ -170,6 +170,7 @@ internal fun ArchiveJobDetailHost(
                 onMaterialUnavailable = { navController.popBackStack("detail", false) },
                 onBack = { navController.popBackStack() },
                 overridePdfMarkupStore = session.pdfMarkupStore,
+                loadMixCatalog = false,
                 pdfMarkupReadOnly = true,
             )
         }
@@ -336,7 +337,7 @@ private fun ArchiveCncDetail(
         appStateFlags = appStateFlags,
         jobFolderName = session.folderName,
         onMaterialClick = { material, startPage, _ ->
-            navController.navigate("viewer/${URLEncoder.encode(material.pdfFilename, "UTF-8")}/$startPage")
+            navController.navigate("viewer/${viewerRouteSegment(material.pdfFilename)}/$startPage")
         },
         onOpenReferenceDocument = { docType, startPage ->
             navController.navigate("referenceViewer/${URLEncoder.encode(docType.name, "UTF-8")}/$startPage")

@@ -7,10 +7,10 @@ import java.io.File
 
 class CncLoadedSheetRouteTest {
     @Test fun loadedRouteEncodesNamesAndExplicitFlagWithoutBreakingMixQueries() {
-        assertEquals("viewer/709+-+BRAD+TAYLOR/709+-+19mm+Pre_Finished.pdf/11?preferStartPage=true",
+        assertEquals("viewer/709%20-%20BRAD%20TAYLOR/709%20-%2019mm%20Pre_Finished.pdf/11?preferStartPage=true",
             viewerRoute("709 - BRAD TAYLOR", "709 - 19mm Pre_Finished.pdf", 11, preferStartPage = true))
-        assertEquals("viewer/j/m.pdf/11?mixName=MIX+A&mixPages=11,3,6&preferStartPage=true",
-            viewerRoute("j", "m.pdf", 11, ViewerMixSelection("MIX A", listOf(11, 3, 6)), true))
+        assertEquals("viewer/j/m.pdf/11?mixName=MIX%20A&mixFile=MIX%20A.mix&preferStartPage=true",
+            viewerRoute("j", "m.pdf", 11, ViewerMixSelection("MIX A", "MIX A.mix"), true))
     }
     private fun source(name: String): String = listOf(File("src/main/java/com/kkc/sheettracker/navigation/$name"),
         File("app/src/main/java/com/kkc/sheettracker/navigation/$name")).first { it.isFile }.readText()

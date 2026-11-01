@@ -90,7 +90,7 @@ class JobDetailLoadStateTest {
         val entries = catalogMaterialEntries(material, snapshot)
 
         assertEquals(1, entries.size)
-        assertEquals(listOf(2, 1), entries.single().mixSelection?.pageOrder)
+        assertEquals("Current.mix", entries.single().mixSelection?.mixFile)
         assertEquals("19mm", entries.single().title)
     }
 
@@ -115,7 +115,7 @@ class JobDetailLoadStateTest {
     }
 
     @Test
-    fun `active mix with no mapped pages remains unavailable instead of falling back to all pages`() {
+    fun `active mix with no mapped pages remains scoped and openable`() {
         val material = Material(
             pdfFilename = "19mm.pdf",
             materialName = "19mm",
@@ -139,8 +139,8 @@ class JobDetailLoadStateTest {
         val entry = catalogMaterialEntries(material, snapshot).single()
 
         assertEquals("Broken", entry.mixSelection?.name)
-        assertTrue(entry.mixSelection?.pageOrder?.isEmpty() == true)
-        assertEquals(false, canOpenCatalogMaterialEntry(entry))
+        assertEquals("Broken.mix", entry.mixSelection?.mixFile)
+        assertTrue(canOpenCatalogMaterialEntry(entry))
     }
 
     @Test
@@ -211,7 +211,7 @@ class JobDetailLoadStateTest {
 
         assertEquals(cached, cacheFirst.snapshots[material.materialName])
         assertEquals(JobDetailCatalogStatus.FRESH, cacheFirst.statuses[material.materialName])
-        assertEquals(listOf(2, 1), entry.mixSelection?.pageOrder)
+        assertEquals("Current.mix", entry.mixSelection?.mixFile)
         assertTrue(canOpenCatalogMaterialEntry(entry, cacheFirst.statuses[material.materialName]))
     }
 

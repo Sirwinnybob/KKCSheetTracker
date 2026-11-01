@@ -108,6 +108,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kkc.sheettracker.data.mixfiles.*
+import com.kkc.sheettracker.data.cnc.CncMachines
+import com.kkc.sheettracker.ui.components.rememberForegroundMixFiles
 import com.kkc.sheettracker.BuildConfig
 import com.tom_roush.pdfbox.cos.COSName
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -226,18 +229,6 @@ internal fun resolvePageMetadata(material: Material?, page: Int): PageMetadata? 
     return nearestWithParts ?: pages.firstOrNull()
 }
 
-private fun Material.visibleSheetPages(): List<Int> {
-    val metadataPages = metadata?.pages.orEmpty()
-    val visibleFromMetadata = metadataPages
-        .filterNot { it.hiddenInApp || it.trackingExcluded || it.isPartListContinuation }
-        .mapNotNull { md ->
-            val p = md.pageNumber
-            p.takeIf { it in 1..pageCount }
-        }
-        .distinct()
-        .sorted()
-    return if (visibleFromMetadata.isNotEmpty()) visibleFromMetadata else (1..pageCount).toList()
-}
 
 
 internal fun resolveSheetViewerRequestedPage(
@@ -323,7 +314,8 @@ fun SheetViewerScreen(
     pdfFilename: String,
     startPage: Int,
     selectedMixName: String? = null,
-    selectedMixPages: List<Int>? = null,
+    selectedMixFile: String? = null,
+    loadMixCatalog: Boolean = true,
     isDarkTheme: Boolean,
     useStandardSheets: Boolean,
     isClockedInHere: Boolean = false,
@@ -799,7 +791,7 @@ fun SheetViewerScreen(
         unifiedEngine.getCachedJobInfos().find { it.folderName == jobFolderName }
     }
 
-    LaunchedEffect(jobFolderName, pdfFilename, scanState.snapshot.generation, selectedMixPages, startPage, preferStartPage) {
+    LaunchedEffect(jobFolderName, pdfFilename, scanState.snapshot.generation, selectedMixFile, startPage, preferStartPage) {
         val job = withContext(Dispatchers.IO) {
             unifiedEngine.getCncSnapshot(jobFolderName)?.job
         }
@@ -825,10 +817,8 @@ fun SheetViewerScreen(
             cncDrawingMetadataIdentity(nextMaterial?.metadata)
         currentMaterial = nextMaterial
         val naturalOrder = nextMaterial?.visibleSheetPages().orEmpty()
-        visiblePages = com.kkc.sheettracker.data.mixservice.resolveViewerPageOrder(
-            naturalOrder = naturalOrder,
-            selectedPages = selectedMixPages
-        )
+        // Only a document change can choose a resume page. Live catalog updates retain it.
+        val initialPages = naturalOrder
         if (nextMaterial != null) {
             val preferInitialPage = preferStartPage && !hasBoundInitialMaterial
             hasBoundInitialMaterial = true
@@ -836,24 +826,24 @@ fun SheetViewerScreen(
             val localTouchPage = progressStore
                 .getLocalMaterialLastTouches(jobFolderName)[pdfFilename]
                 ?.page
-            if (visiblePages.isEmpty()) {
+            if (initialPages.isEmpty()) {
                 val resolved = (if (preferInitialPage) startPage else localTouchPage ?: startPage)
                     .coerceIn(1, nextMaterial.pageCount.coerceAtLeast(1))
                 currentPage = resolved
             } else {
                 val requested = resolveSheetViewerRequestedPage(
                     material = nextMaterial,
-                    visiblePages = visiblePages,
+                    visiblePages = initialPages,
                     localTouchPage = localTouchPage,
                     startPage = startPage,
-                    isMixScoped = selectedMixPages != null,
+                    isMixScoped = selectedMixFile != null,
                     preferStartPage = preferInitialPage,
                 )
                 val identityChanged = oldIdentity != nextIdentity
                 currentPage = when {
-                    !identityChanged && currentPage in visiblePages -> currentPage
-                    requested in visiblePages -> requested
-                    else -> visiblePages.first()
+                    !identityChanged -> currentPage
+                    requested in initialPages -> requested
+                    else -> initialPages.first()
                 }
             }
         }
@@ -874,12 +864,26 @@ fun SheetViewerScreen(
         previousMaterialIdentity = nextIdentity
     }
 
-    LaunchedEffect(currentMaterial, visiblePages, currentPage) {
-        val material = currentMaterial ?: return@LaunchedEffect
-        if (visiblePages.isEmpty()) return@LaunchedEffect
-        if (currentPage in visiblePages) return@LaunchedEffect
-        val headPage = material.resolveHeadPage(currentPage)
-        currentPage = if (headPage in visiblePages) headPage else visiblePages.first()
+    val mixStores = remember(currentMaterial?.materialName, jobFolderName, loadMixCatalog) {
+        val material = currentMaterial
+        if (loadMixCatalog && material != null) mapOf(material.materialName to
+            (context.applicationContext as com.kkc.sheettracker.KKCApplication).mixFilesStores.store(
+                CncMachines.scm, jobFolderName, material.materialName)) else emptyMap()
+    }
+    val mixStates = rememberForegroundMixFiles(jobFolderName, mixStores)
+    val mixState = mixStates[currentMaterial?.materialName]
+    val viewerOrder = currentMaterial?.let { viewerOrderForState(it, mixState, selectedMixFile) } ?: ViewerOrder.Natural(null)
+    val isMixOrder = viewerOrder is ViewerOrder.Mix
+    val unmatchedPgms = (viewerOrder as? ViewerOrder.Mix)?.unmatched.orEmpty()
+    val emptyMix = viewerOrder is ViewerOrder.Mix && viewerOrder.pages.isEmpty()
+    val mixOrderNotice = when {
+        viewerOrder is ViewerOrder.Natural -> viewerOrder.reason
+        mixState is CatalogState.Offline -> "Offline · showing saved mix order."
+        else -> null
+    }
+    ObserveViewerOrder(currentMaterial, viewerOrder, currentPage, visiblePages) { pages, page ->
+        visiblePages = pages
+        currentPage = page
     }
 
     LaunchedEffect(currentPage, fileFingerprint) {
@@ -907,7 +911,7 @@ fun SheetViewerScreen(
             Log.w(SHEET_RENDER_TAG, "render_guard: fileFingerprint blank page=$currentPage material=${material.pdfFilename}")
             return@LaunchedEffect
         }
-        val pages = if (selectedMixPages == null) visiblePages.ifEmpty { material.visibleSheetPages() } else visiblePages
+        val pages = if (!isMixOrder) visiblePages.ifEmpty { material.visibleSheetPages() } else visiblePages
         if (pages.isEmpty()) {
             Log.w(SHEET_RENDER_TAG, "render_guard: pages empty page=$currentPage material=${material.pdfFilename}")
             return@LaunchedEffect
@@ -985,7 +989,7 @@ fun SheetViewerScreen(
     LaunchedEffect(currentPage, totalPages, fileFingerprint, currentMaterial?.metadata) {
         val material = currentMaterial ?: return@LaunchedEffect
         if (fileFingerprint.isBlank()) return@LaunchedEffect
-        val pages = if (selectedMixPages == null) visiblePages.ifEmpty { material.visibleSheetPages() } else visiblePages
+        val pages = if (!isMixOrder) visiblePages.ifEmpty { material.visibleSheetPages() } else visiblePages
         if (pages.isEmpty()) return@LaunchedEffect
         val currentIndex = pages.indexOf(currentPage)
         if (currentIndex < 0) return@LaunchedEffect
@@ -1088,14 +1092,14 @@ fun SheetViewerScreen(
             ?.toSet()
             .orEmpty()
     }
-    val effectiveVisiblePages = if (selectedMixPages == null && visiblePages.isEmpty()) {
+    val effectiveVisiblePages = if (!isMixOrder && visiblePages.isEmpty()) {
         currentMaterial?.visibleSheetPages().orEmpty()
     } else {
         visiblePages
     }
     val currentVisibleIndex = effectiveVisiblePages.indexOf(currentPage).let { if (it >= 0) it else 0 }
-    val visibleTotalPages = if (effectiveVisiblePages.isNotEmpty()) effectiveVisiblePages.size else totalPages
-    val displayPageNumber = if (effectiveVisiblePages.isNotEmpty()) currentVisibleIndex + 1 else currentPage
+    val visibleTotalPages = if (isMixOrder) effectiveVisiblePages.size else effectiveVisiblePages.size.takeIf { it > 0 } ?: totalPages
+    val displayPageNumber = if (isMixOrder && effectiveVisiblePages.isEmpty()) 0 else if (effectiveVisiblePages.isNotEmpty()) currentVisibleIndex + 1 else currentPage
     val tocMetadataPages = currentMaterial?.metadata?.pages.orEmpty()
 
     LaunchedEffect(
@@ -1189,7 +1193,7 @@ fun SheetViewerScreen(
     // AssemblyViewerScreen.kt.) The callback lambdas below read live vars (currentPage,
     // fileFingerprint, etc.) at invocation time rather than snapshotting them, so they
     // stay correct even though remember only re-fires when the three keyed fields change.
-    val cncDecoration = remember(displayPageNumber, visibleTotalPages, sheetStatus) {
+    val cncDecoration = remember(displayPageNumber, visibleTotalPages, sheetStatus, effectiveVisiblePages, currentVisibleIndex) {
         NavBarCncDecoration(
             currentPage = displayPageNumber,
             totalPages = visibleTotalPages,
@@ -1340,7 +1344,7 @@ fun SheetViewerScreen(
         }
     }
     SideEffect {
-        navBarDeco.cncDecoration = if (showUi) cncDecoration else null
+        navBarDeco.cncDecoration = if (showUi && !emptyMix) cncDecoration else null
         navBarDeco.extendedControls = if (showUi && penMarkupOverlayActive) markupToolbarContent else null
     }
 
@@ -1475,11 +1479,19 @@ fun SheetViewerScreen(
         },
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize()) {
-        Column(
+        if (emptyMix) {
+            Column(Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("No matching sheets · ${unmatchedPgms.size} unmatched", style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { showSheetToc = true }) { Text("Open sheet navigator") }
+            }
+        } else Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            mixOrderNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) }
             if (sheetFilesLabel.isNotBlank() || currentPageRemake != null || cncHeaderPill != null) {
                 val chips = remember(currentPageMetadata) {
                     inferSheetFiles(currentPageMetadata)
@@ -2080,6 +2092,8 @@ fun SheetViewerScreen(
             },
             onDismiss = { showSheetToc = false },
             cncPillsByPage = cncPillsForMaterial(cncMarks, jobFolderName, currentMaterial, effectiveVisiblePages),
+            unmatchedPgms = unmatchedPgms,
+            orderNotice = mixOrderNotice,
         )
     }
 
@@ -2112,6 +2126,8 @@ internal fun SheetNavigatorSheet(
     onSelectPage: (Int) -> Unit,
     onDismiss: () -> Unit,
     cncPillsByPage: Map<Int, CncPill> = emptyMap(),
+    unmatchedPgms: List<String> = emptyList(),
+    orderNotice: String? = null,
 ) {
     val pageMetaByNumber = remember(metadataPages) { metadataPages.associateBy { it.pageNumber } }
 
@@ -2155,6 +2171,8 @@ internal fun SheetNavigatorSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
+            orderNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
             Spacer(Modifier.height(8.dp))
 
             LazyColumn(
@@ -2284,6 +2302,11 @@ internal fun SheetNavigatorSheet(
                             }
                         }
                     }
+                }
+                items(unmatchedPgms.size) { index ->
+                    Text("Unmatched · ${unmatchedPgms[index]}", color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.fillMaxWidth().padding(16.dp).testTag("mix-unmatched-$index"))
                 }
             }
         }
