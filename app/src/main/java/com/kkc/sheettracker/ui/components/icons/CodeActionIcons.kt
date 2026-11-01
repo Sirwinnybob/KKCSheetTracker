@@ -5,8 +5,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathBuilder
 
 // Manage code: a code page with a solid round badge holding a cut-out open-end wrench.
-val ActionManageCodeIcon: ImageVector by lazy {
-    kkcIcon("ActionManageCode") {
+val ActionMixesIcon: ImageVector by lazy {
+    kkcIcon("ActionMixes") {
         val page: PathBuilder.() -> Unit = {
             moveTo(5.5f, 2.5f)
             horizontalLineTo(13f)

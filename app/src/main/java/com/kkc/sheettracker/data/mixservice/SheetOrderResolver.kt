@@ -1,7 +1,5 @@
 package com.kkc.sheettracker.data.mixservice
 
-import com.kkc.sheettracker.data.models.Material
-import com.kkc.sheettracker.data.models.PageMetadata
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.StatusCounts
 
@@ -10,86 +8,10 @@ data class ViewerMixSelection(
     val mixFile: String
 )
 
-data class MaterialMixEntry(
-    val material: Material,
-    val title: String,
-    val mixSelection: ViewerMixSelection?
-)
-
-/**
- * Reorders [naturalOrder] (the page list `Material.visibleSheetPages()` already computed) to
- * follow [mixPrograms] where possible. Output always contains exactly the same set of pages as
- * [naturalOrder] — never introduces a page it didn't contain, and never drops one either, even
- * if [buildManageCodeRows] couldn't resolve a sheet file for it (e.g. blank sidecar metadata):
- * any such page is appended at the end, in its original [naturalOrder] position.
- */
-fun reorderVisiblePages(pages: List<PageMetadata>, naturalOrder: List<Int>, mixPrograms: List<String>): List<Int> {
-    if (mixPrograms.isEmpty()) return naturalOrder
-    val naturalSet = naturalOrder.toSet()
-    val rows = buildManageCodeRows(pages).filter { it.pageNumber in naturalSet }
-    val ordered = applyExistingOrder(rows, mixPrograms).map { it.pageNumber }
-    val orderedSet = ordered.toSet()
-    val unresolved = naturalOrder.filter { it !in orderedSet }
-    return ordered + unresolved
-}
-
-/**
- * Maps a selected mix's PGM membership to only the corresponding visible physical pages.
- * Unlike [reorderVisiblePages], this intentionally omits natural pages not owned by the mix.
- * Combined A/Z rows map both physical files to the same page, while duplicate memberships are
- * deduplicated without changing the catalog's explicit program order.
- */
-fun pagesForMix(pages: List<PageMetadata>, naturalOrder: List<Int>, programs: List<String>): List<Int> {
-    val allowed = naturalOrder.toSet()
-    val pagesByProgram = buildManageCodeRows(pages)
-        .filter { it.pageNumber in allowed }
-        .flatMap { row -> row.pgmFiles.map { program -> program to row.pageNumber } }
-        .groupBy(keySelector = { it.first }, valueTransform = { it.second })
-
-    return programs.flatMap { program -> pagesByProgram[program].orEmpty() }
-        .filter { it in allowed }
-        .distinct()
-}
-
-fun resolveMaterialMixEntries(
-    materials: List<Material>,
-    mixes: List<MixDefinition>?
-): List<MaterialMixEntry> = materials.flatMap { material ->
-    val materialMixes = mixes.orEmpty().filter { mix ->
-        mix.name.isNotBlank() && mix.material.trim().equals(material.materialName.trim(), ignoreCase = true)
-    }
-    val naturalOrder = materialTrackablePages(material)
-    val resolvedMixes = materialMixes.mapNotNull { mix ->
-        val pageOrder = resolveMixPageOrder(
-                pages = material.metadata?.pages.orEmpty(),
-                naturalOrder = naturalOrder,
-                mixPrograms = mix.programs
-            )
-        if (pageOrder.isEmpty()) {
-            null
-        } else {
-            MaterialMixEntry(
-                material = material,
-                title = "${mix.name} - ${material.materialName}",
-                mixSelection = ViewerMixSelection(mix.name, "${mix.name}.mix")
-            )
-        }
-    }
-    resolvedMixes.ifEmpty {
-        listOf(MaterialMixEntry(material, material.materialName, mixSelection = null))
-    }
-}
-
 fun shouldShowPendingBadPartAction(
     mixSelection: ViewerMixSelection?,
     pendingCount: Int
 ): Boolean = mixSelection == null && pendingCount > 0
-
-fun resolveViewerPageOrder(naturalOrder: List<Int>, selectedPages: List<Int>?): List<Int> {
-    if (selectedPages == null) return naturalOrder
-    val naturalPages = naturalOrder.toSet()
-    return selectedPages.filter { it in naturalPages }.distinct()
-}
 
 fun statusCountsForPages(
     pages: List<Int>,
@@ -120,26 +42,4 @@ fun statusCountsForPages(
         notStarted = notStarted,
         reNested = reNested
     )
-}
-
-private fun resolveMixPageOrder(
-    pages: List<PageMetadata>,
-    naturalOrder: List<Int>,
-    mixPrograms: List<String>
-): List<Int> {
-    if (mixPrograms.isEmpty()) return emptyList()
-    val naturalPages = naturalOrder.toSet()
-    val rows = buildManageCodeRows(pages).filter { row ->
-        row.pageNumber in naturalPages && row.editablePgm in mixPrograms
-    }
-    return applyExistingOrder(rows, mixPrograms).map { it.pageNumber }.distinct()
-}
-
-private fun materialTrackablePages(material: Material): List<Int> {
-    val fromMetadata = material.metadata?.pages.orEmpty()
-        .filterNot { it.hiddenInApp || it.trackingExcluded || it.isPartListContinuation }
-        .mapNotNull { page -> page.pageNumber.takeIf { it in 1..material.pageCount } }
-        .distinct()
-        .sorted()
-    return fromMetadata.ifEmpty { (1..material.pageCount).toList() }
 }

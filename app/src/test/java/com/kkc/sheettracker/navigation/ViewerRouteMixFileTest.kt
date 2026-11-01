@@ -9,8 +9,8 @@ class ViewerRouteMixFileTest {
     @Test fun viewerRouteCarriesMixFileNotPages() {
         val selection = ViewerMixSelection("19MM PRE_FINISHEDMIX", "19MM PRE_FINISHEDMIX.FRZ")
         val route = viewerRoute("709 - Job", "19mm.pdf", 2, selection)
-        assertFalse(route.contains("mixPages"))
         val args = route.substringAfter('?').split('&').associate { field -> field.substringBefore('=') to URLDecoder.decode(field.substringAfter('='), "UTF-8") }
+        assertEquals(setOf("mixName", "mixFile"), args.keys)
         assertEquals(selection, viewerMixSelection(args["mixName"], args["mixFile"]))
     }
     @Test fun namesSurviveOneNavigationDecodeIncludingLiteralPercent20() {

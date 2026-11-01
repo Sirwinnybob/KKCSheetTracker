@@ -11,29 +11,13 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.util.concurrent.TimeUnit
 
-// Result of the singular current-mix lookup (GET .../mix). Conflict means more than one mix
-// definition already exists for this job+material -- the caller must not guess which one is
-// "the" mix (that was the previous client-side bug: silently taking listMixes().firstOrNull()).
-sealed class MixLookupResult {
-    data class Found(val definition: MixDefinition) : MixLookupResult()
-    object NotFound : MixLookupResult()
-    data class Conflict(val names: List<String>) : MixLookupResult()
-    object NetworkError : MixLookupResult()
-}
-
-class MixServiceClient(private val baseUrl: String = MIX_SERVICE_BASE_URL) : MixOperationService, MixCatalogReader {
+class MixServiceClient(private val baseUrl: String = com.kkc.sheettracker.data.cnc.CncMachines.scm.baseUrl) : MixOperationService {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val gson = Gson()
     private val root: String get() = baseUrl.trimEnd('/')
 
     private data class PgmListEnvelope(val ok: Boolean = false, val pgms: List<PgmInventoryItem> = emptyList())
-    private data class MixListEnvelope(val ok: Boolean = false, val mixes: List<MixDefinition> = emptyList())
-    private data class MixLookupEnvelope(val ok: Boolean = false, val mix: MixDefinition? = null, val status: String? = null)
-    private data class MixConflictEnvelope(val ok: Boolean = false, val code: String? = null, val names: List<String> = emptyList())
-    private data class PgmConflict(val pgm: String = "", val mixName: String = "")
-    private data class PgmConflictsEnvelope(val ok: Boolean = false, val conflicts: List<PgmConflict> = emptyList())
     private data class OperationEnvelope(val ok: Boolean = false, val operation: MixServiceOperation? = null)
-    private data class OperationsEnvelope(val ok: Boolean = false, val operations: List<MixServiceOperation> = emptyList())
 
     companion object {
         private val client = OkHttpClient.Builder()
@@ -42,11 +26,6 @@ class MixServiceClient(private val baseUrl: String = MIX_SERVICE_BASE_URL) : Mix
             .build()
         // POST acceptance may be lost after the CNC has already queued the mutation.
         private val mutationClient = client.newBuilder().retryOnConnectionFailure(false).build()
-    }
-
-    suspend fun isReachable(): Boolean = withContext(Dispatchers.IO) {
-        val request = Request.Builder().url("$root/status".toHttpUrl()).get().build()
-        runCatching { client.newCall(request).execute().use { it.isSuccessful } }.getOrDefault(false)
     }
 
     suspend fun listPgms(job: String, material: String): List<PgmInventoryItem> = withContext(Dispatchers.IO) {
@@ -64,202 +43,6 @@ class MixServiceClient(private val baseUrl: String = MIX_SERVICE_BASE_URL) : Mix
                 gson.fromJson(body, PgmListEnvelope::class.java)?.pgms.orEmpty()
             }
         }.getOrDefault(emptyList())
-    }
-
-    suspend fun listMixes(job: String, material: String? = null): List<MixDefinition>? = withContext(Dispatchers.IO) {
-        val urlBuilder = "$root/mixes".toHttpUrl().newBuilder()
-            .addQueryParameter("job", job)
-        if (material != null) urlBuilder.addQueryParameter("material", material)
-        val url = urlBuilder.build()
-        val request = Request.Builder().url(url).get().build()
-        runCatching {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use null
-                val body = response.body?.string() ?: return@use null
-                gson.fromJson(body, MixListEnvelope::class.java)?.mixes
-            }
-        }.getOrNull()
-    }
-
-    // Singular current-mix lookup. Distinct from listMixes(job, material), which returns every
-    // matching definition -- this reports 409 Conflict when more than one exists instead of
-    // leaving the caller to guess which is "the" mix.
-    suspend fun getMix(job: String, material: String): MixLookupResult = withContext(Dispatchers.IO) {
-        val url = "$root/jobs/".toHttpUrl().newBuilder()
-            .addPathSegment(job)
-            .addPathSegment("materials")
-            .addPathSegment(material)
-            .addPathSegment("mix")
-            .build()
-        val request = Request.Builder().url(url).get().build()
-        runCatching {
-            client.newCall(request).execute().use { response ->
-                when (response.code) {
-                    200 -> {
-                        val body = response.body?.string() ?: return@use MixLookupResult.NetworkError
-                        val envelope = gson.fromJson(body, MixLookupEnvelope::class.java)
-                        val definition = envelope?.mix ?: return@use MixLookupResult.NetworkError
-                        MixLookupResult.Found(definition.copy(status = envelope.status ?: definition.status))
-                    }
-                    404 -> MixLookupResult.NotFound
-                    409 -> {
-                        val body = response.body?.string() ?: return@use MixLookupResult.NetworkError
-                        val envelope = gson.fromJson(body, MixConflictEnvelope::class.java)
-                        MixLookupResult.Conflict(envelope?.names.orEmpty())
-                    }
-                    else -> MixLookupResult.NetworkError
-                }
-            }
-        }.getOrDefault(MixLookupResult.NetworkError)
-    }
-
-    // Job-scoped by default: a .pgm filename is unique across the whole job, not per-material,
-    // so a mix belonging to a different material in the same job still counts as a real
-    // conflict. Returns null (not empty) on any failure so callers can fall back rather than
-    // silently reporting "no conflicts" when the check itself didn't run.
-    suspend fun getPgmConflicts(
-        job: String,
-        material: String,
-        programs: List<String>,
-        exclude: String? = null,
-        scope: String = "job"
-    ): List<DuplicateMixWarning>? = withContext(Dispatchers.IO) {
-        if (programs.isEmpty()) return@withContext emptyList()
-        val urlBuilder = "$root/jobs/".toHttpUrl().newBuilder()
-            .addPathSegment(job)
-            .addPathSegment("materials")
-            .addPathSegment(material)
-            .addPathSegment("mixes")
-            .addPathSegment("pgm-conflicts")
-            .addQueryParameter("programs", programs.joinToString(","))
-            .addQueryParameter("scope", scope)
-        if (exclude != null) urlBuilder.addQueryParameter("exclude", exclude)
-        val request = Request.Builder().url(urlBuilder.build()).get().build()
-        runCatching {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use null
-                val body = response.body?.string() ?: return@use null
-                gson.fromJson(body, PgmConflictsEnvelope::class.java)?.conflicts?.map {
-                    DuplicateMixWarning(it.pgm, it.mixName)
-                }
-            }
-        }.getOrNull()
-    }
-
-    suspend fun submitMix(
-        job: String,
-        material: String,
-        name: String,
-        programs: List<String>,
-    ): MixServiceOperation = submitMix(job, material, name, programs, replaceExisting = false)
-
-    override suspend fun submitMix(
-        job: String,
-        material: String,
-        name: String,
-        programs: List<String>,
-        replaceExisting: Boolean,
-    ): MixServiceOperation {
-        val payload = mutableMapOf<String, Any?>(
-            "job" to job,
-            "material" to material,
-            "programs" to programs,
-        )
-        if (!replaceExisting) {
-            payload["name"] = name
-            payload["overwrite"] = false
-        }
-        return submitOperation(
-            url = if (replaceExisting) {
-                "$root/mixes/".toHttpUrl().newBuilder().addPathSegment(name).build()
-            } else {
-                "$root/mixes".toHttpUrl()
-            },
-            method = if (replaceExisting) "PUT" else "POST",
-            payload = payload,
-        )
-    }
-
-    override suspend fun submitCatalogMutation(
-        action: ManageCodeOperationAction,
-    ): MixServiceOperation {
-        if (action.job.isBlank()) {
-            throw MixOperationClientException("catalog mutation is missing its job")
-        }
-        return when (action.kind) {
-            ManageCodeOperationAction.CATALOG_CREATE -> createCatalogMix(
-                job = action.job,
-                material = action.material,
-                name = action.name,
-                programs = action.programs,
-                expectedRevision = action.expectedRevision,
-            )
-            ManageCodeOperationAction.CATALOG_REPLACE -> replaceMix(
-                job = action.job,
-                material = action.material,
-                name = action.name,
-                programs = action.programs,
-                expectedRevision = action.expectedRevision,
-            )
-            ManageCodeOperationAction.EXTERNAL_DELETE -> deleteExternalMix(
-                job = action.job,
-                material = action.material,
-                filename = action.externalMixFilename,
-                expectedRevision = action.expectedRevision,
-            )
-            else -> throw MixOperationClientException("unknown catalog action: ${action.kind}")
-        }
-    }
-
-    // Catalog mutations run on the service's background operation worker (winxiso compiles and
-    // second-pass CNC runs can take minutes) -- these routes reply 202 with an operation id
-    // immediately, same as submitMix/submitPgmEdits. The caller polls getOperation() for result.
-    suspend fun createCatalogMix(
-        job: String,
-        material: String,
-        name: String,
-        programs: List<String>,
-        expectedRevision: Long,
-    ): MixServiceOperation = submitOperation(
-        url = materialUrl(job, material).newBuilder().addPathSegment("mixes").build(),
-        method = "POST",
-        payload = mapOf(
-            "name" to name,
-            "programs" to programs,
-            "expectedRevision" to expectedRevision,
-        ),
-    )
-
-    suspend fun replaceMix(
-        job: String,
-        material: String,
-        name: String,
-        programs: List<String>,
-        expectedRevision: Long,
-    ): MixServiceOperation = submitOperation(
-        url = materialUrl(job, material).newBuilder()
-            .addPathSegment("mixes")
-            .addPathSegment(name)
-            .addPathSegment("replace")
-            .build(),
-        method = "POST",
-        payload = mapOf("programs" to programs, "expectedRevision" to expectedRevision),
-    )
-
-    suspend fun deleteExternalMix(
-        job: String,
-        material: String,
-        filename: String,
-        expectedRevision: Long,
-    ): MixServiceOperation = withContext(Dispatchers.IO) {
-        val url = materialUrl(job, material).newBuilder()
-            .addPathSegment("external-mixes")
-            .addPathSegment(filename)
-            .addQueryParameter("expectedRevision", expectedRevision.toString())
-            .build()
-        val request = Request.Builder().url(url).delete().build()
-        runCatching { client.newCall(request).execute().use(::parseAcceptedOperation) }
-            .getOrElse { throw MixOperationClientException(it.message ?: "external mix deletion failed") }
     }
 
     suspend fun listPgmEdits(job: String, material: String, historyLimit: Int = 20): PgmEditHistoryView? =
@@ -297,40 +80,9 @@ class MixServiceClient(private val baseUrl: String = MIX_SERVICE_BASE_URL) : Mix
         payload = PgmEditBatchRequest(requestId, files),
     )
 
-    override suspend fun getMixCatalog(job: String, material: String): MixCatalogFetchResult =
-        withContext(Dispatchers.IO) {
-            val url = materialUrl(job, material).newBuilder()
-                .addPathSegment("mix-catalog")
-                .build()
-            val request = Request.Builder().url(url).get().build()
-            runCatching {
-                client.newCall(request).execute().use { response ->
-                    if (response.code != 200) return@use MixCatalogFetchResult.NetworkError
-                    val snapshot = MixCatalogJson.parseFetchSnapshot(
-                        response.body?.string().orEmpty(),
-                        job,
-                        material,
-                    )
-                        ?: return@use MixCatalogFetchResult.NetworkError
-                    MixCatalogFetchResult.Success(snapshot)
-                }
-            }.getOrDefault(MixCatalogFetchResult.NetworkError)
-        }
-
     override suspend fun getOperation(id: String): MixServiceOperation = withContext(Dispatchers.IO) {
         val url = "$root/operations/".toHttpUrl().newBuilder().addPathSegment(id).build()
         readOperation(Request.Builder().url(url).get().build())
-    }
-
-    override suspend fun listJobOperations(job: String): List<MixServiceOperation> = withContext(Dispatchers.IO) {
-        val url = "$root/jobs/".toHttpUrl().newBuilder().addPathSegment(job).addPathSegment("operations").build()
-        runCatching {
-            client.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
-                val envelope = gson.fromJson(response.body?.string().orEmpty(), OperationsEnvelope::class.java)
-                if (response.code != 200 || envelope?.ok != true) throw MixOperationClientException("operation list failed")
-                envelope.operations
-            }
-        }.getOrElse { throw MixOperationClientException(it.message ?: "operation list failed") }
     }
 
     private suspend fun submitOperation(
@@ -345,12 +97,6 @@ class MixServiceClient(private val baseUrl: String = MIX_SERVICE_BASE_URL) : Mix
         runCatching { mutationClient.newCall(request).execute().use(::parseAcceptedOperation) }
             .getOrElse { throw MixOperationClientException(it.message ?: "operation submission failed") }
     }
-
-    private fun materialUrl(job: String, material: String) = "$root/jobs/".toHttpUrl().newBuilder()
-        .addPathSegment(job)
-        .addPathSegment("materials")
-        .addPathSegment(material)
-        .build()
 
     private fun readOperation(request: Request): MixServiceOperation = runCatching {
         client.newCall(request).execute().use { response ->

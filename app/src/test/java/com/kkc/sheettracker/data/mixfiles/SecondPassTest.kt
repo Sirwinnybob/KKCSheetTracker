@@ -198,8 +198,5 @@ class SecondPassTest {
             submissions.add(listOf(job, material, requestId, files)); return submitted
         }
         override suspend fun getOperation(id: String): MixServiceOperation { pollIds.add(id); return polls.removeFirst() }
-        override suspend fun submitMix(job: String, material: String, name: String, programs: List<String>, replaceExisting: Boolean): MixServiceOperation = error("unexpected mix")
-        override suspend fun submitCatalogMutation(action: ManageCodeOperationAction): MixServiceOperation = error("unexpected catalog")
-        override suspend fun listJobOperations(job: String): List<MixServiceOperation> = error("unexpected list")
     }
 }

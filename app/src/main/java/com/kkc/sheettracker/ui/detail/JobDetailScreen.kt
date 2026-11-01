@@ -95,12 +95,6 @@ import com.kkc.sheettracker.data.models.JobPdfRef
 import com.kkc.sheettracker.data.models.SheetStatus
 import com.kkc.sheettracker.data.models.SpecialtyResolvedItem
 import com.kkc.sheettracker.data.models.StatusCounts
-import com.kkc.sheettracker.data.mixservice.MixCatalogFetchResult
-import com.kkc.sheettracker.data.mixservice.MixCatalogRepository
-import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
-import com.kkc.sheettracker.data.mixservice.MaterialMixEntry
-import com.kkc.sheettracker.data.mixservice.activeMixRows
-import com.kkc.sheettracker.data.mixservice.pagesForMix
 import com.kkc.sheettracker.data.mixservice.ViewerMixSelection
 import com.kkc.sheettracker.data.mixservice.statusCountsForPages
 import com.kkc.sheettracker.data.mixservice.shouldShowPendingBadPartAction
@@ -111,7 +105,7 @@ import com.kkc.sheettracker.ui.components.KKCTopAppBar
 import com.kkc.sheettracker.ui.components.PageStatusBar
 import com.kkc.sheettracker.ui.components.ProgressCard
 import com.kkc.sheettracker.ui.components.icons.ActionPrintIcon
-import com.kkc.sheettracker.ui.components.icons.ActionManageCodeIcon
+import com.kkc.sheettracker.ui.components.icons.ActionMixesIcon
 import com.kkc.sheettracker.ui.components.icons.ReferenceAssemblyIcon
 import com.kkc.sheettracker.ui.components.icons.ReferenceDeliverySheetIcon
 import com.kkc.sheettracker.ui.components.icons.ReferencePlansIcon
@@ -166,106 +160,13 @@ internal enum class JobDetailCatalogStatus {
     UNAVAILABLE,
 }
 
-internal data class JobDetailCatalogState(
-    val snapshots: Map<String, MixCatalogSnapshot> = emptyMap(),
-    val statuses: Map<String, JobDetailCatalogStatus> = emptyMap(),
-)
-
-/** Publishes the current cache classification before a refresh suspends for the network. */
-internal fun jobDetailCatalogStateBeforeRefresh(
-    previous: JobDetailCatalogState,
-    materialName: String,
-    cached: MixCatalogSnapshot?,
-): JobDetailCatalogState {
-    val retained = cached ?: previous.snapshots[materialName]
-    if (retained == null) {
-        return previous.copy(
-            snapshots = previous.snapshots - materialName,
-            statuses = previous.statuses + (materialName to JobDetailCatalogStatus.UNAVAILABLE),
-        )
-    }
-
-    val previousStatus = previous.statuses[materialName]
-    val pendingStatus = when {
-        cached != null && previousStatus != JobDetailCatalogStatus.STALE -> JobDetailCatalogStatus.FRESH
-        previousStatus != null -> previousStatus
-        else -> JobDetailCatalogStatus.FRESH
-    }
-    return previous.copy(
-        snapshots = previous.snapshots + (materialName to retained),
-        statuses = previous.statuses + (materialName to pendingStatus),
-    )
-}
-
-/** Keeps cached data visible when refresh fails, while exposing its recovery state to the UI. */
-internal fun jobDetailCatalogStateAfterRefresh(
-    previous: JobDetailCatalogState,
-    materialName: String,
-    cached: MixCatalogSnapshot?,
-    refreshed: MixCatalogFetchResult,
-): JobDetailCatalogState {
-    val retained = cached ?: previous.snapshots[materialName]
-    return when (refreshed) {
-        is MixCatalogFetchResult.Success -> previous.copy(
-            snapshots = previous.snapshots + (materialName to refreshed.snapshot),
-            statuses = previous.statuses + (materialName to JobDetailCatalogStatus.FRESH),
-        )
-        MixCatalogFetchResult.NetworkError -> if (retained != null) {
-            previous.copy(
-                snapshots = previous.snapshots + (materialName to retained),
-                statuses = previous.statuses + (materialName to JobDetailCatalogStatus.STALE),
-            )
-        } else {
-            previous.copy(
-                snapshots = previous.snapshots - materialName,
-                statuses = previous.statuses + (materialName to JobDetailCatalogStatus.UNAVAILABLE),
-            )
-        }
-    }
-}
-
-/** Every mix can open, including mixes containing only unmatched PGMs. */
-internal fun canOpenCatalogMaterialEntry(
-    @Suppress("UNUSED_PARAMETER") entry: MaterialMixEntry,
-    @Suppress("UNUSED_PARAMETER") catalogStatus: JobDetailCatalogStatus? = null,
-): Boolean = true
-
-/** Projects only active catalog ownership into the established viewer route model. */
-internal fun catalogMaterialEntries(
-    material: Material,
-    catalog: MixCatalogSnapshot?
-): List<MaterialMixEntry> {
-    val naturalOrder = catalogTrackablePages(material)
-    val projected = activeMixRows(material, catalog).map { row ->
-        val activeMix = row.activeMix
-        if (activeMix == null) {
-            MaterialMixEntry(material = material, title = material.materialName, mixSelection = null)
-        } else {
-            val pageOrder = pagesForMix(
-                pages = material.metadata?.pages.orEmpty(),
-                naturalOrder = naturalOrder,
-                programs = activeMix.programs,
-            )
-            // Preserve the active ownership row even when no visible page maps to it. The
-            // empty selection is rendered as unavailable, never widened to all material pages.
-            MaterialMixEntry(
-                material = material,
-                title = row.title,
-                mixSelection = ViewerMixSelection(activeMix.name, activeMix.mixFilename),
-            )
-        }
-    }
-    return projected.takeIf { entries -> entries.any { it.mixSelection != null } }
-        ?: listOf(MaterialMixEntry(material = material, title = material.materialName, mixSelection = null))
-}
-
-private fun catalogTrackablePages(material: Material): List<Int> {
-    val fromMetadata = material.metadata?.pages.orEmpty()
-        .filterNot { it.hiddenInApp || it.trackingExcluded || it.isPartListContinuation }
-        .mapNotNull { page -> page.pageNumber.takeIf { it in 1..material.pageCount } }
-        .distinct()
-        .sorted()
-    return fromMetadata.ifEmpty { (1..material.pageCount).toList() }
+internal fun jobDetailCatalogStatus(
+    enabled: Boolean,
+    state: CatalogState?,
+): JobDetailCatalogStatus = if (!enabled) JobDetailCatalogStatus.FRESH else when (state) {
+    is CatalogState.Live, CatalogState.NoFolder -> JobDetailCatalogStatus.FRESH
+    is CatalogState.Offline -> JobDetailCatalogStatus.STALE
+    else -> JobDetailCatalogStatus.UNAVAILABLE
 }
 
 private data class JobDetailLoadResult(
@@ -287,7 +188,7 @@ fun JobDetailScreen(
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenJobPacketDocument: (JobPdfRef) -> Unit,
     onOpenThreeD: () -> Unit,
-    onOpenManageCode: () -> Unit = {},
+    onOpenMixes: () -> Unit = {},
     onBack: () -> Unit,
     isClockedInHere: Boolean = false,
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
@@ -296,7 +197,6 @@ fun JobDetailScreen(
     tabletId: String,
     archiveClientFactory: suspend () -> ArchiveLifecycleClient?,
     onArchiveCompleted: () -> Unit,
-    mixCatalogRepository: MixCatalogRepository? = null,
     loadMixCatalog: Boolean = true,
     clockInState: ClockInState? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -344,7 +244,7 @@ fun JobDetailScreen(
     val catalogScope = rememberCoroutineScope()
     val materialEntries = job?.materials.orEmpty().flatMap { material ->
         jobDetailMixRows(material, catalogStates[material.materialName].mixCatalogSnapshot()) { SheetStatus.NOT_STARTED }
-            .map { MaterialMixEntry(material, it.title, it.selection) }
+            .map { JobDetailMaterialEntry(material, it.title, it.selection) }
     }.sortedBy { entry ->
         when {
             entry.material.metadata?.remakeLabel != null -> 0
@@ -593,7 +493,7 @@ fun JobDetailScreen(
                                 onOpenThreeD()
                             }, ReferenceView3DIcon))
                         }
-                        add(KKCPillAction("Manage code", { onOpenManageCode() }, ActionManageCodeIcon))
+                        add(KKCPillAction("Manage code", { onOpenMixes() }, ActionMixesIcon))
                     }
                     KKCPillActionRow(
                         actions = referenceActions,
@@ -637,11 +537,7 @@ fun JobDetailScreen(
                     val material = entry.material
                     val mixSelection = entry.mixSelection
                     val liveState = catalogStates[material.materialName]
-                    val catalogStatus = when (liveState) {
-                        is CatalogState.Live, CatalogState.NoFolder -> JobDetailCatalogStatus.FRESH
-                        is CatalogState.Offline -> JobDetailCatalogStatus.STALE
-                        else -> JobDetailCatalogStatus.UNAVAILABLE
-                    }
+                    val catalogStatus = jobDetailCatalogStatus(loadMixCatalog, liveState)
                     val catalog = liveState.mixCatalogSnapshot()
                     val statusColors = KKCThemeColors.statusColors
                     val appMaterialModel: MaterialUiModel? = appMaterialsByKey[com.kkc.sheettracker.data.models.JobMaterialKey(jobFolderName, material.pdfFilename)]
@@ -734,15 +630,13 @@ fun JobDetailScreen(
                         },
                         onToggleExpanded = {},
                         onClick = {
-                            if (canOpenCatalogMaterialEntry(entry, catalogStatus)) {
-                                val startPage = if (mixSelection == null) {
-                                    trackablePages.firstOrNull() ?: 1
-                                } else {
-                                    displayedPages.firstOrNull() ?: trackablePages.firstOrNull() ?: 1
-                                }
-                                suppressLeavePrompt = true
-                                onMaterialClick(material, startPage, mixSelection)
+                            val startPage = if (mixSelection == null) {
+                                trackablePages.firstOrNull() ?: 1
+                            } else {
+                                displayedPages.firstOrNull() ?: trackablePages.firstOrNull() ?: 1
                             }
+                            suppressLeavePrompt = true
+                            onMaterialClick(material, startPage, mixSelection)
                         }
                     ) {
                         PageStatusBar(

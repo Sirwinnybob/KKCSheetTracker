@@ -21,8 +21,7 @@ class ArchiveJobDetailHostWiringTest {
         assertTrue(source.contains("session.pdfMarkupStore"))
         assertTrue(source.contains("session.sheetRipProgressStore"))
         assertTrue(source.contains("session.baseDir.absolutePath"))
-        assertTrue(source.contains("mixCatalogRepository = null"))
-        assertTrue(source.contains("loadMixCatalog = false"))
+        assertEquals(2, Regex("loadMixCatalog = false").findAll(source).count())
         assertFalse(source.contains("ClockInState"))
     }
 

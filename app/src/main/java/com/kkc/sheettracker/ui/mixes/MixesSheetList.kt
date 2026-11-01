@@ -142,7 +142,7 @@ private fun MixesSheetRow(row: RowModel, secondPass: SecondPassDraft?, revertSup
     }
 }
 
-/** Same PDF/sidecar thumbnail loader as ManageCodeRowView, with work off the UI thread. */
+/** Loads PDF/sidecar thumbnails off the UI thread. */
 @Composable
 private fun SheetThumbnail(pdf: File?, page: SheetPage?) {
     val bitmap by produceState<ImageBitmap?>(null, pdf, page?.pageNumber, page?.thumbnailPath) {

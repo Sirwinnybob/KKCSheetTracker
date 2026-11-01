@@ -1,18 +1,26 @@
 package com.kkc.sheettracker.ui.detail
 
-import com.kkc.sheettracker.data.mixservice.MixCatalogEntry
-import com.kkc.sheettracker.data.mixservice.MixCatalogSnapshot
-import com.kkc.sheettracker.data.mixservice.MixLifecycle
-import com.kkc.sheettracker.data.mixservice.MixCatalogFetchResult
-import com.kkc.sheettracker.data.mixservice.MaterialMixEntry
 import com.kkc.sheettracker.data.models.Material
-import com.kkc.sheettracker.data.models.MaterialMetadata
-import com.kkc.sheettracker.data.models.PageMetadata
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class JobDetailLoadStateTest {
+    @Test
+    fun disabledArchiveMixCatalogUsesNaturalRowsWithoutRecoveryNotice() {
+        val material = Material(pdfFilename = "19mm.pdf", materialName = "19mm", pageCount = 2)
+        val row = jobDetailMixRows(material, null) { com.kkc.sheettracker.data.models.SheetStatus.NOT_STARTED }.single()
+        assertEquals("19mm", row.title)
+        assertEquals(null, row.selection)
+        assertEquals(JobDetailCatalogStatus.FRESH, jobDetailCatalogStatus(enabled = false, state = null))
+    }
+
+    @Test
+    fun enabledCatalogKeepsOfflineAndOutdatedRecovery() {
+        assertEquals(JobDetailCatalogStatus.UNAVAILABLE, jobDetailCatalogStatus(true, null))
+        assertEquals(JobDetailCatalogStatus.STALE, jobDetailCatalogStatus(true, com.kkc.sheettracker.data.mixfiles.CatalogState.Offline(null)))
+        assertEquals(JobDetailCatalogStatus.UNAVAILABLE, jobDetailCatalogStatus(true, com.kkc.sheettracker.data.mixfiles.CatalogState.Outdated(null)))
+    }
+
     @Test
     fun jobDetailLoadStateSeparatesPendingDataFromAnUnavailableJob() {
         assertEquals(JobDetailLoadState.LOADING, jobDetailLoadState(hasResolved = false, hasJob = false))
@@ -48,185 +56,4 @@ class JobDetailLoadStateTest {
         org.junit.Assert.assertNotEquals(firstGeneration, differentJob)
     }
 
-    @Test
-    fun `active catalog rows produce explicit viewer selections in catalog program order`() {
-        val material = Material(
-            pdfFilename = "19mm.pdf",
-            materialName = "19mm",
-            pageCount = 2,
-            metadata = MaterialMetadata(
-                pages = listOf(
-                    PageMetadata(pageNumber = 1, sheetFiles = listOf("R1")),
-                    PageMetadata(pageNumber = 2, sheetFiles = listOf("R2"))
-                )
-            )
-        )
-        val snapshot = MixCatalogSnapshot(
-            job = "100 - Alpha",
-            material = "19mm",
-            revision = 7L,
-            entries = listOf(
-                MixCatalogEntry(
-                    name = "Current",
-                    mixFilename = "Current.mix",
-                    lifecycle = MixLifecycle.ACTIVE,
-                    programs = listOf("R2.pgm", "R1.pgm")
-                ),
-                MixCatalogEntry(
-                    name = "Old",
-                    mixFilename = "Old.mix",
-                    lifecycle = MixLifecycle.HISTORY,
-                    programs = listOf("R1.pgm")
-                ),
-                MixCatalogEntry(
-                    name = "Manual.mix",
-                    mixFilename = "Manual.mix",
-                    lifecycle = MixLifecycle.EXTERNAL,
-                    programs = listOf("R1.pgm")
-                )
-            )
-        )
-
-        val entries = catalogMaterialEntries(material, snapshot)
-
-        assertEquals(1, entries.size)
-        assertEquals("Current.mix", entries.single().mixSelection?.mixFile)
-        assertEquals("19mm", entries.single().title)
-    }
-
-    @Test
-    fun `history and external catalog rows never create viewer cards`() {
-        val material = Material(pdfFilename = "19mm.pdf", materialName = "19mm", pageCount = 2)
-        val snapshot = MixCatalogSnapshot(
-            job = "100 - Alpha",
-            material = "19mm",
-            revision = 7L,
-            entries = listOf(
-                MixCatalogEntry("Old", "Old.mix", MixLifecycle.HISTORY, programs = listOf("R1.pgm")),
-                MixCatalogEntry("Manual.mix", "Manual.mix", MixLifecycle.EXTERNAL, programs = listOf("R2.pgm"))
-            )
-        )
-
-        val entries = catalogMaterialEntries(material, snapshot)
-
-        assertEquals(1, entries.size)
-        assertEquals("19mm", entries.single().title)
-        assertEquals(null, entries.single().mixSelection)
-    }
-
-    @Test
-    fun `active mix with no mapped pages remains scoped and openable`() {
-        val material = Material(
-            pdfFilename = "19mm.pdf",
-            materialName = "19mm",
-            pageCount = 2,
-            metadata = MaterialMetadata(
-                pages = listOf(
-                    PageMetadata(pageNumber = 1, sheetFiles = listOf("R1")),
-                    PageMetadata(pageNumber = 2, sheetFiles = listOf("R2")),
-                ),
-            ),
-        )
-        val snapshot = MixCatalogSnapshot(
-            job = "100 - Alpha",
-            material = "19mm",
-            revision = 8L,
-            entries = listOf(
-                MixCatalogEntry("Broken", "Broken.mix", MixLifecycle.ACTIVE, listOf("Missing.pgm")),
-            ),
-        )
-
-        val entry = catalogMaterialEntries(material, snapshot).single()
-
-        assertEquals("Broken", entry.mixSelection?.name)
-        assertEquals("Broken.mix", entry.mixSelection?.mixFile)
-        assertTrue(canOpenCatalogMaterialEntry(entry))
-    }
-
-    @Test
-    fun `catalog refresh failure marks cached detail stale and uncached detail unavailable`() {
-        val cached = MixCatalogSnapshot(
-            job = "100 - Alpha",
-            material = "19mm",
-            revision = 7L,
-            entries = emptyList(),
-        )
-        val stale = jobDetailCatalogStateAfterRefresh(
-            previous = JobDetailCatalogState(),
-            materialName = "19mm",
-            cached = cached,
-            refreshed = MixCatalogFetchResult.NetworkError,
-        )
-        val unavailable = jobDetailCatalogStateAfterRefresh(
-            previous = JobDetailCatalogState(),
-            materialName = "19mm",
-            cached = null,
-            refreshed = MixCatalogFetchResult.NetworkError,
-        )
-
-        assertEquals(cached, stale.snapshots["19mm"])
-        assertEquals(JobDetailCatalogStatus.STALE, stale.statuses["19mm"])
-        assertEquals(JobDetailCatalogStatus.UNAVAILABLE, unavailable.statuses["19mm"])
-        val unscoped = MaterialMixEntry(
-            material = Material(pdfFilename = "19mm.pdf", materialName = "19mm", pageCount = 2),
-            title = "19mm",
-            mixSelection = null,
-        )
-        assertTrue(canOpenCatalogMaterialEntry(unscoped, JobDetailCatalogStatus.UNAVAILABLE))
-    }
-
-    @Test
-    fun `cache-first catalog state publishes scoped active selection before refresh`() {
-        val material = Material(
-            pdfFilename = "19mm.pdf",
-            materialName = "19mm",
-            pageCount = 2,
-            metadata = MaterialMetadata(
-                pages = listOf(
-                    PageMetadata(pageNumber = 1, sheetFiles = listOf("R1")),
-                    PageMetadata(pageNumber = 2, sheetFiles = listOf("R2")),
-                ),
-            ),
-        )
-        val cached = MixCatalogSnapshot(
-            job = "100 - Alpha",
-            material = "19mm",
-            revision = 7L,
-            entries = listOf(
-                MixCatalogEntry(
-                    name = "Current",
-                    mixFilename = "Current.mix",
-                    lifecycle = MixLifecycle.ACTIVE,
-                    programs = listOf("R2.pgm", "R1.pgm"),
-                ),
-            ),
-        )
-
-        val cacheFirst = jobDetailCatalogStateBeforeRefresh(
-            previous = JobDetailCatalogState(),
-            materialName = material.materialName,
-            cached = cached,
-        )
-        val entry = catalogMaterialEntries(material, cacheFirst.snapshots[material.materialName]).single()
-
-        assertEquals(cached, cacheFirst.snapshots[material.materialName])
-        assertEquals(JobDetailCatalogStatus.FRESH, cacheFirst.statuses[material.materialName])
-        assertEquals("Current.mix", entry.mixSelection?.mixFile)
-        assertTrue(canOpenCatalogMaterialEntry(entry, cacheFirst.statuses[material.materialName]))
-    }
-
-    @Test
-    fun `uncached catalog state still allows unscoped open while refresh is pending`() {
-        val material = Material(pdfFilename = "19mm.pdf", materialName = "19mm", pageCount = 2)
-        val pending = jobDetailCatalogStateBeforeRefresh(
-            previous = JobDetailCatalogState(),
-            materialName = material.materialName,
-            cached = null,
-        )
-        val entry = catalogMaterialEntries(material, pending.snapshots[material.materialName]).single()
-
-        assertEquals(null, entry.mixSelection)
-        assertEquals(JobDetailCatalogStatus.UNAVAILABLE, pending.statuses[material.materialName])
-        assertTrue(canOpenCatalogMaterialEntry(entry, pending.statuses[material.materialName]))
-    }
 }

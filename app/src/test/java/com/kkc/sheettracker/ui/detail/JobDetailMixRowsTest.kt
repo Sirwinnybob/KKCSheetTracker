@@ -46,7 +46,7 @@ class JobDetailMixRowsTest {
     @Test fun emptyMatchStaysScopedAndOpenable() {
         val c = catalog(row(pgms = listOf("missing.pgm")))
         assertEquals(ViewerOrder.Mix(emptyList<Int>(), listOf("missing.pgm")), liveViewerOrder(material, c, "A.mix"))
-        assertTrue(canOpenCatalogMaterialEntry(com.kkc.sheettracker.data.mixservice.MaterialMixEntry(material, "A", jobDetailMixRows(material, c) { SheetStatus.NOT_STARTED }.single().selection)))
+        assertEquals(ViewerMixSelection("A", "A.mix"), jobDetailMixRows(material, c) { SheetStatus.NOT_STARTED }.single().selection)
     }
     @Test fun needsRefreshReflectsCompletedInterruptedEntries() {
         val c = catalog(row("A.FRZ", kind = MixFileKind.FRZ).copy(entries = listOf(entry("R1.pgm").copy(remaining = 1))))

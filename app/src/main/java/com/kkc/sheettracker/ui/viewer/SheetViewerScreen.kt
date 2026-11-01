@@ -52,7 +52,7 @@ import com.kkc.sheettracker.ui.components.icons.MarkupPenIcon
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
-import com.kkc.sheettracker.ui.components.icons.ActionManageCodeIcon
+import com.kkc.sheettracker.ui.components.icons.ActionMixesIcon
 import com.kkc.sheettracker.ui.components.icons.ReferenceAssemblyIcon
 import com.kkc.sheettracker.ui.components.icons.ReferencePlansIcon
 import com.kkc.sheettracker.ui.components.icons.ViewerPopupIcon
@@ -322,7 +322,7 @@ fun SheetViewerScreen(
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeDTarget: (cabinet: String?, assemblyPage: Int?, plansPage: Int?, room: String?) -> Unit,
-    onOpenManageCode: (materialName: String) -> Unit = {},
+    onOpenMixes: (materialName: String) -> Unit = {},
     onBack: () -> Unit,
     onMaterialUnavailable: () -> Unit = onBack,
     onUiVisibilityChanged: (Boolean) -> Unit = {},
@@ -1438,10 +1438,10 @@ fun SheetViewerScreen(
                         }
                     }
                     Button(
-                        onClick = { currentMaterial?.let { onOpenManageCode(it.materialName) } },
+                        onClick = { currentMaterial?.let { onOpenMixes(it.materialName) } },
                         enabled = currentMaterial != null
                     ) {
-                        Icon(ActionManageCodeIcon, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(ActionMixesIcon, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("Manage code")
                     }

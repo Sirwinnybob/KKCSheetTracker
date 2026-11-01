@@ -1780,7 +1780,7 @@ private fun JobsTabHost(
                         launchSingleTop = true
                     }
                 },
-                onOpenManageCode = {
+                onOpenMixes = {
                     navController.navigate("manage_code/${URLEncoder.encode(folderName, "UTF-8")}") {
                         launchSingleTop = true
                     }
@@ -1987,7 +1987,7 @@ private fun JobsTabHost(
                         launchSingleTop = true
                     }
                 },
-                onOpenManageCode = { materialName ->
+                onOpenMixes = { materialName ->
                     navController.navigate(
                         "manage_code/${URLEncoder.encode(folderName, "UTF-8")}?material=${URLEncoder.encode(materialName, "UTF-8")}"
                     ) { launchSingleTop = true }
@@ -3322,7 +3322,7 @@ private fun LegacySingleStackNavigation(
                                 launchSingleTop = true
                             }
                         },
-                        onOpenManageCode = {
+                        onOpenMixes = {
                             navController.navigate("manage_code/${URLEncoder.encode(folderName, "UTF-8")}") {
                                 launchSingleTop = true
                             }
@@ -3560,7 +3560,7 @@ private fun LegacySingleStackNavigation(
                                 launchSingleTop = true
                             }
                         },
-                        onOpenManageCode = { materialName ->
+                        onOpenMixes = { materialName ->
                             navController.navigate(
                                 "manage_code/${URLEncoder.encode(folderName, "UTF-8")}?material=${URLEncoder.encode(materialName, "UTF-8")}"
                             ) { launchSingleTop = true }

@@ -7,7 +7,6 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -30,18 +29,6 @@ class MixServiceClientTest {
     private fun client() = MixServiceClient(server.url("/").toString())
 
     @Test
-    fun `isReachable true on 200`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
-        assertTrue(client().isReachable())
-    }
-
-    @Test
-    fun `isReachable false on connection failure`() = runBlocking {
-        server.shutdown()
-        assertFalse(client().isReachable())
-    }
-
-    @Test
     fun `listPgms parses inventory items from the pgms envelope`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
@@ -62,188 +49,6 @@ class MixServiceClientTest {
     }
 
     @Test
-    fun `listMixes returns null on failure`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(500))
-        assertNull(client().listMixes("648", "19mm Pre_Finished"))
-    }
-
-    @Test
-    fun `listMixes returns empty list when the envelope has no mixes`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"ok":true,"mixes":[]}"""))
-        assertEquals(emptyList<MixDefinition>(), client().listMixes("648", "19mm Pre_Finished"))
-    }
-
-    @Test
-    fun `listMixes parses definitions from the mixes envelope and filters by job and material query params`() = runBlocking {
-        server.enqueue(
-            MockResponse().setBody(
-                """{"ok":true,"mixes":[{"name":"KkcMix","job":"648","material":"19mm Pre_Finished","programs":["R1.pgm","R2.pgm"],"mixFilename":"KkcMix.mix","status":"compiled"}]}"""
-            )
-        )
-        val mixes = client().listMixes("648", "19mm Pre_Finished")
-        assertEquals("KkcMix", mixes?.single()?.name)
-        assertEquals(listOf("R1.pgm", "R2.pgm"), mixes?.single()?.programs)
-        val recorded = server.takeRequest()
-        assertTrue(recorded.path?.contains("job=648") == true)
-        assertTrue(recorded.path?.contains("material=19mm") == true)
-    }
-
-    @Test
-    fun `listMixes without material queries only by job`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"ok":true,"mixes":[]}"""))
-        client().listMixes("648")
-        val recorded = server.takeRequest()
-        assertTrue(recorded.path?.contains("job=648") == true)
-        assertFalse(recorded.path?.contains("material=") == true)
-    }
-
-    @Test
-    fun `getMix parses the single definition and requests the singular route`() = runBlocking {
-        server.enqueue(
-            MockResponse().setBody(
-                """{"ok":true,"mix":{"name":"KkcMix","job":"648","material":"19mm Pre_Finished","programs":["R1.pgm"],"mixFilename":"KkcMix.mix"},"status":"compiled"}"""
-            )
-        )
-        val result = client().getMix("648", "19mm Pre_Finished")
-        check(result is MixLookupResult.Found)
-        assertEquals("KkcMix", result.definition.name)
-        assertEquals("compiled", result.definition.status)
-        val recorded = server.takeRequest()
-        assertEquals("/jobs/648/materials/19mm%20Pre_Finished/mix", recorded.path)
-    }
-
-    @Test
-    fun `getMix maps 404 to NotFound`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(404))
-        check(client().getMix("648", "Unknown") is MixLookupResult.NotFound)
-    }
-
-    @Test
-    fun `getMix maps 409 to Conflict with the sorted mix names`() = runBlocking {
-        server.enqueue(
-            MockResponse().setResponseCode(409)
-                .setBody("""{"ok":false,"code":"multiple_mixes","names":["First","Second"]}""")
-        )
-        val result = client().getMix("648", "19mm Pre_Finished")
-        check(result is MixLookupResult.Conflict)
-        assertEquals(listOf("First", "Second"), result.names)
-    }
-
-    @Test
-    fun `getMixCatalog parses a revisioned snapshot and requests the canonical route`() = runBlocking {
-        server.enqueue(
-            MockResponse().setBody(
-                """{"ok":true,"revision":17,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active","programs":["R2.pgm"],"status":"compiled"}]}"""
-            )
-        )
-
-        val reader: MixCatalogReader = client()
-        val result = reader.getMixCatalog("100 - Alpha", "19mm Pre_Finished")
-
-        check(result is MixCatalogFetchResult.Success)
-        assertEquals(
-            MixCatalogSnapshot(
-                job = "100 - Alpha",
-                material = "19mm Pre_Finished",
-                revision = 17L,
-                entries = listOf(
-                    MixCatalogEntry(
-                        name = "Current",
-                        mixFilename = "Current.mix",
-                        lifecycle = MixLifecycle.ACTIVE,
-                        programs = listOf("R2.pgm"),
-                        status = "compiled",
-                    )
-                ),
-            ),
-            result.snapshot,
-        )
-        val recorded = server.takeRequest()
-        assertEquals("GET", recorded.method)
-        assertEquals(
-            "/jobs/100%20-%20Alpha/materials/19mm%20Pre_Finished/mix-catalog",
-            recorded.requestUrl?.encodedPath,
-        )
-        assertEquals(0L, recorded.body.size)
-    }
-
-    @Test
-    fun `getMixCatalog maps malformed, unrevisioned, or unsuccessful envelopes to NetworkError`() = runBlocking {
-        server.enqueue(MockResponse().setBody("not-json"))
-        server.enqueue(MockResponse().setBody("""{"ok":true,"entries":[]}"""))
-        server.enqueue(MockResponse().setBody("""{"ok":false,"revision":18,"entries":[]}"""))
-
-        assertEquals(MixCatalogFetchResult.NetworkError, client().getMixCatalog("100", "Mat"))
-        assertEquals(MixCatalogFetchResult.NetworkError, client().getMixCatalog("100", "Mat"))
-        assertEquals(MixCatalogFetchResult.NetworkError, client().getMixCatalog("100", "Mat"))
-    }
-
-    @Test
-    fun `getMixCatalog rejects malformed successful payload fields without Gson coercion`() = runBlocking {
-        val payloads = listOf(
-            """{"ok":true,"revision":17,"entries":[{"name":"Current","mixFilename":"Current.mix","programs":["R1.pgm"]}]}""",
-            """{"ok":true,"revision":17,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"unknown","programs":["R1.pgm"]}]}""",
-            """{"ok":true,"revision":"17","entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active","programs":["R1.pgm"]}]}""",
-            """{"ok":true,"revision":17.5,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active","programs":["R1.pgm"]}]}""",
-            """{"ok":true,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active","programs":["R1.pgm"]}]}""",
-            """{"ok":true,"revision":17,"entries":[{"name":null,"mixFilename":"Current.mix","lifecycle":"active","programs":["R1.pgm"]}]}""",
-            """{"ok":true,"revision":17,"entries":[{"name":"Current","lifecycle":"active","programs":["R1.pgm"]}]}""",
-            """{"ok":true,"revision":17,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active"}]}""",
-            """{"ok":true,"revision":17,"entries":null}""",
-            """{"ok":true,"revision":17,"entries":{}}""",
-            """{"ok":true,"revision":17,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active","programs":{}}]}""",
-            """{"ok":true,"revision":17,"entries":[{"name":"Current","mixFilename":"Current.mix","lifecycle":"active","programs":[null]}]}""",
-        )
-        payloads.forEach { server.enqueue(MockResponse().setBody(it)) }
-
-        payloads.forEach {
-            assertEquals(MixCatalogFetchResult.NetworkError, client().getMixCatalog("100", "Mat"))
-        }
-    }
-
-    @Test
-    fun `getMixCatalog maps non-success HTTP responses to NetworkError`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(503).setBody("service unavailable"))
-
-        assertEquals(MixCatalogFetchResult.NetworkError, client().getMixCatalog("100", "Mat"))
-    }
-
-    @Test
-    fun `getMixCatalog maps network failures to NetworkError`() = runBlocking {
-        server.shutdown()
-
-        assertEquals(MixCatalogFetchResult.NetworkError, client().getMixCatalog("100", "Mat"))
-    }
-
-    @Test
-    fun `getPgmConflicts parses conflicts and requests job scope with programs joined by commas`() = runBlocking {
-        server.enqueue(
-            MockResponse().setBody(
-                """{"ok":true,"conflicts":[{"pgm":"R1.pgm","mixName":"OtherMix"}]}"""
-            )
-        )
-        val result = client().getPgmConflicts("648", "19mm Pre_Finished", listOf("R1.pgm", "R2.pgm"), exclude = "ThisMix")
-        assertEquals(listOf(DuplicateMixWarning("R1.pgm", "OtherMix")), result)
-        val recorded = server.takeRequest()
-        assertTrue(recorded.path?.contains("programs=R1.pgm%2CR2.pgm") == true)
-        assertTrue(recorded.path?.contains("scope=job") == true)
-        assertTrue(recorded.path?.contains("exclude=ThisMix") == true)
-    }
-
-    @Test
-    fun `getPgmConflicts returns empty list without a request when programs is empty`() = runBlocking {
-        val result = client().getPgmConflicts("648", "19mm Pre_Finished", emptyList())
-        assertEquals(emptyList<DuplicateMixWarning>(), result)
-        assertEquals(0, server.requestCount)
-    }
-
-    @Test
-    fun `getPgmConflicts returns null on failure so callers can fall back`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(500))
-        assertNull(client().getPgmConflicts("648", "19mm Pre_Finished", listOf("R1.pgm")))
-    }
-
-    @Test
     fun `listPgmEdits parses the ledger view`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
@@ -261,70 +66,6 @@ class MixServiceClientTest {
     fun `listPgmEdits returns null on failure`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(500))
         assertEquals(null, client().listPgmEdits("648", "19mm Pre_Finished"))
-    }
-
-    @Test
-    fun `submitMix unwraps a 202 operation`() = runBlocking {
-        server.enqueue(
-            MockResponse().setResponseCode(202).setBody(
-                """{"ok":true,"operation":{"id":"op1","kind":"mix_write","job":"648","material":"M","state":"queued","stage":"queued","completedPrograms":0,"totalPrograms":1}}"""
-            )
-        )
-
-        val operation = client().submitMix("648", "M", "Mix", listOf("R1.pgm"))
-
-        assertEquals("op1", operation.id)
-        assertEquals("queued", operation.state)
-        assertEquals("M", operation.material)
-        val recorded = server.takeRequest()
-        assertEquals("POST", recorded.method)
-        assertEquals("/mixes", recorded.requestUrl?.encodedPath)
-    }
-
-    @Test
-    fun `submitMix rejects an accepted envelope with a blank operation id`() {
-        server.enqueue(
-            MockResponse().setResponseCode(202).setBody(
-                """{"ok":true,"operation":{"id":"  ","kind":"mix_write","job":"648","material":"M","state":"queued","stage":"queued"}}"""
-            )
-        )
-
-        assertThrows(MixOperationClientException::class.java) {
-            runBlocking { client().submitMix("648", "M", "Mix", listOf("R1.pgm")) }
-        }
-    }
-
-    @Test
-    fun `submitMix rejects an accepted envelope with a missing operation id`() {
-        server.enqueue(
-            MockResponse().setResponseCode(202).setBody(
-                """{"ok":true,"operation":{"kind":"mix_write","job":"648","material":"M","state":"queued","stage":"queued"}}"""
-            )
-        )
-
-        assertThrows(MixOperationClientException::class.java) {
-            runBlocking { client().submitMix("648", "M", "Mix", listOf("R1.pgm")) }
-        }
-    }
-
-    @Test
-    fun `submitMix replaces an existing named mix through its operation route`() = runBlocking {
-        server.enqueue(
-            MockResponse().setResponseCode(202).setBody(
-                """{"ok":true,"operation":{"id":"op-replace","kind":"mix_write","job":"648","material":"M","state":"queued","stage":"queued"}}"""
-            )
-        )
-
-        val operation = client().submitMix("648", "M", "Existing", listOf("R1.pgm"), replaceExisting = true)
-
-        assertEquals("op-replace", operation.id)
-        val recorded = server.takeRequest()
-        assertEquals("PUT", recorded.method)
-        assertEquals("/mixes/Existing", recorded.requestUrl?.encodedPath)
-        val body = JSONObject(recorded.body.readUtf8())
-        assertEquals("648", body.getString("job"))
-        assertFalse(body.has("name"))
-        assertFalse(body.has("overwrite"))
     }
 
     @Test
@@ -352,20 +93,29 @@ class MixServiceClientTest {
     }
 
     @Test
-    fun `operation reads preserve structured warning recoveries and job operation list`() = runBlocking {
+    fun `submitPgmEdits rejects unaccepted or unidentified operations`() {
+        val responses = listOf(
+            MockResponse().setResponseCode(200).setBody("""{"ok":true,"operation":{"id":"op"}}"""),
+            MockResponse().setResponseCode(202).setBody("""{"ok":true,"operation":{"id":""}}"""),
+            MockResponse().setResponseCode(202).setBody("""{"ok":true,"operation":{}}"""),
+        )
+        responses.forEach { response ->
+            server.enqueue(response)
+            assertThrows(MixOperationClientException::class.java) {
+                runBlocking { client().submitPgmEdits("J", "M", "r", listOf(PgmEditRow("R1.pgm", "standard", false))) }
+            }
+        }
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test
+    fun `operation polling preserves structured warning recoveries`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
                 """{"ok":true,"operation":{"id":"op1","kind":"mix_write","job":"648","material":"M","state":"completed","stage":"completed","completedPrograms":1,"totalPrograms":1,"warning":{"code":"history_sync_failed","message":"history unavailable","recoveries":[{"url":"/jobs/648/materials/M/mix-history/sync","method":"POST","change":{"historyFile":".pgm_edit_history.json","attempt":2}}]}}}"""
             )
         )
-        server.enqueue(
-            MockResponse().setBody(
-                """{"ok":true,"operations":[{"id":"op1","kind":"mix_write","job":"648","material":"M","state":"completed","stage":"completed","completedPrograms":1,"totalPrograms":1}]}"""
-            )
-        )
-
         val operation = client().getOperation("op1")
-        val operations = client().listJobOperations("648")
 
         assertEquals("history_sync_failed", operation.warning?.code)
         val recovery = operation.warning?.recoveries?.single()
@@ -373,127 +123,6 @@ class MixServiceClientTest {
         assertEquals("POST", recovery?.method)
         assertEquals(".pgm_edit_history.json", recovery?.change?.get("historyFile"))
         assertEquals(2, (recovery?.change?.get("attempt") as Number).toInt())
-        assertEquals(listOf("op1"), operations.map { it.id })
         assertEquals("/operations/op1", server.takeRequest().requestUrl?.encodedPath)
-        assertEquals("/jobs/648/operations", server.takeRequest().requestUrl?.encodedPath)
-    }
-
-    // Catalog mutations run on the service's background operation worker (a compile or
-    // second-pass CNC run can take minutes), so these routes reply 202 with an operation id
-    // immediately instead of blocking for the full run -- the same accepted-operation contract
-    // submitMix/submitPgmEdits already use. The typed CatalogChanged/DuplicateName/... mapping
-    // that used to live here now runs in MixOperationCoordinator once the polled operation
-    // reaches a terminal state (see MixOperationCoordinatorTest); MixCatalogJson.parseMutationResult
-    // (see MixCatalogCacheTest) covers the malformed-envelope cases that used to be tested here
-    // through a synchronous 200 response.
-
-    @Test
-    fun `submitCatalogMutation encodes replace action and unwraps a 202 operation`() = runBlocking {
-        server.enqueue(
-            MockResponse().setResponseCode(202).setBody(
-                """{"ok":true,"operation":{"id":"op1","kind":"catalog_replace","job":"100 - Alpha","material":"19mm Pre_Finished","state":"queued","stage":"queued"}}"""
-            )
-        )
-
-        val action = ManageCodeOperationAction.catalogReplace(
-            job = "100 - Alpha",
-            material = "19mm Pre_Finished",
-            name = "Current Mix",
-            programs = listOf("R2.pgm"),
-            expectedRevision = 17L,
-        )
-        val operation = client().submitCatalogMutation(action)
-
-        assertEquals("op1", operation.id)
-        assertEquals("queued", operation.state)
-        val recorded = server.takeRequest()
-        assertEquals("POST", recorded.method)
-        assertEquals(
-            "/jobs/100%20-%20Alpha/materials/19mm%20Pre_Finished/mixes/Current%20Mix/replace",
-            recorded.requestUrl?.encodedPath,
-        )
-        val body = JSONObject(recorded.body.readUtf8())
-        assertEquals(17L, body.getLong("expectedRevision"))
-        assertEquals("R2.pgm", body.getJSONArray("programs").getString(0))
-    }
-
-    @Test
-    fun `submitCatalogMutation encodes create action without legacy job fields`() = runBlocking {
-        server.enqueue(
-            MockResponse().setResponseCode(202).setBody(
-                """{"ok":true,"operation":{"id":"op2","kind":"catalog_create","job":"100 - Alpha","material":"19mm Pre_Finished","state":"queued","stage":"queued"}}"""
-            )
-        )
-
-        val operation = client().submitCatalogMutation(
-            ManageCodeOperationAction.catalogCreate(
-                job = "100 - Alpha",
-                material = "19mm Pre_Finished",
-                name = "New Mix",
-                programs = listOf("R1.pgm"),
-                expectedRevision = 17L,
-            )
-        )
-
-        assertEquals("op2", operation.id)
-        val recorded = server.takeRequest()
-        assertEquals("POST", recorded.method)
-        assertEquals(
-            "/jobs/100%20-%20Alpha/materials/19mm%20Pre_Finished/mixes",
-            recorded.requestUrl?.encodedPath,
-        )
-        val body = JSONObject(recorded.body.readUtf8())
-        assertEquals("New Mix", body.getString("name"))
-        assertEquals("R1.pgm", body.getJSONArray("programs").getString(0))
-        assertEquals(17L, body.getLong("expectedRevision"))
-        assertFalse(body.has("job"))
-        assertFalse(body.has("material"))
-    }
-
-    @Test
-    fun `submitCatalogMutation encodes external delete revision in query`() = runBlocking {
-        server.enqueue(
-            MockResponse().setResponseCode(202).setBody(
-                """{"ok":true,"operation":{"id":"op3","kind":"external_delete","job":"100 - Alpha","material":"19mm Pre_Finished","state":"queued","stage":"queued"}}"""
-            )
-        )
-
-        val operation = client().submitCatalogMutation(
-            ManageCodeOperationAction.externalDelete(
-                job = "100 - Alpha",
-                material = "19mm Pre_Finished",
-                externalMixFilename = "Manual Mix.mix",
-                expectedRevision = 17L,
-            )
-        )
-
-        assertEquals("op3", operation.id)
-        val recorded = server.takeRequest()
-        assertEquals("DELETE", recorded.method)
-        assertEquals(
-            "/jobs/100%20-%20Alpha/materials/19mm%20Pre_Finished/external-mixes/Manual%20Mix.mix",
-            recorded.requestUrl?.encodedPath,
-        )
-        assertEquals("17", recorded.requestUrl?.queryParameter("expectedRevision"))
-        assertEquals(0L, recorded.body.size)
-    }
-
-    @Test
-    fun `submitCatalogMutation rejects a non-202 response`() {
-        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"ok":true,"catalog":{"revision":19,"entries":[]}}"""))
-
-        assertThrows(MixOperationClientException::class.java) {
-            runBlocking {
-                client().submitCatalogMutation(
-                    ManageCodeOperationAction.catalogReplace(
-                        job = "100 - Alpha",
-                        material = "Mat",
-                        name = "Current",
-                        programs = listOf("R1.pgm"),
-                        expectedRevision = 17L,
-                    )
-                )
-            }
-        }
     }
 }

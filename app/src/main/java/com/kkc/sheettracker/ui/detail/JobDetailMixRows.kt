@@ -5,6 +5,8 @@ import com.kkc.sheettracker.data.mixservice.ViewerMixSelection
 import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.SheetStatus
 
+internal data class JobDetailMaterialEntry(val material: Material, val title: String, val mixSelection: ViewerMixSelection?)
+
 data class JobDetailMixRow(val title: String, val selection: ViewerMixSelection?, val interrupted: Boolean,
     val unmatched: Int, val error: Boolean, val needsRefresh: Boolean)
 

@@ -6,20 +6,6 @@ data class PgmInventoryItem(
     val mtime: Long = 0
 )
 
-data class MixDefinition(
-    val name: String = "",
-    val job: String = "",
-    val material: String = "",
-    val programs: List<String> = emptyList(),
-    val mixFilename: String = "",
-    val createdAt: String? = null,
-    val updatedAt: String? = null,
-    val lastCompiledAt: String? = null,
-    val lastCompileOk: Boolean? = null,
-    val lastCompileError: String? = null,
-    val status: String? = null
-)
-
 data class PgmEditRow(
     val name: String,
     val secondPass: String,
@@ -29,19 +15,6 @@ data class PgmEditRow(
 data class PgmEditBatchRequest(
     val requestId: String,
     val files: List<PgmEditRow>
-)
-
-data class PgmEditFileResult(
-    val name: String = "",
-    val status: String = "",
-    val mixFiles: List<String> = emptyList()
-)
-
-data class PgmEditBatchResponse(
-    val ok: Boolean = false,
-    val requestId: String = "",
-    val backupDir: String? = null,
-    val files: List<PgmEditFileResult> = emptyList()
 )
 
 data class PgmEditCurrentState(
@@ -76,14 +49,3 @@ data class PgmEditFileHistory(
 data class PgmEditHistoryView(
     val files: Map<String, PgmEditFileHistory> = emptyMap()
 )
-
-/** Result of reading the material-scoped catalog. Reads are safe to cache and render offline. */
-sealed class MixCatalogFetchResult {
-    data class Success(val snapshot: MixCatalogSnapshot) : MixCatalogFetchResult()
-    object NetworkError : MixCatalogFetchResult()
-}
-
-/** Read-only boundary used by [MixCatalogRepository]; it cannot submit catalog mutations. */
-interface MixCatalogReader {
-    suspend fun getMixCatalog(job: String, material: String): MixCatalogFetchResult
-}
