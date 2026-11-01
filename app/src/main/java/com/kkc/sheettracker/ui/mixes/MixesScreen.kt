@@ -79,7 +79,6 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     var revisionsKey by remember(session) { mutableStateOf<String?>(null) }
     var compareFiles by remember(session) { mutableStateOf(false) }
     var deleteRevision by remember(session) { mutableStateOf<MixFileRow?>(null) }
-    var rawRestore by remember(session) { mutableStateOf<Pair<MixFileRow, MixFileRow?>?>(null) }
     var historyRow by remember(session) { mutableStateOf<List<String>>(emptyList()) }
     var historyPgm by remember(session) { mutableStateOf<String?>(null) }
     var mismatches by remember(session) { mutableStateOf<List<FrzMismatch>?>(null) }
@@ -102,7 +101,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     val latest = catalogStates[selectedMaterial].catalogSnapshot()
     LaunchedEffect(session, latest) { latest?.let(session::onCatalog) }
     LaunchedEffect(machine) { revertSupported = "pgm-edits-revert" in api.features() }
-    fun historyPgms() = (inventory + material?.let { sheetPages(it.metadata?.pages.orEmpty()).flatMap { page -> page.pgmFiles } }.orEmpty()).distinct()
+    fun historyPgms() = canonicalPgms(inventory + material?.let { sheetPages(it.metadata?.pages.orEmpty()).flatMap { page -> page.pgmFiles } }.orEmpty())
     suspend fun retryHistory(name: String) { session.reloadHistory(historyPgms()) { service.listPgmEdits(jobFolderName, name) } }
     LaunchedEffect(session, material?.materialName) {
         val name = material?.materialName ?: return@LaunchedEffect
@@ -146,11 +145,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         if (!ui.card.let { it?.applyEnabled == true } || session.applying) return
         scope.launch {
             val result = session.saveMix(::locks) { draft ->
-                when (val write = buildWrite(draft, group, draft.completedPgms.toList(), resolutions)) {
-                    is MixWrite.Write -> api.write(jobFolderName, name, write.file, write.expectedRevision, write.entries, write.completion)
-                    is MixWrite.Frz -> api.frz(jobFolderName, name, write.file, write.expectedRevision, write.completion, write.pending)
-                    is MixWrite.Split -> api.split(jobFolderName, name, write.file, write.expectedRevision, write.entries, write.newMixes, write.completion)
-                }
+                api.submitMixWrite(jobFolderName, name, buildWrite(draft, group, draft.completedPgms.toList(), resolutions))
             }
             publish(result, name)
             if (result == null) session.mixSaveBlockedReason?.let { snackbar.showSnackbar(it) }
@@ -196,7 +191,8 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
             }
         }, secondMessage = session.secondMessage,
         recoveryEnabled = session.gate.deferredCatalog != null,
-        reapplyEnabled = session.draft?.newFile == null && session.gate.deferredCatalog?.let { c -> groupMixFiles(c).any { it.key == session.draft?.groupKey } } == true,
+        reapplyEnabled = session.reapplyEnabled,
+        mixMessage = session.recoveryMessage ?: RESTORE_PREVIEW_MESSAGE.takeIf { session.draft?.rawRestore != null },
         mixEditingEnabled = !session.applying, secondEditingEnabled = catalogWritable && !session.secondApplying && session.secondHistoryConfirmed && !session.historyLoading,
         secondDiscardEnabled = !session.secondApplying, navigationEnabled = !session.saving,
         historyRetryVisible = !session.secondHistoryConfirmed, historyLoading = session.historyLoading,
@@ -262,9 +258,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     revisionsKey?.let { key -> revisionGroups.firstOrNull { it.key == key }?.let { revisions ->
         BoxWithConstraints { RevisionsPanel(revisions, onView = {}, onRestore = { revision -> leaveMix {
             val fresh = session.catalog?.let(::groupMixFiles)?.firstOrNull { it.key == key }
-            val target = fresh?.mix
-            if (target == null || target.error != null) rawRestore = revision to target
-            else { session.stageRevision(fresh, revision, locks()); revisionsKey = null }
+            if (fresh != null && session.stageRevision(fresh, revision, locks())) revisionsKey = null
         } }, onDeleteRevision = { revision -> leaveMix { deleteRevision = revision } },
             onDismiss = { revisionsKey = null }, rail = useRail(maxWidth.value.toInt()), compare = compareFiles,
             mutationsEnabled = catalogWritable && !session.applying) }
@@ -272,20 +266,11 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     deleteRevision?.let { revision -> DeleteConfirm(revision.file, onConfirm = {
         deleteRevision = null; mutate { name -> api.deleteRevision(jobFolderName, name, revision.file, revision.revision) }
     }, onDismiss = { deleteRevision = null }, permanent = true, enabled = !session.applying) }
-    rawRestore?.let { (revision, target) -> AlertDialog(onDismissRequest = { rawRestore = null }, title = { Text("Restore mix file?") },
-        text = { Text(if (target == null) "Recover ${revision.revisionOf} exactly as saved in ${revision.file}." else "Replace unreadable ${target.file} with ${revision.file}.") },
-        confirmButton = { TextButton(onClick = {
-            rawRestore = null
-            val companion = session.catalog?.files?.firstOrNull { it.file.equals(target?.companion, true) }
-            val completion = if (companion != null) Completion(locks(), emptyMap(), companion.revision) else null
-            mutate { name -> api.restore(jobFolderName, name, revision.file, target?.file ?: requireNotNull(revision.revisionOf), target?.revision, completion) }
-        }, enabled = !session.applying && (target != null || revision.revisionOf?.endsWith(".mix", true) == true)) { Text("Restore") } },
-        dismissButton = { TextButton(onClick = { rawRestore = null }, enabled = !session.applying) { Text("Cancel") } }) }
     historyPgm?.let { pgm ->
         val record = session.history?.files?.entries?.firstOrNull { it.key.equals(pgm, true) }?.value
         val locked = locks().any { it.equals(pgm, true) }
         SecondPassHistorySheet(pgm, record?.history.orEmpty(), revertSupported && !locked && !session.secondApplying && session.secondHistoryConfirmed &&
-            session.secondPass?.current?.get(pgm)?.let { it.secondPass || it.removePUnload } == true,
+            session.secondPass?.current?.pgmValue(pgm)?.let { it.secondPass || it.removePUnload } == true,
             onRevert = { SecondPassField.entries.forEach { session.updateSecond(listOf(pgm), it, false, locks()) }; historyPgm = null },
             onDismiss = { historyPgm = null }, current = record?.current, revertSupported = revertSupported,
             pgms = historyRow, onSelect = { historyPgm = it })
@@ -347,7 +332,7 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
     onDiscard: () -> Unit, onApply: () -> Unit, onRefresh: () -> Unit, onLoadTheirs: () -> Unit, onReapply: () -> Unit,
     onDragStart: () -> Unit, onDrop: (List<Pair<RowModel, RowModel>>) -> Unit, onAdd: (SheetPage) -> Unit,
     onSecondPass: (List<String>, SecondPassField, Boolean) -> Unit, onSecondDiscard: () -> Unit, onSecondApply: () -> Unit,
-    secondMessage: String?, onRowAction: ((RowModel, MixRowAction) -> Unit)? = null,
+    secondMessage: String?, mixMessage: String? = null, onRowAction: ((RowModel, MixRowAction) -> Unit)? = null,
     onCardAction: ((MixCardAction) -> Unit)? = null, recoveryEnabled: Boolean = true, reapplyEnabled: Boolean = true,
     mixEditingEnabled: Boolean = true, secondEditingEnabled: Boolean = true, secondDiscardEnabled: Boolean = true,
     navigationEnabled: Boolean = true, historyRetryVisible: Boolean = false, historyLoading: Boolean = false,
@@ -420,6 +405,7 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
                                 }
                             }
                         }
+                        mixMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                         ui.card?.let { card ->
                             GroupCard {
                                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -474,7 +460,7 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
                                 TextButton(onClick = onSplitCancel, enabled = mixEditingEnabled) { Text("Cancel split") }
                             }
                             Box(Modifier.weight(1f).fillMaxWidth().kkcCardDepth(RoundedCornerShape(12.dp), elevation = 2.dp).background(MaterialTheme.colorScheme.surface)) {
-                                MixesSheetList(groups, secondPass, revertSupported, !ui.readOnly && mixEditingEnabled && ui.banner != Banner.ChangedOnCnc,
+                                MixesSheetList(groups, secondPass, revertSupported, !ui.readOnly && !ui.restorePreview && mixEditingEnabled && ui.banner != Banner.ChangedOnCnc,
                                     pdf, onDragStart, onDrop, onAdd, onSecondPass, onRowAction, Modifier.fillMaxSize(),
                                     secondPassEnabled = secondEditingEnabled,
                                     splitMode = splitMode, splitIds = splitIds, onSplitSelection = onSplitSelection)

@@ -104,7 +104,7 @@ class MixesPresentationTest {
             val c = if (interrupted) pair(entries, entries) else catalog(row(entries = entries))
             val draft = MixDrafts.splitOff(MixDrafts.start(group(c)), setOf(1, 2, 3), "Other.mix")
             val pages = listOf(page(1, "AzA.pgm", "AzZ.pgm"), page(2))
-            val second = SecondPassDrafts.setAll(SecondPassDrafts.from(null, listOf("P2.pgm")), listOf("P2.pgm"), SecondPassField.SECOND, true)
+            val second = SecondPassDrafts.setAll(SecondPassDrafts.from(com.kkc.sheettracker.data.mixservice.PgmEditHistoryView(ok = true, stateSource = "ledger"), listOf("P2.pgm")), listOf("P2.pgm"), SecondPassField.SECOND, true)
             for (status in listOf(SheetStatus.COMPLETE, SheetStatus.HAS_BAD_PARTS, SheetStatus.RE_NESTED)) {
                 val ui = buildMixesUi(input(material(c, pages, mapOf(1 to status)), draft).copy(secondPassDraft = second))
                 assertFalse("$status must block a $interrupted split", ui.card!!.applyEnabled)

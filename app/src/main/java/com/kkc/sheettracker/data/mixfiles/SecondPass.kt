@@ -9,11 +9,17 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import java.util.Locale
 
 data class SecondPassState(val secondPass: Boolean, val superPass: Boolean, val removePUnload: Boolean)
 
+/** PGM identity only: paths and parameter values remain opaque. First spelling wins. */
+fun pgmIdentity(name: String): String = name.lowercase(Locale.ROOT)
+fun canonicalPgms(names: Collection<String>): List<String> = names.distinctBy(::pgmIdentity)
+fun <T> Map<String, T>.pgmValue(name: String): T? = entries.firstOrNull { it.key.equals(name, true) }?.value
+
 data class SecondPassDraft(val wanted: Map<String, SecondPassState>, val current: Map<String, SecondPassState>) {
-    val changeCount: Int get() = wanted.count { (pgm, state) -> state.normalized() != current[pgm]?.normalized() }
+    val changeCount: Int get() = wanted.entries.distinctBy { pgmIdentity(it.key) }.count { (pgm, state) -> state.normalized() != current.pgmValue(pgm)?.normalized() }
 }
 
 enum class SecondPassField { PUNLOAD, SECOND, SUPER }
@@ -29,22 +35,23 @@ private fun SecondPassState.normalized() = if (superPass) copy(secondPass = true
 
 object SecondPassDrafts {
     fun from(history: PgmEditHistoryView?, pgms: List<String>): SecondPassDraft {
-        val current = pgms.associateWith { pgm ->
-            val state = history?.files?.get(pgm)?.current
+        require(history?.canEdit == true) { "Second-pass history is uncertain" }
+        val current = canonicalPgms(pgms).associateWith { pgm ->
+            val state = history.file(pgm)?.current
             SecondPassState(state?.mode in setOf("standard", "super"), state?.mode == "super", state?.punloadRemoved == true)
         }
         return SecondPassDraft(current.toMap(), current)
     }
 
     fun set(d: SecondPassDraft, pgm: String, state: SecondPassState): SecondPassDraft {
-        if (pgm !in d.wanted) return d
-        return d.copy(wanted = d.wanted + (pgm to state.normalized()))
+        val canonical = d.wanted.keys.firstOrNull { it.equals(pgm, true) } ?: return d
+        return d.copy(wanted = d.wanted + (canonical to state.normalized()))
     }
 
     /** The caller supplies only unlocked PGMs; no other row is changed. */
     fun setAll(d: SecondPassDraft, pgms: List<String>, field: SecondPassField, on: Boolean): SecondPassDraft =
-        pgms.distinct().fold(d) { draft, pgm ->
-            val state = draft.wanted[pgm] ?: return@fold draft
+        canonicalPgms(pgms).fold(d) { draft, pgm ->
+            val state = draft.wanted.pgmValue(pgm) ?: return@fold draft
             set(draft, pgm, when (field) {
                 SecondPassField.PUNLOAD -> state.copy(removePUnload = on)
                 SecondPassField.SECOND -> state.copy(secondPass = on, superPass = on && state.superPass)
@@ -53,7 +60,7 @@ object SecondPassDrafts {
         }
 
     fun tri(d: SecondPassDraft, pgms: List<String>, field: SecondPassField): TriState {
-        val states = pgms.distinct().mapNotNull(d.wanted::get)
+        val states = canonicalPgms(pgms).mapNotNull(d.wanted::pgmValue)
         val count = states.count { state -> when (field) {
             SecondPassField.PUNLOAD -> state.removePUnload
             SecondPassField.SECOND -> state.normalized().secondPass
@@ -75,9 +82,9 @@ sealed interface SecondPassStep {
 fun planSecondPass(d: SecondPassDraft): List<SecondPassStep> {
     val reverts = mutableListOf<String>()
     val edits = mutableListOf<PgmEditRow>()
-    d.wanted.forEach { (pgm, raw) ->
+    d.wanted.entries.distinctBy { pgmIdentity(it.key) }.forEach { (pgm, raw) ->
         val wanted = raw.normalized()
-        val current = (d.current[pgm] ?: NO_EDITS).normalized()
+        val current = (d.current.pgmValue(pgm) ?: NO_EDITS).normalized()
         if (wanted == current) return@forEach
         if ((current.secondPass && !wanted.secondPass) || (current.superPass && !wanted.superPass) ||
             (current.removePUnload && !wanted.removePUnload)) reverts.add(pgm)

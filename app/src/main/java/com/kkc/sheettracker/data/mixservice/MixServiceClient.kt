@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.data.mixservice
 
 import com.google.gson.Gson
+import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -59,10 +60,28 @@ class MixServiceClient(private val baseUrl: String = com.kkc.sheettracker.data.c
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) return@use null
                     val body = response.body?.string() ?: return@use null
-                    gson.fromJson(body, PgmEditHistoryView::class.java)
+                    parseHistory(body)
                 }
             }.getOrNull()
         }
+
+    /** Wire trust cannot come from Gson's omitted-field defaults or scalar coercions. */
+    private fun parseHistory(body: String): PgmEditHistoryView? {
+        val root = JsonParser.parseString(body).takeIf { it.isJsonObject }?.asJsonObject ?: return null
+        if (root["ok"]?.let { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean } != true ||
+            root["stateSource"]?.let { it.isJsonPrimitive && it.asJsonPrimitive.isString } != true ||
+            !root.has("error") || root["error"].let { !it.isJsonNull && !(it.isJsonPrimitive && it.asJsonPrimitive.isString) } ||
+            root["files"]?.isJsonObject != true) return null
+        for ((_, value) in root["files"].asJsonObject.entrySet()) {
+            if (!value.isJsonObject) return null
+            val record = value.asJsonObject
+            if (record["history"]?.isJsonArray != true || record["current"]?.isJsonObject != true) return null
+            val current = record["current"].asJsonObject
+            if (current["mode"]?.let { it.isJsonPrimitive && it.asJsonPrimitive.isString } != true ||
+                current["punloadRemoved"]?.let { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean } != true) return null
+        }
+        return gson.fromJson(root, PgmEditHistoryView::class.java)?.takeIf { it.canEdit }
+    }
 
     override suspend fun submitPgmEdits(
         job: String,

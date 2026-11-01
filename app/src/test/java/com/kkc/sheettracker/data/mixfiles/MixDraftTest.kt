@@ -252,9 +252,11 @@ class MixDraftTest {
     @Test fun fromPlainRevisionKeepsExactDocumentsAndCurrentWriteRevision() {
         val g = group(listOf(entry("A.pgm")))
         val old = entry("Outside.pgm", 4, path = "Z:\\Old Jobs\\Outside.pgm").copy(pgmExists = false)
-        val d = MixDrafts.fromRevision(g, row("OLD2_Run.mix", listOf(old)))
+        val revision = row("OLD2_Run.mix", listOf(old))
+        val recoveryGroup = g.copy(mixRevisions = listOf(revision))
+        val d = MixDrafts.fromRevision(recoveryGroup, revision)
         assertEquals(listOf(old), d.entries.map { it.source })
-        assertEquals("base-Run.mix", (write(d, g) as MixWrite.Write).expectedRevision)
+        assertEquals("base-Run.mix", (write(d, recoveryGroup) as MixWrite.Restore).intent.expectedTargetRevision)
         assertEquals(1, d.changeCount)
     }
 

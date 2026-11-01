@@ -48,7 +48,7 @@ class MixesScreenUiTest {
         val catalog = MixFilesCatalog("J", "Maple", "r", listOf(MixFileRow("Maple.mix", MixFileKind.MIX, null, null, "r", null, false, null, null, listOf(entry))))
         runBlocking {
             session.onCatalog(catalog)
-            session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView() }
+            session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
             session.updateSecond(listOf("a.pgm"), SecondPassField.SECOND, true, emptyList())
             session.reloadHistory(listOf("a.pgm")) { null }
         }
@@ -61,7 +61,7 @@ class MixesScreenUiTest {
                 onRefresh = {}, onLoadTheirs = {}, onReapply = {}, onDragStart = {}, onDrop = {}, onAdd = {},
                 onSecondPass = { _, _, _ -> }, onSecondDiscard = {}, onSecondApply = {}, secondMessage = session.secondMessage,
                 historyRetryVisible = !session.secondHistoryConfirmed,
-                onHistoryRetry = { scope.launch { session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView() } } })
+                onHistoryRetry = { scope.launch { session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") } } })
         } }
         compose.onNodeWithText("Apply 2nd pass (1)").assertIsNotEnabled()
         compose.onNodeWithText("Retry second-pass history").performClick()
@@ -81,7 +81,7 @@ class MixesScreenUiTest {
         var draft by mutableStateOf(MixDrafts.remove(MixDrafts.start(group, listOf("a.pgm")), 2))
         var applied = 0
         var added = 0
-        val baseline = SecondPassDrafts.from(null, listOf("a.pgm", "b.pgm", "c.pgm"))
+        val baseline = SecondPassDrafts.from(com.kkc.sheettracker.data.mixservice.PgmEditHistoryView(ok = true, stateSource = "ledger"), listOf("a.pgm", "b.pgm", "c.pgm"))
         val completedState = SecondPassState(true, false, false)
         val appliedHistory = baseline.copy(wanted = baseline.wanted + ("a.pgm" to completedState),
             current = baseline.current + ("a.pgm" to completedState))

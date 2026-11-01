@@ -22,6 +22,10 @@ data class DraftEntry(
     val parameters: LinkedHashMap<String, String>?,
 )
 
+data class RawMixRestore(val revisionFile: String, val sourceRevision: String, val targetFile: String, val expectedTargetRevision: String?)
+
+const val RESTORE_PREVIEW_MESSAGE = "Revision restore staged. Apply before making additional mix edits."
+
 data class MixDraft(
     val groupKey: String,
     val baseMixRevision: String?,
@@ -33,6 +37,7 @@ data class MixDraft(
     // Completion comes from tablet sheet statuses, never from FRZ remaining counts.
     val completedPgms: Set<String> = emptySet(),
     val baselineEntries: List<DraftEntry> = entries,
+    val rawRestore: RawMixRestore? = null,
     val nextEntryId: Long = (entries.maxOfOrNull { it.id } ?: 0L) + 1,
 ) {
     val isInterrupted: Boolean get() = baseFrzRevision != null
@@ -62,6 +67,7 @@ object MixDrafts {
     }
 
     fun move(d: MixDraft, fromId: Long, toIndex: Int): MixDraft {
+        if (d.rawRestore != null) return d
         val entry = d.entries.find { it.id == fromId } ?: return d
         if (d.locked(entry)) return d
         // Keep completed rows in their slots even when an unlocked row crosses them.
@@ -75,18 +81,21 @@ object MixDrafts {
     }
 
     fun add(d: MixDraft, pgm: String): MixDraft {
+        if (d.rawRestore != null) return d
         if (pgm.key() in d.completedPgms) return d
         val entry = DraftEntry(d.nextEntryId, null, pgm, 1, if (d.isInterrupted) 1 else null, null)
         return changed(d, d.entries + entry).copy(nextEntryId = d.nextEntryId + 1)
     }
 
     fun remove(d: MixDraft, id: Long): MixDraft {
+        if (d.rawRestore != null) return d
         val entry = d.entries.find { it.id == id } ?: return d
         if (d.isInterrupted && d.locked(entry)) return d
         return changed(d, d.entries.filterNot { it.id == id })
     }
 
     fun setQuantity(d: MixDraft, id: Long, quantity: Int, remaining: Int?): MixDraft {
+        if (d.rawRestore != null) return d
         val entry = d.entries.find { it.id == id } ?: return d
         if (d.locked(entry)) return d
         require(entry.source != null) { "Apply the new sheet before editing its quantity or parameters" }
@@ -108,6 +117,7 @@ object MixDrafts {
     }
 
     fun setParameters(d: MixDraft, id: Long, parameters: LinkedHashMap<String, String>): MixDraft {
+        if (d.rawRestore != null) return d
         require(!d.isInterrupted) { "Parameters cannot be edited on an FRZ" }
         val entry = d.entries.find { it.id == id } ?: return d
         if (d.locked(entry)) return d
@@ -120,6 +130,7 @@ object MixDrafts {
     }
 
     fun splitOff(d: MixDraft, ids: Set<Long>, newFile: String): MixDraft {
+        if (d.rawRestore != null) return d
         val selected = d.entries.filter { it.id in ids }
         if (selected.isEmpty() || selected.any { d.locked(it) }) return d
         require(!d.isInterrupted || d.baseMixRevision != null) { "FRZ-only split is unsupported by the mix-files service" }
@@ -132,11 +143,16 @@ object MixDrafts {
         require(!revision.file.endsWith(".frz", true) && revision.revisionOf?.endsWith(".frz", true) != true) {
             "FRZ revisions are view-only"
         }
-        val d = start(group, completedPgms)
+        require(revision.error == null) { "The revision must be readable" }
         if (!group.isInterrupted) {
-            val entries = revision.entries.mapIndexed { index, entry -> entry.toDraft(d.nextEntryId + index) }
-            return changed(d, entries).copy(nextEntryId = d.nextEntryId + entries.size)
+            require(group.mix?.companion == null) { "Refresh the interrupted pair before restoring" }
+            val entries = revision.entries.mapIndexed { index, entry -> entry.toDraft(index + 1L) }
+            val target = group.mix?.file ?: requireNotNull(revision.revisionOf)
+            return MixDraft(group.key, group.mix?.revision, null, entries, null, emptyList(), 1,
+                completedPgms.map { it.key() }.toSet(), rawRestore = RawMixRestore(revision.file, revision.revision, target, group.mix?.revision))
         }
+        require(group.errorFile == null) { "Refresh or recover the interrupted pair before restoring" }
+        val d = start(group, completedPgms)
         val pending = d.entries.filterNot { d.locked(it) }.toMutableList()
         val ordered = revision.entries.mapNotNull { old ->
             val index = pending.indexOfFirst { it.pgm().equals(old.pgm, true) }
@@ -145,9 +161,17 @@ object MixDrafts {
         return changed(d, d.entries.filter { d.locked(it) } + ordered + pending)
     }
 
+    fun canReapply(d: MixDraft, fresh: MixGroup?): Boolean = fresh != null &&
+        (fresh.mix != null || fresh.frz != null) && fresh.errorFile == null && d.newFile == null &&
+        (d.rawRestore == null || (!fresh.isInterrupted && fresh.mix?.companion == null &&
+            fresh.mixRevisions.any { it.file == d.rawRestore.revisionFile && it.revision == d.rawRestore.sourceRevision && it.error == null }))
+
     /** Reapply deltas by source occurrence, retaining fresh values the user did not edit. */
     fun rebase(d: MixDraft, fresh: MixGroup, completedPgms: List<String> = d.completedPgms.toList()): RebaseResult {
         require(d.newFile == null) { "A new mix has no existing revision to rebase" }
+        require(canReapply(d, fresh)) { "Load theirs and use revision recovery for this unavailable target" }
+        if (d.rawRestore != null) return RebaseResult(d.copy(baseMixRevision = fresh.mix!!.revision,
+            rawRestore = d.rawRestore.copy(expectedTargetRevision = fresh.mix.revision)), emptyList())
         val current = start(fresh, completedPgms)
         val matches = matchOccurrences(d.baselineEntries, current.entries)
         var nextId = d.nextEntryId
@@ -246,6 +270,7 @@ object MixDrafts {
 }
 
 sealed interface MixWrite {
+    data class Restore(val intent: RawMixRestore) : MixWrite
     data class Write(val file: String, val expectedRevision: String?, val entries: List<EntrySpec>, val completion: Completion?) : MixWrite
     data class Frz(val file: String, val expectedRevision: String, val completion: Completion, val pending: List<EntrySpec>) : MixWrite
     data class Split(val file: String, val expectedRevision: String, val entries: List<EntrySpec>, val newMixes: List<NewMix>, val completion: Completion?) : MixWrite
@@ -255,6 +280,12 @@ fun buildWrite(d: MixDraft, group: MixGroup?, completedPgms: List<String>, resol
     if (d.newFile != null) return MixWrite.Write(d.newFile, null, d.entries.map { it.fullSpec() }, null)
     requireNotNull(group) { "An existing draft requires its mix group" }
     require(group.key == d.groupKey) { "Draft belongs to a different mix group" }
+    d.rawRestore?.let { intent ->
+        require(!group.isInterrupted && group.mix?.companion == null) { "The restore target is now interrupted" }
+        require(group.mix?.revision == intent.expectedTargetRevision) { "The restore target changed" }
+        require(group.mixRevisions.any { it.file == intent.revisionFile && it.revision == intent.sourceRevision && it.error == null }) { "The source revision changed" }
+        return MixWrite.Restore(intent)
+    }
     val locks = completedPgms.map { it.key() }.toSet()
     val choices = resolutions.mapKeys { it.key.key() }
     fun locked(entry: DraftEntry): Boolean = if (choices[entry.pgm().key()] == "frz") entry.source?.remaining == 0 else entry.pgm().key() in locks
@@ -294,3 +325,11 @@ private fun DraftEntry.fullSpec(includeCounts: Boolean = false): EntrySpec = sou
 
 // IDs identify occurrences for editing; they are not part of the saved document.
 private fun DraftEntry.content(): List<Any?> = listOf(source?.path, source?.pgm, newPgm, quantity, remaining, parameters, source?.fields)
+
+/** One mutation dispatch for the immutable request built at Apply. */
+suspend fun MixFilesApi.submitMixWrite(job: String, material: String, request: MixWrite): MixFilesResult<MixFilesCatalog> = when (request) {
+    is MixWrite.Restore -> request.intent.let { restore(job, material, it.revisionFile, it.targetFile, it.expectedTargetRevision) }
+    is MixWrite.Write -> write(job, material, request.file, request.expectedRevision, request.entries, request.completion)
+    is MixWrite.Frz -> frz(job, material, request.file, request.expectedRevision, request.completion, request.pending)
+    is MixWrite.Split -> split(job, material, request.file, request.expectedRevision, request.entries, request.newMixes, request.completion)
+}

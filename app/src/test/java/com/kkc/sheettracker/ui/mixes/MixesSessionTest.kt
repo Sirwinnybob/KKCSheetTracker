@@ -23,7 +23,7 @@ class MixesSessionTest {
             val catalog = catalog("split").copy(files = if (interrupted) listOf(mix, frz) else listOf(mix))
             session.onCatalog(catalog)
             val group = group(catalog)
-            session.reloadHistory(listOf("other.pgm")) { PgmEditHistoryView() }
+            session.reloadHistory(listOf("other.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
             session.updateSecond(listOf("other.pgm"), SecondPassField.SECOND, true, emptyList())
             session.edit(group, emptyList()) { MixDrafts.splitOff(it, setOf(1, 2, 3), "Other.mix") }
             val beforeMix = session.draft
@@ -68,7 +68,7 @@ class MixesSessionTest {
     }
     @Test fun tabAndNewDiscardOnlyMixAndKeepMaterialSecondPassDraft() = runTest {
         val session = session()
-        session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView() }
+        session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
         session.updateSecond(listOf("a.pgm"), SecondPassField.SECOND, true, emptyList())
         session.edit(group(session.catalog!!), emptyList()) { MixDrafts.add(it, "draft.pgm") }
         val wanted = session.secondPass
@@ -89,7 +89,7 @@ class MixesSessionTest {
     }
     @Test fun namingNewDraftKeepsEntriesAndSecondPassAndDoesNotNeedRemoteRename() = runTest {
         val session = session()
-        session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView() }
+        session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
         session.updateSecond(listOf("a.pgm"), SecondPassField.SECOND, true, emptyList())
         session.startNew("Maple", pages("new.pgm"), emptyList())
         val before = session.draft!!
@@ -118,7 +118,7 @@ class MixesSessionTest {
     }
     @Test fun suspendedMixSaveFreezesOnlyMixDraftAndDiscard() = runTest {
         val session = session()
-        session.reloadHistory(listOf("a.pgm", "b.pgm")) { PgmEditHistoryView() }
+        session.reloadHistory(listOf("a.pgm", "b.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
         session.edit(group(session.catalog!!), emptyList()) { MixDrafts.add(it, "b.pgm") }
         val submitted = session.draft
         val response = CompletableDeferred<MixFilesResult<MixFilesCatalog>>()
@@ -137,10 +137,13 @@ class MixesSessionTest {
     }
     @Test fun suspendedSecondSaveFreezesSecondDraftButMixRemainsEditable() = runTest {
         val session = session()
-        session.reloadHistory(listOf("a.pgm", "b.pgm")) { PgmEditHistoryView() }
+        session.reloadHistory(listOf("a.pgm", "b.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
         session.updateSecond(listOf("b.pgm"), SecondPassField.SECOND, true, emptyList())
         val response = CompletableDeferred<SecondPassOutcome>()
-        val save = launch { session.saveSecond({ emptyList() }, { response.await() }, { PgmEditHistoryView() }) }
+        val save = launch { session.saveSecond({ emptyList() }, { response.await() }, {
+            com.kkc.sheettracker.data.mixservice.PgmEditHistoryView(mapOf("b.pgm" to
+                com.kkc.sheettracker.data.mixservice.PgmEditFileHistory(com.kkc.sheettracker.data.mixservice.PgmEditCurrentState("standard", false), stateSource = "ledger")), ok = true, stateSource = "ledger")
+        }) }
         runCurrent()
         session.updateSecond(listOf("a.pgm"), SecondPassField.SUPER, true, emptyList())
         assertFalse(session.discardSecond())
@@ -170,33 +173,33 @@ class MixesSessionTest {
     }
     @Test fun completionChangingAfterStagingDropsBothAzNamesBeforeAnySubmission() = runTest {
         val session = session()
-        session.reloadHistory(listOf("pA.pgm", "pZ.pgm", "other.pgm")) { PgmEditHistoryView() }
+        session.reloadHistory(listOf("pA.pgm", "pZ.pgm", "other.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
         session.updateSecond(listOf("pA.pgm", "pZ.pgm"), SecondPassField.SECOND, true, emptyList())
         var attempts = 0
-        session.saveSecond({ listOf("PA.PGM", "pz.pgm") }, { attempts++; SecondPassOutcome.Done }, { PgmEditHistoryView() })
+        session.saveSecond({ listOf("PA.PGM", "pz.pgm") }, { attempts++; SecondPassOutcome.Done }, { PgmEditHistoryView(ok = true, stateSource = "ledger") })
         assertEquals(0, attempts)
         assertEquals(0, session.secondPass!!.changeCount)
         session.updateSecond(listOf("pA.pgm", "pZ.pgm", "other.pgm"), SecondPassField.SECOND, true, emptyList())
         session.saveSecond({ listOf("pA.pgm", "pZ.pgm") }, { submitted ->
             assertEquals(listOf("other.pgm"), planSecondPass(submitted).filterIsInstance<SecondPassStep.Edit>().flatMap { it.rows }.map { it.name })
             attempts++; SecondPassOutcome.Done
-        }, { PgmEditHistoryView() })
+        }, { PgmEditHistoryView(ok = true, stateSource = "ledger") })
         assertEquals(1, attempts)
     }
     @Test fun failedHistoryRetryKeepsWantedEditsAndOnlyConfirmedRecoveryAllowsApply() = runTest {
         val session = session()
-        session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView() }
+        session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
         session.updateSecond(listOf("a.pgm"), SecondPassField.SECOND, true, emptyList())
         session.reloadHistory(listOf("a.pgm")) { null }
         assertFalse(session.secondHistoryConfirmed)
         assertEquals(1, session.secondPass!!.changeCount)
         var attempts = 0
-        session.saveSecond({ emptyList() }, { attempts++; SecondPassOutcome.Done }, { PgmEditHistoryView() })
+        session.saveSecond({ emptyList() }, { attempts++; SecondPassOutcome.Done }, { PgmEditHistoryView(ok = true, stateSource = "ledger") })
         assertEquals(0, attempts)
-        session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView() }
+        session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
         assertTrue(session.secondHistoryConfirmed)
         assertEquals(1, session.secondPass!!.changeCount)
-        assertNull(session.secondMessage)
+        assertEquals(MixesSession.NO_RECORDED_STATE, session.secondMessage)
     }
     private fun session() = MixesSession().also { it.onCatalog(catalog("base")) }
     private fun group(c: MixFilesCatalog) = groupMixFiles(c).single()

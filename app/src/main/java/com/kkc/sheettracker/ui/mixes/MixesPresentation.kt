@@ -66,6 +66,7 @@ data class MixesUiModel(
     val refreshNow: Boolean,
     val secondPassApplyEnabled: Boolean,
     val machineStatus: MachineStatus,
+    val restorePreview: Boolean = false,
 )
 
 data class MaterialMixesInput(
@@ -127,7 +128,7 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
     val outdated = selected?.catalogState is CatalogState.Outdated || input.applyResult is MixFilesResult.ServiceOutdated
     val offline = selected?.catalogState is CatalogState.Offline
     val unavailable = selected == null || selected.catalogState is CatalogState.Loading
-    val readOnly = outdated || offline || unavailable || group?.errorFile != null
+    val readOnly = outdated || offline || unavailable || (group?.errorFile != null && draft?.rawRestore == null)
     val changed = input.conflict || error?.code == "revision_conflict" || (draft != null && (
         (input.draftFolderRevision != null && catalog?.folderRevision != input.draftFolderRevision) ||
             (draft.newFile == null && (draft.baseMixRevision != group?.mix?.revision || draft.baseFrzRevision != group?.frz?.revision))
@@ -144,7 +145,7 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
         else -> null
     }
     val rows = if (selected != null && (group != null || draft != null)) {
-        buildSheetGroups(selected, group, active, draft, readOnly || input.applying)
+        buildSheetGroups(selected, group, active, draft, readOnly || input.applying || draft?.rawRestore != null)
     } else null
     val splitBlock = splitCompletionBlockReason(draft, selected?.let { material ->
         material.pages.filter { isLockedStatus(material.statusOf(it.pageNumber)) }.flatMap { it.pgmFiles }
@@ -155,7 +156,7 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
         val block = when {
             outdated -> "The CNC mix service needs updating"
             offline || unavailable -> "Connect to the CNC before saving"
-            group?.errorFile != null -> "Restore a revision or delete this unreadable mix"
+            group?.errorFile != null && draft?.rawRestore == null -> "Restore a revision or delete this unreadable mix"
             changed -> "This mix changed on the CNC"
             unconfirmed -> "Refresh to confirm whether the CNC saved this mix"
             input.applying -> "Saving changes"
@@ -167,7 +168,7 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
             if (total == 0) 0f else it.completed.size.toFloat() / total,
             "${it.completed.size} of $total cut · ${total - it.completed.size} remaining",
             draft != null && count > 0 && block == null,
-            "Apply $count ${if (count == 1) "change" else "changes"}", block,
+            if (draft?.rawRestore != null) "Apply restore" else "Apply $count ${if (count == 1) "change" else "changes"}", block,
             draft != null, it.remaining.any { row -> row.canSplit } || it.unmatched.any { row -> row.canSplit },
         )
     }
@@ -177,7 +178,7 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
     return MixesUiModel(input.materials.map { material ->
         MaterialNavItem(material.material.materialName, material.machine.id, navChip(material), material == selected)
     }, tabs, tab, card, rows, "Apply 2nd pass ($secondCount)".takeIf { secondCount > 0 }, banner, readOnly,
-        unconfirmed, secondEnabled, input.machineStatus)
+        unconfirmed, secondEnabled, input.machineStatus, draft?.rawRestore != null)
 }
 
 private fun CatalogState.catalog(): MixFilesCatalog? = when (this) {

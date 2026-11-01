@@ -22,7 +22,7 @@ class SecondPassTest {
 
     @Test fun draftReadsCurrentFromHistory() {
         val d = SecondPassDrafts.from(PgmEditHistoryView(mapOf("opaque +.pgm" to
-            PgmEditFileHistory(PgmEditCurrentState("super", true)))), listOf("opaque +.pgm", "new.pgm"))
+            PgmEditFileHistory(PgmEditCurrentState("super", true), stateSource = "ledger")), ok = true, stateSource = "ledger"), listOf("opaque +.pgm", "new.pgm"))
         assertEquals(SecondPassState(true, true, true), d.current["opaque +.pgm"])
         assertEquals(none, d.current["new.pgm"])
         assertEquals(d.current, d.wanted)
@@ -58,7 +58,7 @@ class SecondPassTest {
     }
 
     @Test fun setAllSkipsPgmsNotPassed() {
-        val d = SecondPassDrafts.from(null, listOf("unlocked.pgm", "locked.pgm"))
+        val d = SecondPassDrafts.from(com.kkc.sheettracker.data.mixservice.PgmEditHistoryView(ok = true, stateSource = "ledger"), listOf("unlocked.pgm", "locked.pgm"))
         val on = SecondPassDrafts.setAll(d, listOf("unlocked.pgm"), SecondPassField.SUPER, true)
         assertEquals(superState, on.wanted["unlocked.pgm"])
         assertEquals(none, on.wanted["locked.pgm"])
@@ -67,7 +67,7 @@ class SecondPassTest {
     }
 
     @Test fun triStateCountsPartial() {
-        val d = SecondPassDrafts.set(SecondPassDrafts.from(null, listOf("a", "b", "c")), "a", standard)
+        val d = SecondPassDrafts.set(SecondPassDrafts.from(com.kkc.sheettracker.data.mixservice.PgmEditHistoryView(ok = true, stateSource = "ledger"), listOf("a", "b", "c")), "a", standard)
         assertEquals(TriState.PARTIAL(1), SecondPassDrafts.tri(d, listOf("a", "b", "c"), SecondPassField.SECOND))
         assertEquals(TriState.ON, SecondPassDrafts.tri(d, listOf("a"), SecondPassField.SECOND))
         assertEquals(TriState.OFF, SecondPassDrafts.tri(d, listOf("b", "c"), SecondPassField.SECOND))
@@ -158,7 +158,7 @@ class SecondPassTest {
     @Test fun realHistoryDecoderPopulatesTypedEventsAndBeforeFinalStates() = runTest {
         val server = MockWebServer(); server.start()
         try {
-            server.enqueue(MockResponse().setBody("""{"ok":true,"files":{"opaque +.pgm":{"current":{"mode":"standard","punloadRemoved":true},"history":[{"eventId":"r:1","requestId":"r","at":"2026-10-30T08:00:00","actor":"cnc","action":"edit_reverted","requestedMode":"standard","punloadRequested":true,"before":{"mode":"super","punloadRemoved":true},"final":{"mode":"standard","punloadRemoved":true},"result":{"mode":"standard","punloadRemoved":true},"backup":"BACKUP_new/opaque +.pgm","restoredFrom":"BACKUP_first/opaque +.pgm","mixFiles":["opaque +.mix"]}]}}}"""))
+            server.enqueue(MockResponse().setBody("""{"ok":true,"stateSource":"ledger","error":null,"files":{"opaque +.pgm":{"stateSource":"ledger","current":{"mode":"standard","punloadRemoved":true},"history":[{"eventId":"r:1","requestId":"r","at":"2026-10-30T08:00:00","actor":"cnc","action":"edit_reverted","requestedMode":"standard","punloadRequested":true,"before":{"mode":"super","punloadRemoved":true},"final":{"mode":"standard","punloadRemoved":true},"result":{"mode":"standard","punloadRemoved":true},"backup":"BACKUP_new/opaque +.pgm","restoredFrom":"BACKUP_first/opaque +.pgm","mixFiles":["opaque +.mix"]}]}}}"""))
             val view = MixServiceClient(server.url("/").toString()).listPgmEdits("J", "M")!!
             val event: PgmEditHistoryEvent = view.files.getValue("opaque +.pgm").history.single()
             assertEquals("r:1", event.eventId); assertEquals("r", event.requestId)

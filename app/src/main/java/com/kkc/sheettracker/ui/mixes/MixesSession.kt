@@ -23,9 +23,14 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
     var secondHistoryConfirmed by mutableStateOf(false); private set
     var historyLoading by mutableStateOf(false); private set
     var secondMessage by mutableStateOf<String?>(null)
+    // Once submitted, bootstrap permission cannot stand in for read-back verification, even on Retry.
+    private var pendingHistoryVerification: Set<String> = emptySet()
     var history by mutableStateOf<PgmEditHistoryView?>(null); private set
     var rebaseMessage by mutableStateOf<String?>(null); private set
     var mixSaveBlockedReason by mutableStateOf<String?>(null); private set
+    val reapplyEnabled get() = !applying && draft?.let { MixDrafts.canReapply(it, reapplyGroup()) } == true
+    private fun reapplyGroup() = gate.deferredCatalog?.let(::groupMixFiles)?.firstOrNull { it.key == draft?.groupKey }
+    val recoveryMessage get() = if (conflict && !reapplyEnabled) "This target is unavailable for Re-apply. Load theirs, then use revision recovery; your draft is kept until you discard it." else null
     val dirty get() = draft != null || (secondPass?.changeCount ?: 0) > 0
     val saving get() = applying || secondApplying
 
@@ -37,7 +42,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
         }
     }
     fun edit(group: MixGroup?, locked: List<String>, change: (MixDraft) -> MixDraft) {
-        if (applying) return
+        if (applying || draft?.rawRestore != null) return
         val initial = draft ?: group?.let { MixDrafts.start(it, locked) } ?: return
         if (draft == null) draftFolderRevision = catalog?.folderRevision
         draft = change(initial.copy(completedPgms = locked.map(::key).toSet()))
@@ -45,7 +50,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
         savedInterrupted = false
         if (applyResult !is MixFilesResult.Offline) applyResult = null
     }
-    fun beginDrag() { if (!applying) dragging = true }
+    fun beginDrag() { if (!applying && draft?.rawRestore == null) dragging = true }
     fun drop(group: MixGroup?, locked: List<String>, moves: List<Pair<RowModel, RowModel>>) {
         if (moves.isNotEmpty()) edit(group, locked) { initial -> moves.fold(initial) { d, (from, to) -> moveRowBlock(d, from.draftEntryIds, to.draftEntryIds) } }
         dragging = false
@@ -79,8 +84,13 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
     }
     suspend fun saveMix(locked: () -> List<String> = { draft?.completedPgms.orEmpty().toList() },
         submit: suspend (MixDraft) -> MixFilesResult<MixFilesCatalog>): MixFilesResult<MixFilesCatalog>? {
-        if (applying) return null
+        if (applying || conflict) return null
         val current = draft ?: return null
+        if (current.rawRestore != null) {
+            val group = catalog?.let(::groupMixFiles)?.firstOrNull { it.key == current.groupKey }
+            val valid = runCatching { buildWrite(current, group, emptyList(), emptyMap()) }.isSuccess
+            if (!valid) { mixSaveBlockedReason = "Restore target or revision changed. Load theirs and choose a revision again."; return null }
+        }
         // Read once at the actual submission boundary, before any suspension or request construction.
         // The same snapshot validates split membership and supplies buildWrite's completion.
         val completion = locked()
@@ -91,6 +101,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
         return try {
             val result = submit(submitted)
             applyResult = result
+            if (result is MixFilesResult.Rejected && result.error.code == "revision_conflict") conflict = true
             if (result is MixFilesResult.Ok) {
                 gate.accept(result.value); catalog = result.value
                 savedInterrupted = submitted.isInterrupted; draft = null; draftFolderRevision = null; conflict = false
@@ -98,11 +109,17 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
             result
         } finally { applying = false }
     }
-    fun stageRevision(group: MixGroup, revision: MixFileRow, locked: List<String>) {
-        if (applying) return
-        draft = MixDrafts.fromRevision(group, revision, locked)
+    fun stageRevision(group: MixGroup, revision: MixFileRow, locked: List<String>): Boolean {
+        if (applying) return false
+        val preview = try { MixDrafts.fromRevision(group, revision, locked) }
+        catch (failure: IllegalArgumentException) {
+            rebaseMessage = failure.message ?: "Refresh and choose a readable revision."
+            return false
+        }
+        draft = preview
         draftFolderRevision = catalog?.folderRevision
         selectedTab = group.key; conflict = false; applyResult = null; savedInterrupted = false
+        return true
     }
     fun renameNew(file: String) {
         if (applying) return
@@ -129,8 +146,12 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
         if (applying) return
         val fresh = gate.deferredCatalog ?: return
         val d = draft?.takeIf { it.newFile == null } ?: return
-        val group = groupMixFiles(fresh).firstOrNull { it.key == d.groupKey } ?: return
-        val rebased = MixDrafts.rebase(d, group, locked)
+        val group = groupMixFiles(fresh).firstOrNull { it.key == d.groupKey }
+        if (!MixDrafts.canReapply(d, group)) {
+            rebaseMessage = "This target is unavailable for Re-apply. Load theirs, then use revision recovery."
+            return
+        }
+        val rebased = MixDrafts.rebase(d, requireNotNull(group), locked)
         draft = rebased.draft; draftFolderRevision = fresh.folderRevision
         gate.accept(fresh); catalog = fresh; conflict = false; applyResult = null
         rebaseMessage = rebased.dropped.takeIf { it.isNotEmpty() }?.let { "No longer on CNC: ${it.joinToString()}" }
@@ -147,11 +168,14 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
         secondHistoryConfirmed = false
         try {
             val history = load()
-            secondHistoryConfirmed = history != null
-            if (history != null) {
+            val previouslyRecorded = this.history?.files?.keys.orEmpty()
+            val required = previouslyRecorded + pendingHistoryVerification
+            secondHistoryConfirmed = history?.canEdit == true && (required.isEmpty() || history.records(required))
+            if (secondHistoryConfirmed && history != null) {
                 this.history = history
+                pendingHistoryVerification = emptySet()
                 secondPass = mergeWanted(SecondPassDrafts.from(history, pgms), secondPass)
-                secondMessage = null
+                secondMessage = if (!history.records(pgms)) NO_RECORDED_STATE else null
             } else secondMessage = HISTORY_FAILURE
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { secondMessage = HISTORY_FAILURE }
@@ -163,34 +187,40 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
         val current = secondPass ?: return
         val locks = locked().map(::key).toSet()
         val submitted = current.copy(wanted = current.wanted.mapValues { (pgm, wanted) ->
-            if (key(pgm) in locks) current.current[pgm] ?: wanted else wanted
+            if (key(pgm) in locks) current.current.pgmValue(pgm) ?: wanted else wanted
         })
         secondPass = submitted
         if (submitted.changeCount == 0) return // Nothing unlocked remains: never call the runner.
         secondApplying = true
+        secondHistoryConfirmed = false
+        pendingHistoryVerification = submitted.wanted.filter { (pgm, state) -> state != submitted.current.pgmValue(pgm) }.keys
         try {
             val outcome = submit(submitted)
             val history = load()
-            secondHistoryConfirmed = history != null
-            if (history != null) {
+            secondHistoryConfirmed = history?.records(pendingHistoryVerification) == true
+            if (secondHistoryConfirmed && history != null) {
                 this.history = history
+                pendingHistoryVerification = emptySet()
                 val fresh = SecondPassDrafts.from(history, submitted.wanted.keys.toList())
                 secondPass = if (outcome == SecondPassOutcome.Done) fresh else mergeWanted(fresh, submitted)
             }
             secondMessage = when (outcome) {
-                SecondPassOutcome.Done -> if (history != null) "Second-pass changes applied" else "Changes submitted. $HISTORY_FAILURE"
-                is SecondPassOutcome.Failed -> outcome.message
+                SecondPassOutcome.Done -> if (secondHistoryConfirmed) "Second-pass changes applied" else "Changes submitted. $HISTORY_FAILURE"
+                is SecondPassOutcome.Failed -> outcome.message + if (!secondHistoryConfirmed) " $HISTORY_FAILURE" else ""
             }
-        } catch (cancelled: CancellationException) { throw cancelled }
+        } catch (cancelled: CancellationException) { secondMessage = HISTORY_FAILURE; throw cancelled }
         catch (_: Exception) { secondHistoryConfirmed = false; secondMessage = "Couldn't confirm second-pass changes. Reload history before applying again." }
         finally { secondApplying = false }
     }
     private fun mergeWanted(fresh: SecondPassDraft, old: SecondPassDraft?): SecondPassDraft {
-        val deltas = old?.wanted.orEmpty().filter { (pgm, state) -> state != old?.current?.get(pgm) && pgm in fresh.wanted }
-        return fresh.copy(wanted = fresh.wanted + deltas)
+        val deltas = old?.wanted.orEmpty().filter { (pgm, state) -> state != old?.current?.pgmValue(pgm) }
+        return deltas.entries.fold(fresh) { draft, (pgm, wanted) -> SecondPassDrafts.set(draft, pgm, wanted) }
     }
     private fun key(value: String) = value.lowercase(Locale.ROOT)
-    companion object { const val HISTORY_FAILURE = "Couldn't load second-pass history. Retry before editing." }
+    companion object {
+        const val HISTORY_FAILURE = "Second-pass state is unknown. Retry history or recover the CNC file before editing."
+        const val NO_RECORDED_STATE = "No recorded state for some files. First additive edits are allowed; unchecked boxes are not verified clean."
+    }
 }
 
 /** Stable per-job destination: surviving collectors keep writing the map rendered after membership changes. */

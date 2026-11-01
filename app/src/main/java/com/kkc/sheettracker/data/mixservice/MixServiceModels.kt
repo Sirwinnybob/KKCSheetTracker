@@ -20,7 +20,8 @@ data class PgmEditBatchRequest(
 data class PgmEditCurrentState(
     val mode: String? = null,
     val punloadRemoved: Boolean? = null,
-    val mixFiles: List<String> = emptyList()
+    val mixFiles: List<String> = emptyList(),
+    val stateSource: String? = null,
 )
 
 /** Canonical ledger events, decoded directly by MixServiceClient.listPgmEdits. */
@@ -44,8 +45,22 @@ data class PgmEditHistoryEvent(
 data class PgmEditFileHistory(
     val current: PgmEditCurrentState? = null,
     val history: List<PgmEditHistoryEvent> = emptyList(),
-)
+    val stateSource: String? = null,
+) {
+    val isKnown: Boolean get() = stateSource == "ledger" && current?.mode in setOf("none", "standard", "super") &&
+        current?.punloadRemoved != null && current.stateSource !in setOf("unknown", "failed_restore_error")
+}
 
 data class PgmEditHistoryView(
-    val files: Map<String, PgmEditFileHistory> = emptyMap()
-)
+    val files: Map<String, PgmEditFileHistory> = emptyMap(),
+    val ok: Boolean = false,
+    val stateSource: String? = null,
+    val error: String? = null,
+) {
+    val isLedger: Boolean get() = ok && stateSource == "ledger" && error == null
+    val isMissing: Boolean get() = !ok && stateSource == "unknown" && error == "history_missing" && files.isEmpty()
+    // An uncertain known file blocks the material; never project unknown as clean.
+    val canEdit: Boolean get() = isMissing || (isLedger && files.values.all { it.isKnown })
+    fun file(pgm: String): PgmEditFileHistory? = files.entries.firstOrNull { it.key.equals(pgm, true) }?.value
+    fun records(pgms: Collection<String>): Boolean = isLedger && canEdit && pgms.all { file(it)?.isKnown == true }
+}
