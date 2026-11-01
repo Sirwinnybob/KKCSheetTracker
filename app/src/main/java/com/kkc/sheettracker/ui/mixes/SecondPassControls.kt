@@ -9,8 +9,52 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.mixfiles.*
+import com.kkc.sheettracker.data.mixservice.PgmEditHistoryEvent
+import com.kkc.sheettracker.data.mixservice.PgmEditCurrentState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 internal const val REVERT_UNAVAILABLE = "Revert needs a service update"
+
+private fun historyState(state: PgmEditCurrentState?): String = state?.let {
+    "${it.mode ?: "unknown"} · P-unload ${when (it.punloadRemoved) { true -> "removed"; false -> "present"; null -> "unknown" }}"
+} ?: "unrecorded"
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun SecondPassHistorySheet(pgm: String, events: List<PgmEditHistoryEvent>, canRevert: Boolean,
+    onRevert: () -> Unit, onDismiss: () -> Unit, current: PgmEditCurrentState? = null,
+    revertSupported: Boolean = true, pgms: List<String> = listOf(pgm), onSelect: (String) -> Unit = {}) {
+    var confirm by remember(pgm) { mutableStateOf(false) }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().padding(24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("2nd-pass history · $pgm", style = MaterialTheme.typography.titleLarge)
+            if (pgms.size > 1) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                pgms.forEach { name -> FilterChip(name == pgm, { onSelect(name) }, label = { Text(name) }) }
+            }
+            Text("Current: ${historyState(current)}")
+            if (events.isEmpty()) Text("No recorded edits.")
+            events.asReversed().forEach { event ->
+                HorizontalDivider()
+                Text("${event.at ?: "Time unavailable"} · ${event.actor ?: "Actor unavailable"}", style = MaterialTheme.typography.labelMedium)
+                Text(event.action.replace('_', ' '))
+                // Canonical ledger events use result; API batch outcomes use final. Neither implies an unrecorded before state.
+                Text("${historyState(event.before)} → ${historyState(event.result ?: event.final)}")
+                event.backup?.let { Text("Recovery copy: $it", style = MaterialTheme.typography.bodySmall) }
+                event.restoredFrom?.let { Text("Restored from: $it", style = MaterialTheme.typography.bodySmall) }
+                event.error?.let { Text(it) }
+            }
+            if (revertSupported) TextButton(onClick = { confirm = true }, enabled = canRevert) { Text("Revert to original") }
+            else Text(REVERT_UNAVAILABLE)
+            TextButton(onClick = onDismiss) { Text("Close") }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+    if (confirm) AlertDialog(onDismissRequest = { confirm = false }, title = { Text("Revert to original?") },
+        text = { Text("Stage a restore of the first recorded backup for $pgm. Apply 2nd pass sends it. The backup may already contain edits; the returned history shows the actual restored state.") },
+        confirmButton = { TextButton(onClick = { confirm = false; onRevert() }, enabled = canRevert) { Text("Stage revert") } },
+        dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } })
+}
 
 @Composable
 internal fun SecondPassControls(draft: SecondPassDraft?, pgms: List<String>, enabled: Boolean, revertSupported: Boolean,

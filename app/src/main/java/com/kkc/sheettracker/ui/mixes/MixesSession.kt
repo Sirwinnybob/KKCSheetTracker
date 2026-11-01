@@ -23,6 +23,8 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
     var secondHistoryConfirmed by mutableStateOf(false); private set
     var historyLoading by mutableStateOf(false); private set
     var secondMessage by mutableStateOf<String?>(null)
+    var history by mutableStateOf<PgmEditHistoryView?>(null); private set
+    var rebaseMessage by mutableStateOf<String?>(null); private set
     val dirty get() = draft != null || (secondPass?.changeCount ?: 0) > 0
     val saving get() = applying || secondApplying
 
@@ -67,9 +69,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
     }
     fun startNew(material: String, pages: List<SheetPage>, locked: List<String>) {
         if (applying) return
-        val existing = catalog?.files.orEmpty().map { key(it.file) }.toSet()
-        val base = "${material}Mix"
-        val file = generateSequence(1) { it + 1 }.map { n -> "$base${if (n == 1) "" else " $n"}.mix" }.first { key(it) !in existing }
+        val file = nextMixName(material, catalog?.files.orEmpty().filter { it.kind != MixFileKind.REVISION }.map { it.file }) + ".mix"
         val other = catalog?.let(::groupMixFiles).orEmpty().filter { it.mix != null || it.frz != null }.flatMap { it.primary.entries }.map { it.pgm }.toSet()
         draft = MixDrafts.startNew(file, pages, other).copy(completedPgms = locked.map(::key).toSet())
         draftFolderRevision = catalog?.folderRevision; selectedTab = draft?.groupKey
@@ -89,6 +89,32 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
             result
         } finally { applying = false }
     }
+    fun stageRevision(group: MixGroup, revision: MixFileRow, locked: List<String>) {
+        if (applying) return
+        draft = MixDrafts.fromRevision(group, revision, locked)
+        draftFolderRevision = catalog?.folderRevision
+        selectedTab = group.key; conflict = false; applyResult = null; savedInterrupted = false
+    }
+    fun renameNew(file: String) {
+        if (applying) return
+        val current = draft?.takeIf { it.newFile != null } ?: return
+        draft = current.copy(newFile = file, groupKey = key(file), changeCount = current.changeCount + 1)
+        selectedTab = key(file)
+    }
+    /** Rename, retirement, raw recovery and permanent revision deletion share the mix save guard. */
+    suspend fun mutateCatalog(submit: suspend () -> MixFilesResult<MixFilesCatalog>): MixFilesResult<MixFilesCatalog>? {
+        if (applying) return null
+        applying = true
+        return try {
+            submit().also { result ->
+                applyResult = result
+                if (result is MixFilesResult.Ok) {
+                    gate.accept(result.value); catalog = result.value
+                    draft = null; draftFolderRevision = null; conflict = false; savedInterrupted = false
+                }
+            }
+        } finally { applying = false }
+    }
     fun acknowledgeRefresh(confirmed: Boolean) { if (!applying && confirmed) applyResult = null }
     fun reapply(locked: List<String>) {
         if (applying) return
@@ -98,8 +124,9 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
         val rebased = MixDrafts.rebase(d, group, locked)
         draft = rebased.draft; draftFolderRevision = fresh.folderRevision
         gate.accept(fresh); catalog = fresh; conflict = false; applyResult = null
-        secondMessage = rebased.dropped.takeIf { it.isNotEmpty() }?.let { "No longer on CNC: ${it.joinToString()}" }
+        rebaseMessage = rebased.dropped.takeIf { it.isNotEmpty() }?.let { "No longer on CNC: ${it.joinToString()}" }
     }
+    fun acknowledgeRebase() { rebaseMessage = null }
     fun updateSecond(pgms: List<String>, field: SecondPassField, on: Boolean, locked: List<String>) {
         if (secondApplying || !secondHistoryConfirmed || historyLoading) return
         val locks = locked.map(::key).toSet()
@@ -113,6 +140,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
             val history = load()
             secondHistoryConfirmed = history != null
             if (history != null) {
+                this.history = history
                 secondPass = mergeWanted(SecondPassDrafts.from(history, pgms), secondPass)
                 secondMessage = null
             } else secondMessage = HISTORY_FAILURE
@@ -136,6 +164,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
             val history = load()
             secondHistoryConfirmed = history != null
             if (history != null) {
+                this.history = history
                 val fresh = SecondPassDrafts.from(history, submitted.wanted.keys.toList())
                 secondPass = if (outcome == SecondPassOutcome.Done) fresh else mergeWanted(fresh, submitted)
             }

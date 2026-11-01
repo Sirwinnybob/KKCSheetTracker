@@ -104,12 +104,11 @@ fun isValidMixName(name: String): Boolean {
 }
 
 fun defaultMixName(materialName: String): String =
-    materialName.replace(Regex("[^A-Za-z0-9 _-]"), "").trim().ifBlank { "Mix" } + "Mix"
+    com.kkc.sheettracker.data.mixfiles.defaultMixName(materialName)
 
 /** Next free "<Material>Mix N" name for an additional mix, starting at 2. */
 fun nextAdditionalMixName(materialName: String, catalog: MixCatalogSnapshot): String {
-    val base = defaultMixName(materialName)
-    return (2..999).asSequence().map { "$base $it" }.first { isCatalogMixNameAvailable(it, catalog) }
+    return com.kkc.sheettracker.data.mixfiles.nextMixName(materialName, catalog.entries.map { it.name } + defaultMixName(materialName))
 }
 
 sealed interface MaterialSubmission {

@@ -28,7 +28,7 @@ import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.io.File
 
-internal enum class MixRowAction { EDIT, REMOVE, SPLIT }
+internal enum class MixRowAction { EDIT, REMOVE, SPLIT, HISTORY }
 
 /** Network-free grouped list. Moves are staged on drop, and identity is always the file occurrence ID. */
 @Composable
@@ -36,7 +36,8 @@ internal fun MixesSheetList(groups: SheetGroups, secondPass: SecondPassDraft?, r
     pdf: File?, onDragStart: () -> Unit, onDrop: (List<Pair<RowModel, RowModel>>) -> Unit,
     onAdd: (SheetPage) -> Unit, onSecondPass: (List<String>, SecondPassField, Boolean) -> Unit,
     onRowAction: ((RowModel, MixRowAction) -> Unit)?, modifier: Modifier = Modifier,
-    supportedRowActions: Set<MixRowAction> = setOf(MixRowAction.REMOVE), secondPassEnabled: Boolean = enabled) {
+    supportedRowActions: Set<MixRowAction> = MixRowAction.entries.toSet(), secondPassEnabled: Boolean = enabled,
+    splitMode: Boolean = false, splitIds: Set<Long> = emptySet(), onSplitSelection: (RowModel) -> Unit = {}) {
     val listState = rememberLazyListState()
     var rows by remember(groups.remaining, groups.unmatched) { mutableStateOf(groups.remaining + groups.unmatched) }
     val moves = remember { mutableListOf<Pair<RowModel, RowModel>>() }
@@ -57,7 +58,13 @@ internal fun MixesSheetList(groups: SheetGroups, secondPass: SecondPassDraft?, r
                     val drag = if (row.draggable && enabled) Modifier.draggableHandle(
                         onDragStarted = { moves.clear(); onDragStart() },
                         onDragStopped = { onDrop(moves.toList()); moves.clear() }) else Modifier
-                    MixesSheetRow(row, secondPass, revertSupported, secondPassEnabled, pdf, drag, onSecondPass, onRowAction, supportedRowActions)
+                    Column {
+                        if (splitMode && row.canSplit) Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(row.draftEntryIds.all { it in splitIds }, { onSplitSelection(row) }, enabled = enabled)
+                            Text("Select ${row.label}")
+                        }
+                        MixesSheetRow(row, secondPass, revertSupported, secondPassEnabled, pdf, drag, onSecondPass, onRowAction, supportedRowActions, enabled)
+                    }
                 }
             }
         }
@@ -84,7 +91,7 @@ internal fun MixesSheetList(groups: SheetGroups, secondPass: SecondPassDraft?, r
 @Composable
 private fun MixesSheetRow(row: RowModel, secondPass: SecondPassDraft?, revertSupported: Boolean, enabled: Boolean,
     pdf: File?, drag: Modifier, onSecondPass: (List<String>, SecondPassField, Boolean) -> Unit,
-    onAction: ((RowModel, MixRowAction) -> Unit)?, supportedActions: Set<MixRowAction>) {
+    onAction: ((RowModel, MixRowAction) -> Unit)?, supportedActions: Set<MixRowAction>, mixEnabled: Boolean) {
     val statuses = LocalKKCStatusColors.current
     val page = (row.item as? MixItem.Sheet)?.page
     val pgms = row.entries.map { it.source?.pgm ?: it.newPgm.orEmpty() }
@@ -115,17 +122,19 @@ private fun MixesSheetRow(row: RowModel, secondPass: SecondPassDraft?, revertSup
             }
             if (page != null) SecondPassControls(secondPass, pgms, enabled && !row.locked, revertSupported, { field, on -> onSecondPass(pgms, field, on) })
             Box {
-                IconButton(onClick = { menu = true }, enabled = onAction != null && (row.canRemove || row.canEditCounts || row.canSplit)) {
+                IconButton(onClick = { menu = true }, enabled = onAction != null) {
                     Icon(Icons.Default.MoreVert, "Actions for ${row.label}")
                 }
                 DropdownMenu(menu, onDismissRequest = { menu = false }) {
-                    if (!row.locked) DropdownMenuItem(text = { Text("Edit quantity and parameters") }, enabled = row.canEditCounts && MixRowAction.EDIT in supportedActions,
+                    if (!row.locked) DropdownMenuItem(text = { Text("Edit quantity and parameters") }, enabled = mixEnabled && row.canEditCounts && MixRowAction.EDIT in supportedActions,
                         onClick = { menu = false; onAction?.invoke(row, MixRowAction.EDIT) })
                     row.editBlockedReason?.takeIf { !row.locked }?.let { Text(it, Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall) }
-                    DropdownMenuItem(text = { Text("Remove from mix") }, enabled = row.canRemove && MixRowAction.REMOVE in supportedActions,
+                    DropdownMenuItem(text = { Text("Remove from mix") }, enabled = mixEnabled && row.canRemove && MixRowAction.REMOVE in supportedActions,
                         onClick = { menu = false; onAction?.invoke(row, MixRowAction.REMOVE) })
-                    if (!row.locked) DropdownMenuItem(text = { Text("Move to new mix") }, enabled = row.canSplit && MixRowAction.SPLIT in supportedActions,
+                    if (!row.locked) DropdownMenuItem(text = { Text("Move to new mix") }, enabled = mixEnabled && row.canSplit && MixRowAction.SPLIT in supportedActions,
                         onClick = { menu = false; onAction?.invoke(row, MixRowAction.SPLIT) })
+                    if (MixRowAction.HISTORY in supportedActions) DropdownMenuItem(text = { Text("2nd-pass history") },
+                        onClick = { menu = false; onAction?.invoke(row, MixRowAction.HISTORY) })
                 }
             }
         }

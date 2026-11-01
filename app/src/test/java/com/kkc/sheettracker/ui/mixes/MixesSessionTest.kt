@@ -11,6 +11,56 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class MixesSessionTest {
+    @Test fun tabAndNewDiscardOnlyMixAndKeepMaterialSecondPassDraft() = runTest {
+        val session = session()
+        session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView() }
+        session.updateSecond(listOf("a.pgm"), SecondPassField.SECOND, true, emptyList())
+        session.edit(group(session.catalog!!), emptyList()) { MixDrafts.add(it, "draft.pgm") }
+        val wanted = session.secondPass
+        val latest = catalog("new", "other.pgm")
+        session.onCatalog(latest)
+        assertTrue(session.discardMix(latest))
+        assertEquals("new", session.catalog!!.folderRevision)
+        assertEquals(wanted, session.secondPass)
+        session.startNew("Maple", pages("a.pgm"), emptyList())
+        assertEquals(wanted, session.secondPass)
+    }
+    @Test fun newNameAvoidsCaseInsensitiveMixAndFrzStems() {
+        val session = session()
+        val mix = session.catalog!!.files.single()
+        session.onCatalog(catalog("names").copy(files = listOf(mix, mix.copy(file = "MAPLEMIX 2.FRZ", kind = MixFileKind.FRZ))))
+        session.startNew("Maple", pages("new.pgm"), emptyList())
+        assertEquals("MapleMix 3.mix", session.draft!!.newFile)
+    }
+    @Test fun namingNewDraftKeepsEntriesAndSecondPassAndDoesNotNeedRemoteRename() = runTest {
+        val session = session()
+        session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView() }
+        session.updateSecond(listOf("a.pgm"), SecondPassField.SECOND, true, emptyList())
+        session.startNew("Maple", pages("new.pgm"), emptyList())
+        val before = session.draft!!
+        session.renameNew("Custom Mix.mix")
+        assertEquals("Custom Mix.mix", session.draft!!.newFile)
+        assertEquals("custom mix.mix", session.selectedTab)
+        assertEquals(before.entries, session.draft!!.entries)
+        assertEquals(1, session.secondPass!!.changeCount)
+    }
+    @Test fun revisionRestoreAndCatalogMutationFreezeOnlyMixDraft() = runTest {
+        val session = session()
+        val group = group(session.catalog!!)
+        session.stageRevision(group, group.primary, listOf("a.pgm"))
+        assertEquals(setOf("a.pgm"), session.draft!!.completedPgms)
+        val response = CompletableDeferred<MixFilesResult<MixFilesCatalog>>()
+        val write = launch { session.mutateCatalog { response.await() } }
+        runCurrent()
+        val before = session.draft
+        session.stageRevision(group, group.primary, emptyList())
+        assertEquals(before, session.draft)
+        assertFalse(session.discardMix(session.catalog))
+        response.complete(MixFilesResult.Ok(catalog("renamed")))
+        write.join()
+        assertNull(session.draft)
+        assertEquals("renamed", session.catalog!!.folderRevision)
+    }
     @Test fun suspendedMixSaveFreezesOnlyMixDraftAndDiscard() = runTest {
         val session = session()
         session.reloadHistory(listOf("a.pgm", "b.pgm")) { PgmEditHistoryView() }

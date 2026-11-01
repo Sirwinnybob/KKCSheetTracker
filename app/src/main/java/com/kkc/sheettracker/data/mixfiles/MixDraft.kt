@@ -2,6 +2,17 @@ package com.kkc.sheettracker.data.mixfiles
 
 import java.util.Locale
 
+fun defaultMixName(material: String): String = material.replace(Regex("[^A-Za-z0-9 _-]"), "").trim().ifBlank { "Mix" } + "Mix"
+
+/** One naming rule for new and split drafts; MIX and FRZ reserve the same stem. */
+fun nextMixName(material: String, taken: Collection<String>): String {
+    val base = defaultMixName(material)
+    val stems = taken.map { value ->
+        if (value.endsWith(".mix", true) || value.endsWith(".frz", true)) value.substringBeforeLast('.') else value
+    }.map { it.lowercase(Locale.ROOT) }.toSet()
+    return generateSequence(1) { it + 1 }.map { n -> if (n == 1) base else "$base $n" }.first { it.lowercase(Locale.ROOT) !in stems }
+}
+
 data class DraftEntry(
     val id: Long,
     val source: MixFileEntry?,
