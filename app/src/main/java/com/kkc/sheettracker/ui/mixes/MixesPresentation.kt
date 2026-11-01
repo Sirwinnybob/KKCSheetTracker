@@ -98,6 +98,18 @@ data class MixesUiInput(
     val machineStatus: MachineStatus = MachineStatus.Unavailable,
 )
 
+/** Split entries have left the main rows, but current tablet completion still protects every occurrence. */
+internal fun splitCompletionBlockReason(draft: MixDraft?, completedPgms: List<String>): String? {
+    val locked = completedPgms.map { it.lowercase(Locale.ROOT) }.toSet()
+    val completed = draft?.splitOff.orEmpty().flatMap { it.entries }
+        .mapNotNull { it.source?.pgm ?: it.newPgm }
+        .filter { it.lowercase(Locale.ROOT) in locked }
+        .distinctBy { it.lowercase(Locale.ROOT) }
+    return completed.takeIf { it.isNotEmpty() }?.let {
+        "Completed sheets are staged for a new mix: ${it.joinToString()}. Discard the mix changes and split only pending sheets."
+    }
+}
+
 fun buildMixesUi(input: MixesUiInput): MixesUiModel {
     val selected = input.materials.firstOrNull {
         it.machine.id == input.selectedMachineId && it.material.materialName == input.selectedMaterial
@@ -134,6 +146,9 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
     val rows = if (selected != null && (group != null || draft != null)) {
         buildSheetGroups(selected, group, active, draft, readOnly || input.applying)
     } else null
+    val splitBlock = splitCompletionBlockReason(draft, selected?.let { material ->
+        material.pages.filter { isLockedStatus(material.statusOf(it.pageNumber)) }.flatMap { it.pgmFiles }
+    }.orEmpty())
     val card = rows?.let {
         val total = it.remaining.size + it.unmatched.size + it.completed.size
         val count = draft?.changeCount ?: 0
@@ -144,6 +159,7 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
             changed -> "This mix changed on the CNC"
             unconfirmed -> "Refresh to confirm whether the CNC saved this mix"
             input.applying -> "Saving changes"
+            splitBlock != null -> splitBlock
             (group?.isInterrupted == true || draft?.isInterrupted == true) && it.unmatched.isNotEmpty() -> "${it.unmatched.size} sheets in this mix don't match the job — fix them before saving"
             else -> null
         }

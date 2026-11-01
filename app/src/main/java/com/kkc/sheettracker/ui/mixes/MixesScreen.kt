@@ -145,14 +145,15 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         val name = selectedMaterial ?: return
         if (!ui.card.let { it?.applyEnabled == true } || session.applying) return
         scope.launch {
-            val result = session.saveMix { draft ->
-                when (val write = buildWrite(draft, group, locks(), resolutions)) {
+            val result = session.saveMix(::locks) { draft ->
+                when (val write = buildWrite(draft, group, draft.completedPgms.toList(), resolutions)) {
                     is MixWrite.Write -> api.write(jobFolderName, name, write.file, write.expectedRevision, write.entries, write.completion)
                     is MixWrite.Frz -> api.frz(jobFolderName, name, write.file, write.expectedRevision, write.completion, write.pending)
                     is MixWrite.Split -> api.split(jobFolderName, name, write.file, write.expectedRevision, write.entries, write.newMixes, write.completion)
                 }
             }
             publish(result, name)
+            if (result == null) session.mixSaveBlockedReason?.let { snackbar.showSnackbar(it) }
             if (result is MixFilesResult.Ok) { splitMode = false; splitIds = emptySet() }
         }
     }

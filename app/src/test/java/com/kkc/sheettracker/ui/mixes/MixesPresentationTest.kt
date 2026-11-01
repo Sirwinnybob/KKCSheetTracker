@@ -98,6 +98,26 @@ class MixesPresentationTest {
         assertFalse(buildMixesUi(input()).card!!.applyVisible)
         assertFalse(buildMixesUi(input()).card!!.applyEnabled)
     }
+    @Test fun completedStagedSplitBlocksApplyIncludingAzRepeatsWhileSecondPassStaysAvailable() {
+        for (interrupted in listOf(false, true)) {
+            val entries = listOf(entry("AzA.pgm", left = 1), entry("AzZ.pgm", left = 1), entry("AzA.pgm", left = 1), entry("P2.pgm", left = 1))
+            val c = if (interrupted) pair(entries, entries) else catalog(row(entries = entries))
+            val draft = MixDrafts.splitOff(MixDrafts.start(group(c)), setOf(1, 2, 3), "Other.mix")
+            val pages = listOf(page(1, "AzA.pgm", "AzZ.pgm"), page(2))
+            val second = SecondPassDrafts.setAll(SecondPassDrafts.from(null, listOf("P2.pgm")), listOf("P2.pgm"), SecondPassField.SECOND, true)
+            for (status in listOf(SheetStatus.COMPLETE, SheetStatus.HAS_BAD_PARTS, SheetStatus.RE_NESTED)) {
+                val ui = buildMixesUi(input(material(c, pages, mapOf(1 to status)), draft).copy(secondPassDraft = second))
+                assertFalse("$status must block a $interrupted split", ui.card!!.applyEnabled)
+                assertTrue(ui.card.applyVisible) // Discard remains reachable rather than silently dropping the split.
+                assertEquals("Completed sheets are staged for a new mix: AzA.pgm, AzZ.pgm. Discard the mix changes and split only pending sheets.", ui.card.applyBlockedReason)
+                assertTrue(ui.secondPassApplyEnabled)
+                assertEquals(3, draft.splitOff.single().entries.size)
+            }
+            for (status in listOf(SheetStatus.SKIPPED, SheetStatus.IN_PROGRESS, SheetStatus.NOT_STARTED)) {
+                assertTrue(buildMixesUi(input(material(c, pages, mapOf(1 to status)), draft)).card!!.applyEnabled)
+            }
+        }
+    }
 
     @Test fun secondPassApplyIsSeparate() {
         val current = mapOf("P1.pgm" to SecondPassState(false, false, false), "P2.pgm" to SecondPassState(false, false, false))

@@ -25,6 +25,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
     var secondMessage by mutableStateOf<String?>(null)
     var history by mutableStateOf<PgmEditHistoryView?>(null); private set
     var rebaseMessage by mutableStateOf<String?>(null); private set
+    var mixSaveBlockedReason by mutableStateOf<String?>(null); private set
     val dirty get() = draft != null || (secondPass?.changeCount ?: 0) > 0
     val saving get() = applying || secondApplying
 
@@ -40,6 +41,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
         val initial = draft ?: group?.let { MixDrafts.start(it, locked) } ?: return
         if (draft == null) draftFolderRevision = catalog?.folderRevision
         draft = change(initial.copy(completedPgms = locked.map(::key).toSet()))
+        mixSaveBlockedReason = null
         savedInterrupted = false
         if (applyResult !is MixFilesResult.Offline) applyResult = null
     }
@@ -53,7 +55,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
     fun discardMix(latest: MixFilesCatalog?): Boolean {
         if (applying) return false
         (latest ?: gate.deferredCatalog ?: catalog)?.let { gate.accept(it); catalog = it }
-        draft = null; draftFolderRevision = null; conflict = false; applyResult = null; savedInterrupted = false
+        draft = null; draftFolderRevision = null; conflict = false; applyResult = null; savedInterrupted = false; mixSaveBlockedReason = null
         return true
     }
     fun discardSecond(): Boolean {
@@ -75,9 +77,16 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
         draftFolderRevision = catalog?.folderRevision; selectedTab = draft?.groupKey
         conflict = false; applyResult = null
     }
-    suspend fun saveMix(submit: suspend (MixDraft) -> MixFilesResult<MixFilesCatalog>): MixFilesResult<MixFilesCatalog>? {
+    suspend fun saveMix(locked: () -> List<String> = { draft?.completedPgms.orEmpty().toList() },
+        submit: suspend (MixDraft) -> MixFilesResult<MixFilesCatalog>): MixFilesResult<MixFilesCatalog>? {
         if (applying) return null
-        val submitted = draft ?: return null
+        val current = draft ?: return null
+        // Read once at the actual submission boundary, before any suspension or request construction.
+        // The same snapshot validates split membership and supplies buildWrite's completion.
+        val completion = locked()
+        mixSaveBlockedReason = splitCompletionBlockReason(current, completion)
+        if (mixSaveBlockedReason != null) return null
+        val submitted = current.copy(completedPgms = completion.map(::key).toSet())
         applying = true
         return try {
             val result = submit(submitted)

@@ -11,6 +11,61 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class MixesSessionTest {
+    @Test fun stagedSplitCompletionRacePreventsRequestWithoutChangingEitherDraft() = runTest {
+        for (interrupted in listOf(false, true)) {
+            val session = MixesSession()
+            val template = catalog("split").files.single()
+            val entries = listOf("AzA.pgm", "AzZ.pgm", "AzA.pgm", "other.pgm").map { pgm ->
+                template.entries.single().copy(pgm = pgm, path = "Z:\\$pgm", remaining = if (interrupted) 1 else null)
+            }
+            val mix = template.copy(entries = entries, companion = if (interrupted) "MapleMix.FRZ" else null)
+            val frz = mix.copy(file = "MapleMix.FRZ", kind = MixFileKind.FRZ, revision = "frz", companion = mix.file)
+            val catalog = catalog("split").copy(files = if (interrupted) listOf(mix, frz) else listOf(mix))
+            session.onCatalog(catalog)
+            val group = group(catalog)
+            session.reloadHistory(listOf("other.pgm")) { PgmEditHistoryView() }
+            session.updateSecond(listOf("other.pgm"), SecondPassField.SECOND, true, emptyList())
+            session.edit(group, emptyList()) { MixDrafts.splitOff(it, setOf(1, 2, 3), "Other.mix") }
+            val beforeMix = session.draft
+            val beforeSecond = session.secondPass
+            // The UI was eligible when staged, but ProgressStore locks changed before the actual submit.
+            val currentLocks = listOf("AZA.PGM", "azz.pgm")
+            var requests = 0
+            val result = session.saveMix({ currentLocks }) { submitted ->
+                buildWrite(submitted, group, submitted.completedPgms.toList(), emptyMap())
+                requests++
+                MixFilesResult.Ok(catalog)
+            }
+            assertNull(result)
+            assertEquals(0, requests)
+            assertFalse(session.applying)
+            assertEquals("Completed sheets are staged for a new mix: AzA.pgm, AzZ.pgm. Discard the mix changes and split only pending sheets.", session.mixSaveBlockedReason)
+            assertEquals(beforeMix, session.draft)
+            assertEquals(beforeSecond, session.secondPass)
+            assertTrue(session.discardMix(catalog))
+            assertNull(session.mixSaveBlockedReason)
+            assertEquals(beforeSecond, session.secondPass)
+        }
+    }
+    @Test fun splitSaveUsesOneCurrentCompletionSnapshotForValidationAndWrite() = runTest {
+        val session = session()
+        val group = group(session.catalog!!)
+        session.edit(group, emptyList()) { MixDrafts.splitOff(it, setOf(1), "Other.mix") }
+        var reads = 0
+        var requests = 0
+        val saved = session.catalog!!
+        val result = session.saveMix({ reads++; listOf("OtherA.pgm", "OtherZ.pgm") }) { submitted ->
+            assertEquals(setOf("othera.pgm", "otherz.pgm"), submitted.completedPgms)
+            val write = buildWrite(submitted, group, submitted.completedPgms.toList(), emptyMap()) as MixWrite.Split
+            assertEquals("a.pgm", (write.newMixes.single().entries.single() as EntrySpec.Existing).path.substringAfterLast('\\'))
+            requests++
+            MixFilesResult.Ok(saved)
+        }
+        assertTrue(result is MixFilesResult.Ok)
+        assertEquals(1, reads)
+        assertEquals(1, requests)
+        assertNull(session.mixSaveBlockedReason)
+    }
     @Test fun tabAndNewDiscardOnlyMixAndKeepMaterialSecondPassDraft() = runTest {
         val session = session()
         session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView() }
