@@ -24,7 +24,8 @@ private fun historyState(state: PgmEditCurrentState?): String = state?.let {
 @Composable
 internal fun SecondPassHistorySheet(pgm: String, events: List<PgmEditHistoryEvent>, canRevert: Boolean,
     onRevert: () -> Unit, onDismiss: () -> Unit, current: PgmEditCurrentState? = null,
-    revertSupported: Boolean = true, pgms: List<String> = listOf(pgm), onSelect: (String) -> Unit = {}) {
+    revertSupported: Boolean = true, pgms: List<String> = listOf(pgm), onSelect: (String) -> Unit = {},
+    onPreview: (() -> Unit)? = null, previewEnabled: Boolean = false, onRefreshRevisions: (() -> Unit)? = null) {
     var confirm by remember(pgm) { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -44,6 +45,8 @@ internal fun SecondPassHistorySheet(pgm: String, events: List<PgmEditHistoryEven
                 event.restoredFrom?.let { Text("Restored from: $it", style = MaterialTheme.typography.bodySmall) }
                 event.error?.let { Text(it) }
             }
+            onPreview?.let { TextButton(onClick = it, enabled = previewEnabled) { Text("Preview staged edits") } }
+            onRefreshRevisions?.let { TextButton(onClick = it) { Text("Refresh CNC revisions") } }
             if (revertSupported) TextButton(onClick = { confirm = true }, enabled = canRevert) { Text("Revert to original") }
             else Text(REVERT_UNAVAILABLE)
             TextButton(onClick = onDismiss) { Text("Close") }

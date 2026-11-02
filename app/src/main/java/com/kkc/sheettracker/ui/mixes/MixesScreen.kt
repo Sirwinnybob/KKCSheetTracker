@@ -25,7 +25,7 @@ import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.cnc.*
 import com.kkc.sheettracker.data.mixfiles.*
-import com.kkc.sheettracker.data.mixservice.MixServiceClient
+import com.kkc.sheettracker.data.mixservice.*
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.ui.components.kkcCardDepth
 import com.kkc.sheettracker.ui.settings.GroupCard
@@ -33,6 +33,7 @@ import com.kkc.sheettracker.ui.theme.LocalKKCStatusColors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -66,6 +67,28 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     val session = remember(jobFolderName, selectedMaterial) { MixesSession() }
     var inventory by remember(selectedMaterial) { mutableStateOf<List<String>>(emptyList()) }
     var revertSupported by remember(machine) { mutableStateOf(false) }
+    var editorFeatures by remember(machine) { mutableStateOf<Set<String>?>(null) }
+    val revisionSupported = editorFeatures?.contains("pgm-edit-revisions") == true
+    val previewSupported = revisionSupported && editorFeatures?.contains("pgm-edit-preview") == true
+    val revisionState = remember(session) { PgmRevisionState() }
+    val pgmPreview = remember(session) { PgmPreviewState() }
+    var showPgmPreview by remember(session) { mutableStateOf(false) }
+    var revisionResume by remember(session) { mutableIntStateOf(0) }
+    var manualRevisionRefresh by remember(session) { mutableIntStateOf(0) }
+    var appliedRevisionRefresh by remember(session) { mutableIntStateOf(0) }
+    fun refreshPgmRevisions() { pgmPreview.invalidate(); showPgmPreview = false; manualRevisionRefresh++ }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, session) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) revisionResume++
+            if (event == Lifecycle.Event.ON_STOP) {
+                revisionState.unavailable("Refresh CNC revisions after reconnecting.")
+                pgmPreview.markStale("Cached preview. Reconnect and refresh CNC revisions.")
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
     var pendingLeave by remember { mutableStateOf<(() -> Unit)?>(null) }
     var pendingLeaveText by remember { mutableStateOf("Mix and second-pass changes haven't been applied.") }
     var editRow by remember(session) { mutableStateOf<RowModel?>(null) }
@@ -100,14 +123,28 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     BackHandler { leave(onBack) }
     val latest = catalogStates[selectedMaterial].catalogSnapshot()
     LaunchedEffect(session, latest) { latest?.let(session::onCatalog) }
-    LaunchedEffect(machine) { revertSupported = "pgm-edits-revert" in api.features() }
+    LaunchedEffect(machine) {
+        val features = api.features()
+        revertSupported = "pgm-edits-revert" in features
+        editorFeatures = features
+    }
     fun historyPgms() = canonicalPgms(inventory + material?.let { sheetPages(it.metadata?.pages.orEmpty()).flatMap { page -> page.pgmFiles } }.orEmpty())
     suspend fun retryHistory(name: String) { session.reloadHistory(historyPgms()) { service.listPgmEdits(jobFolderName, name) } }
-    LaunchedEffect(session, material?.materialName) {
+    LaunchedEffect(session, material?.materialName, editorFeatures, revisionResume, manualRevisionRefresh, session.secondApplying) {
         val name = material?.materialName ?: return@LaunchedEffect
-        try { inventory = service.listPgms(jobFolderName, name).map { it.name } }
+        if (editorFeatures == null || session.secondApplying) return@LaunchedEffect
+        try {
+            val rows = service.listPgms(jobFolderName, name, withSha256 = revisionSupported)
+            if (rows.isNotEmpty() || inventory.isEmpty()) inventory = rows.map { it.name }
+            if (revisionSupported) {
+                val explicit = manualRevisionRefresh != appliedRevisionRefresh
+                val changed = revisionState.observe(rows, dirty = (session.secondPass?.changeCount ?: 0) > 0, explicit = explicit)
+                if (changed) pgmPreview.markStale("PGM revisions changed. Review a fresh preview.")
+                if (rows.isNotEmpty()) appliedRevisionRefresh = manualRevisionRefresh
+            }
+        }
         catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { /* Metadata PGMs still allow a separate history recovery. */ }
+        catch (_: Exception) { revisionState.unavailable("Can't read CNC revisions. Reconnect and refresh.") }
         retryHistory(name)
     }
     val materialInputs = materials.map { m ->
@@ -123,7 +160,8 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         secondPassDraft = session.secondPass, draftFolderRevision = session.draftFolderRevision, conflict = session.conflict,
         applyResult = session.applyResult, savedInterrupted = session.savedInterrupted, applying = session.applying,
         secondPassApplying = session.secondApplying, machineStatus = machineStatus))
-    val ui = presentation.copy(secondPassApplyEnabled = presentation.secondPassApplyEnabled && session.secondHistoryConfirmed && !session.historyLoading)
+    val ui = presentation.copy(secondPassApplyEnabled = presentation.secondPassApplyEnabled && session.secondHistoryConfirmed && !session.historyLoading &&
+        (!revisionSupported || revisionState.canApply(session.secondPass)))
     val group = session.catalog?.let(::groupMixFiles)?.firstOrNull { it.key == ui.selectedTab }
     val catalogWritable = catalogStates[selectedMaterial] is CatalogState.Live && session.applyResult !is MixFilesResult.ServiceOutdated
     // Read ProgressStore at the action boundary, rather than a status map from the last composition.
@@ -163,6 +201,28 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     val eligibleSplitIds = (ui.groups?.remaining.orEmpty() + ui.groups?.unmatched.orEmpty()).filter { it.canSplit }.flatMap { it.draftEntryIds }.toSet()
     val validSplitIds = splitIds.intersect(eligibleSplitIds)
     val conflictReason = "This mix changed on the CNC. Close the dialog to resolve the conflict."
+    fun openPgmPreview(pgm: String) {
+        val name = selectedMaterial ?: return
+        val draft = session.secondPass ?: return
+        val hash = revisionState.hashes.pgmValue(pgm) ?: return
+        val request = previewRequest(draft, pgm, hash, "preview-${System.nanoTime()}")
+        val row = request.files.single()
+        val key = PgmPreviewKey(machine.baseUrl, jobFolderName, name, pgm, hash, draft.wanted.pgmValue(pgm)!!, row.restoreOriginal)
+        historyPgm = null; showPgmPreview = true; pgmPreview.start(key)
+        scope.launch {
+            try {
+                var operation = service.submitPgmPreview(jobFolderName, name, request.requestId,
+                    PgmEditRow(row.name, row.secondPass, row.removePUnload, row.expectedSha256), row.restoreOriginal)
+                while (!operation.isTerminal) { delay(500); operation = service.getOperation(operation.id) }
+                if (operation.state != "completed") error(operation.error ?: "Preview ${operation.state}")
+                val file = decodePgmPreview(operation.result).file
+                check(file.name.equals(pgm, true) && file.originalSha256 == hash && file.requested.mode == row.secondPass &&
+                    file.requested.removePUnload == row.removePUnload && file.requested.restoreOriginal == row.restoreOriginal) { "Preview doesn't match this draft. Refresh CNC revisions." }
+                pgmPreview.complete(key, file)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { pgmPreview.fail(key, failure.message ?: "Unable to preview. Refresh CNC revisions.") }
+        }
+    }
     MixesWorkspace(job?.let { "${it.jobNumber} · ${it.jobName}" } ?: jobFolderName, selectedMaterial, selected?.pages?.size ?: 0,
         ui, session.secondPass, revertSupported, inventory, material?.let { File(File(scan.snapshot.basePath, "$jobFolderName/CNC"), it.pdfFilename) },
         onBack = { leave(onBack) }, onMaterial = { name -> leave { selectedMaterial = name } },
@@ -177,19 +237,31 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         onLoadTheirs = { session.discardMix(latestCatalog()) }, onReapply = { session.reapply(locks()) },
         onDragStart = session::beginDrag, onDrop = { session.drop(group, locks(), it) },
         onAdd = { page -> edit { d -> page.pgmFiles.fold(d) { next, pgm -> MixDrafts.add(next, pgm) } } },
-        onSecondPass = { pgms, field, on -> session.updateSecond(pgms, field, on, locks()) },
-        onSecondDiscard = { session.discardSecond() },
+        onSecondPass = { pgms, field, on -> pgms.forEach(pgmPreview::invalidate); session.updateSecond(pgms, field, on, locks()) },
+        onSecondDiscard = { pgmPreview.invalidate(); session.discardSecond() },
         onSecondApply = {
             val name = selectedMaterial
             if (name != null && ui.secondPassApplyEnabled && !session.secondApplying) scope.launch {
+                val notices = mutableListOf<PgmNotice>()
                 session.saveSecond(::locks, { submitted ->
                     val deviceId = context.getSharedPreferences("kkc_tracker", Context.MODE_PRIVATE).getString("tablet_id", null)
                         ?.takeIf { it.isNotBlank() } ?: Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-                    val runner = SecondPassRunner(service, api::submitPgmEditRevert, secondPassRequestIds(deviceId))
-                    runner.apply(jobFolderName, name, planSecondPass(submitted)) { session.secondMessage = it }
+                    val revisions = if (revisionSupported) SecondPassRevisionSupport(
+                        SecondPassRevisionSnapshot(revisionState.hashes, pgmPreview.previews),
+                        refresh = { service.listPgms(jobFolderName, name, withSha256 = true).filter { validPgmHash(it.sha256) }.associate { it.name to it.sha256!! } },
+                        revert = api::submitPgmEditRevertRows) else null
+                    pgmPreview.invalidate()
+                    val runner = SecondPassRunner(service, api::submitPgmEditRevert, secondPassRequestIds(deviceId),
+                        revisions = revisions, onNotices = { notices += it })
+                    runner.apply(jobFolderName, name, planSecondPass(submitted)) { session.secondMessage = it }.also { outcome ->
+                        if (outcome is SecondPassOutcome.Failed && outcome.code in setOf("pgm_changed", "preview_changed"))
+                            revisionState.requireReview("CNC files or the preview changed. Refresh revisions and review your draft.")
+                    }
                 }, { service.listPgmEdits(jobFolderName, name) })
+                if (notices.isNotEmpty()) session.secondMessage = listOfNotNull(session.secondMessage,
+                    notices.distinctBy { it.code to it.message }.joinToString(" ") { it.message }).joinToString(" ")
             }
-        }, secondMessage = session.secondMessage,
+        }, secondMessage = listOfNotNull(session.secondMessage, revisionState.message.takeIf { revisionSupported }).distinct().takeIf { it.isNotEmpty() }?.joinToString(" "),
         recoveryEnabled = session.gate.deferredCatalog != null,
         reapplyEnabled = session.reapplyEnabled,
         mixMessage = session.recoveryMessage ?: RESTORE_PREVIEW_MESSAGE.takeIf { session.draft?.rawRestore != null },
@@ -271,10 +343,15 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         val locked = locks().any { it.equals(pgm, true) }
         SecondPassHistorySheet(pgm, record?.history.orEmpty(), revertSupported && !locked && !session.secondApplying && session.secondHistoryConfirmed &&
             session.secondPass?.current?.pgmValue(pgm)?.let { it.secondPass || it.removePUnload } == true,
-            onRevert = { SecondPassField.entries.forEach { session.updateSecond(listOf(pgm), it, false, locks()) }; historyPgm = null },
+            onRevert = { pgmPreview.invalidate(pgm); SecondPassField.entries.forEach { session.updateSecond(listOf(pgm), it, false, locks()) }; historyPgm = null },
             onDismiss = { historyPgm = null }, current = record?.current, revertSupported = revertSupported,
-            pgms = historyRow, onSelect = { historyPgm = it })
+            pgms = historyRow, onSelect = { historyPgm = it },
+            onPreview = if (previewSupported) ({ openPgmPreview(pgm) }) else null,
+            previewEnabled = !session.secondApplying && revisionState.canApply(session.secondPass) &&
+                session.secondPass?.let { it.wanted.pgmValue(pgm) != it.current.pgmValue(pgm) } == true,
+            onRefreshRevisions = if (revisionSupported && !session.secondApplying) ::refreshPgmRevisions else null)
     }
+    if (showPgmPreview) PgmPreviewSheet(pgmPreview, onRefresh = ::refreshPgmRevisions, onDismiss = { showPgmPreview = false })
     mismatches?.let { list -> FrzMismatchDialog(list, statusOf = { pgm ->
         val page = selected?.pages?.firstOrNull { p -> p.pgmFiles.any { it.equals(pgm, true) } }
         page?.let { selected.statusOf(it.pageNumber).toString().replace('_', ' ') } ?: if (locks().any { it.equals(pgm, true) }) "Complete" else "Not complete"
