@@ -54,7 +54,7 @@ Use this skill to answer: "Which system owns this metadata file, where is the so
 | timeclock-hub | RTC-1000 punch clock REST hub and SQLite source of truth for punch-clock timeclock; pushes the employee roster to HT | `C:\Scripts\timeclock-hub` |
 | updater-agent | Android helper for installs/silent update behavior | `C:\Scripts\KKCSheetTracker\updater-agent` |
 | PGM Sorting | PDF splitter (CNC page/part sidecars, part-graphic zips) and run-folder remake processor (writes into CNC tracker streams) | `C:\Scripts\PGM_Sorting` (`split_pdfs_gui_v3.py`, `process_run_folders_v2.py`) |
-| CNC PGM Mix Service | CNC-side REST service that orders existing `.pgm` files into compiled `.mix` files through WINXISO; does **not** write Ready Jobs metadata | `C:\Scripts\PGM_BCR_Loader\docs\PGM_MIX_SERVICE_AGENT_GUIDE.md`; deployed on CNC at `C:\Scripts\PGM_MixService` |
+| CNC PGM Mix Service | CNC-side REST service that reads and edits the real `.mix`/`.frz` files (in-process `winxiso` module, no `WINXISO.EXE`); does **not** write Ready Jobs metadata | `C:\Scripts\PGM_BCR_Loader\docs\PGM_MIX_SERVICE_AGENT_GUIDE.md`; deployed on CNC at `C:\Scripts\PGM_MixService` |
 | cv-molding-sync | Scheduled script on the Cabinet Vision PC; sole writer of `.metadata\moldings\*.xml` from CV's local SQL Server | `C:\Scripts\cv-molding-sync` |
 
 Shared Ready Jobs appears on the PC as `Y:\Ready Jobs`, on the HT Docker server as `/mnt/KKC/Syncthing/KKC Jobs/Ready Jobs` (mounted `/jobs`), and to cv-molding-sync as `\\192.168.1.15\KKC Jobs\Ready Jobs`. Archived jobs live in `/mnt/KKC/Syncthing/KKC Jobs/ARCHIVE_Ready Jobs` (`ARCHIVE_READY_JOBS_PATH`, mounted `/archive-jobs`). The **Office share** (Office Kanban job records, which own delivery dates) is `\\192.168.1.15\KKC Jobs\JOBS` on the PC (HT's dev default when `OFFICE_JOBS_PATH` is unset, `routes\office_workspace\paths.py`) and `/mnt/KKC/Syncthing/KKC Jobs/JOBS` on the Docker server, mounted `/office` with `OFFICE_JOBS_PATH=/office` for the `hourtracker` service (`ops\docker-compose.production-cutover.yml`, `92944f78`). HT writes only under `<Office root>\.office\`.
@@ -78,15 +78,27 @@ Cabinet Vision (external CAD database, not one of the systems above) is the sour
 
 ## CNC PGM Mix Service: Agent Routing
 
-Use this service when a CNC/tablet workflow needs to create, inspect, reorder, or regenerate a **`.mix` sequence** from existing PGM files. It is not a Ready Jobs metadata publisher and does not generate replacement `.pgm` source files. The tablet uses it via `KST data\mixservice\MixServiceClient.kt` (session state DataStore `mix_operation_sessions`).
+**Editor integration (2026-11-02):** merged into PGM_BCR_Loader master and
+KKCSheetTracker main; service deployed, tablet patch 9.0.9 (90009) published to
+stable via deploy_update.ps1. The service negotiates the editor's protocol-2
+preview/revision/guard/replay features. `mix_service\pgm_edit_api.py:65` delegates
+all PGM writes to `G_Code_2nd_Pass\edit_gcode_cnc_bundled.py:881`; inventory
+`withSha256` is opt-in (`service.py:561`). Android submits intent and reads source
+previews; it does not write PGMs/history. Editor setup and `--update-cnc` update
+the EXE only via existing SMB/probe access (`remote_editor_update.py:140`), preserving
+service config. Setup is at `\\192.168.20.4\aaaaaaaaaaaaaaaa\0 NEW JOBS\SecondPassEditor-Setup.exe`;
+CNC editor installation remains pending, so `/status` currently advertises only
+`pgm-edits-revert`. See editor rollout report and METADATA_AUDIT.md sign-off.
+
+Use this service when a CNC/tablet workflow needs to create, inspect, reorder, or edit a **`.mix` / interrupted `.frz` sequence** built from existing PGM files. It is not a Ready Jobs metadata publisher and does not generate replacement `.pgm` source files. The tablet uses it via `KST data\mixservice\MixServiceClient.kt` (session state DataStore `mix_operation_sessions`).
 
 - **Agent API reference and examples:** `C:\Scripts\PGM_BCR_Loader\docs\PGM_MIX_SERVICE_AGENT_GUIDE.md`.
 - **Deployed service on the CNC:** `C:\Scripts\PGM_MixService` (network: `\\192.168.20.4\cnc\Scripts\PGM_MixService`), Windows service `PGMMixService` under NSSM (`--no-tray`; `deploy\install_service.ps1`, remote start/stop scripts).
 - **Runtime endpoint:** `http://<cnc-ip>:8477`; first check `GET /status`. Unauthenticated on the CNC LAN — do not expose it beyond that network.
-- **Mutations are async (since 2026-09-09):** `POST /mixes`, `PUT /mixes/{name}` and the revision-safe `POST /jobs/{job}/materials/{material}/mixes` / `.../{name}/replace` return **202 + an operation**; poll `GET /operations/{id}` (or `GET /jobs/{job}/operations`) before assuming the `.mix` exists.
-- **State ownership:** `definitions.json` owns mix definitions and ordered PGM lists; `operations.json` persists operation history; `config.json` owns paths/limits; `work\` is scratch. Logs: `logs\service.log` (primary), NSSM `logs\service-stdout.log`/`service-stderr.log`. There is **no** `error.log` (the guide is wrong on that).
-- **PGM files:** the service itself never writes PGMs. The opt-in second-pass API (`POST /jobs/{job}/materials/{material}/pgm-edits`, `second_pass_enabled` default **False**) has `2nd Pass Only.exe` mutate them, and mix changes sync `.pgm_edit_history.json` sidecars (writer `C:\Scripts\G_Code_2nd_Pass\pgm_edit_history.py`). `tools\backfill_active_pgm_history.py` reads `Y:\Ready Jobs\production_order.json` read-only.
-- **Safe reorder pattern:** send the complete desired remaining order, or create a new named mix; prefer a new descriptive name when the prior cut order matters. WINXISO's transient `.xxl` and sibling `.bmp` previews are service cleanup artifacts, not tablet metadata.
+- **Two API generations (deployed 2026-11-02):** the **`mix-files` API** (`GET/POST /jobs/{job}/materials/{material}/mix-files...`, synchronous 200, per-file SHA-256 revisions, `OLDn_` backups, FRZ edits) is used by the current tablet source; the **legacy routes** (`POST /mixes`, `PUT /mixes/{name}`, `.../mix-catalog`, `.../mixes`, `.../mixes/{name}/replace`, `external-mixes`) remain file-backed and return **202 + an operation** (poll `/operations/{id}` or `/jobs/{job}/operations`). Definition-only routes return 410. Full contract: the agent guide.
+- **State ownership:** the `.mix`/`.frz` files in each material folder are the only truth for mix contents and order (no JSON copy). `definitions.json` is retired: renamed to `definitions.json.retired` at first start and never read. `operations.json` (async operation history) and `config.json` (paths/limits/`frz_allow_*` flags) are unchanged; `work\` is scratch. Logs: `logs\service.log` (primary), NSSM `logs\service-stdout.log`/`service-stderr.log`. There is **no** `error.log` (the guide is wrong on that).
+- **PGM files:** the service itself never writes PGMs. The opt-in second-pass API (`POST /jobs/{job}/materials/{material}/pgm-edits`, `second_pass_enabled` default **False**) has `2nd Pass Only.exe` mutate them (returns 202 + an operation; writer of `.pgm_edit_history.json`: `C:\Scripts\G_Code_2nd_Pass\pgm_edit_history.py`). Mix changes no longer sync that sidecar and `tools\backfill_active_pgm_history.py` is deleted.
+- **Safe reorder pattern:** send the complete desired order with the file's current `revision`; the service keeps the previous file as `OLDn_<name>` first. An interrupted mix (`.frz`) keeps completed sheets locked; the tablet sends its completed PGMs with the edit.
 
 ## Ownership Map
 
@@ -129,8 +141,9 @@ Use this service when a CNC/tablet workflow needs to create, inspect, reorder, o
 | `Y:\Ready Jobs\.metadata\material_mappings.json` | **writer external/unconfirmed**; HT + tablet READ-ONLY | Door-panel/specialty mapping. A stray `material_mappings.json.lock` on Y suggests an unknown locking writer; PGM Sorting has a same-named LOCAL file (audit SK-04) |
 | `Y:\Ready Jobs\.metadata\themes\active_theme.json`, `themes\*.json`, `themes\graphics\*.svg` | `kkc-theme-generator` skill → `C:\Scripts\KKCSheetTracker\themes\generated\*.json`, copied to the share **by hand**; tablet reads (`KKCThemeRepository.kt`) | Not HT-owned. Schema includes `category`, `boldMode`, `secondary`, `header.badgeText`/`badgeLogoPath` |
 | `Y:\Ready Jobs\.metadata\timeclock_messages.json` | **external message tool** (no writer in any repo); tablet reads | Global shop/tablet timeclock messages (audit SK-03) |
-| `C:\Scripts\PGM_MixService\definitions.json`, `operations.json` | CNC PGM Mix Service | Mix definitions + async operation history; inspect `GET /mixes`, `GET /operations/{id}` before recompiling |
-| `C:\Scripts\PGM_MixService\config.json`, `logs\service.log`, `logs\service-{stdout,stderr}.log` | CNC PGM Mix Service | `GET /status`, then `service.log`; `config.json` must point at the CNC root and `WINXISO.EXE` |
+| `<cnc_root>\<job>\<material>\*.mix`, `*.frz`, `OLDn_*` | CNC PGM Mix Service (writes), PanelMac/operator (also creates) | The truth for mix contents; inspect `GET .../mix-files`. `C:\Scripts\PGM_MixService\definitions.json` is retired to `definitions.json.retired` |
+| `C:\Scripts\PGM_MixService\operations.json` | CNC PGM Mix Service | Async operation history for the legacy routes; inspect `GET /operations/{id}` |
+| `C:\Scripts\PGM_MixService\config.json`, `logs\service.log`, `logs\service-{stdout,stderr}.log` | CNC PGM Mix Service | `GET /status`, then `service.log`; `config.json` must point at the CNC root (`winxiso_*` keys are ignored now) |
 | `Y:\Ready Jobs\production_order.json` | HT admin **and** W (archive removal/rollback `adapters\archive_lifecycle.py`, `archive_scheduling.py`; rename `job_rename.py`); W reads via `adapters\lineup_read.py` | Check HT admin state, then worker lineup refresh / archive operations |
 | `Y:\Ready Jobs\production_order_request.<tabletId>.json` | KST tablet writes (after `/api/admin-sync` fails); HT consumes (`main_v2._apply_production_order_requests`) | Per-tablet; malformed → quarantined as `<name>.rejected`; transient failure must leave it for retry |
 | `Y:\Ready Jobs\job_board.json` | HT admin (`routes\board.py`, `board` lock) **and** W archive/rename | Check HT admin UI/backend, then archive operations |
@@ -314,7 +327,7 @@ Second caveat: `moldingId` includes the category (`"Crown:105"`). When a CV prof
 | Hub name differs between browser and tablet | Hub API `display_name`, Android `TimecardRepository`, HT profile-name precedence |
 | Install/update wrong | `.appupdates\<tabletId>\install-log.ndjson`, versions, logcat `KKCUpdaterWorker`/`TriggerUpdateReceiver` |
 | App crashed / sluggish | `Y:\Ready Jobs\.metadata\crashes` / `cpu_spikes`, then ADB `AndroidRuntime` |
-| Mix not created/updated | Mix Service `GET /operations/{id}`, `service.log`, `definitions.json` |
+| Mix not created/updated | Mix Service `GET /operations/{id}` (legacy routes) or the `mix-files` error code, `service.log`, the `.mix`/`.frz` itself |
 
 ## First Commands
 

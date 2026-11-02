@@ -1,5 +1,13 @@
 # KKC App Update Feed
 
+Latest Sheet Tracker rollout (2026-11-02): **9.0.9 / 90009** published to stable
+through `deploy_update.ps1` after 2,235 merged unit tests and the signed release
+build passed. Published/local/manifest SHA-256 agree; signing identity matches
+9.0.8. Includes revision-aware PGM previews and a Windows JVM sharing-lock fix.
+The CNC Mix Service is updated; native source-preview features stay gated until
+the copied SecondPassEditor setup is installed on the CNC. Publication does not
+assert every shop tablet has installed the update.
+
 Tablets update through each app's own in-app updater (Sheet Tracker's `UpdateManager`
 also offers companion apps). The device-owner `updater-agent` app was removed on
 2026-10-09; nothing here depends on it. Earlier history lived in this file as
