@@ -87,8 +87,10 @@ all PGM writes to `G_Code_2nd_Pass\edit_gcode_cnc_bundled.py:881`; inventory
 previews; it does not write PGMs/history. Editor setup and `--update-cnc` update
 the EXE only via existing SMB/probe access (`remote_editor_update.py:140`), preserving
 service config. Setup is at `\\192.168.20.4\aaaaaaaaaaaaaaaa\0 NEW JOBS\SecondPassEditor-Setup.exe`;
-CNC editor installation remains pending, so `/status` currently advertises only
-`pgm-edits-revert`. See editor rollout report and METADATA_AUDIT.md sign-off.
+CNC editor is installed at `C:\Program Files\Second Pass Editor\2nd Pass Only.exe`;
+live `second_pass_cli_path` uses that override. Win7 self-test and disposable
+Rust-only preview passed; `/status` advertises revert/preview/revisions. See
+editor rollout report and METADATA_AUDIT.md sign-off.
 
 Use this service when a CNC/tablet workflow needs to create, inspect, reorder, or edit a **`.mix` / interrupted `.frz` sequence** built from existing PGM files. It is not a Ready Jobs metadata publisher and does not generate replacement `.pgm` source files. The tablet uses it via `KST data\mixservice\MixServiceClient.kt` (session state DataStore `mix_operation_sessions`).
 

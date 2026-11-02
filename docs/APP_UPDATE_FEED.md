@@ -4,8 +4,9 @@ Latest Sheet Tracker rollout (2026-11-02): **9.0.9 / 90009** published to stable
 through `deploy_update.ps1` after 2,235 merged unit tests and the signed release
 build passed. Published/local/manifest SHA-256 agree; signing identity matches
 9.0.8. Includes revision-aware PGM previews and a Windows JVM sharing-lock fix.
-The CNC Mix Service is updated; native source-preview features stay gated until
-the copied SecondPassEditor setup is installed on the CNC. Publication does not
+The CNC editor is installed at `C:\Program Files\Second Pass Editor`, and the
+Mix Service now advertises native preview/revision support after its path was
+configured and the installed editor passed its Win7 checks. Publication does not
 assert every shop tablet has installed the update.
 
 Tablets update through each app's own in-app updater (Sheet Tracker's `UpdateManager`
