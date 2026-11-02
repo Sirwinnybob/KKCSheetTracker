@@ -5,6 +5,7 @@ import com.kkc.sheettracker.data.mixservice.MixOperationService
 import com.kkc.sheettracker.data.mixservice.MixServiceOperation
 import com.kkc.sheettracker.data.mixservice.PgmEditHistoryView
 import com.kkc.sheettracker.data.mixservice.PgmEditRow
+import com.kkc.sheettracker.data.mixservice.PgmNotice
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -125,18 +126,24 @@ class SecondPassRunner(
     private val service: MixOperationService,
     private val revert: suspend (job: String, material: String, requestId: String, pgms: List<String>) -> MixServiceOperation,
     private val requestId: () -> String,
+    private val revisions: SecondPassRevisionSupport? = null,
+    private val onNotices: (List<PgmNotice>) -> Unit = {},
 ) {
     suspend fun apply(job: String, material: String, plan: List<SecondPassStep>, onProgress: (String) -> Unit): SecondPassOutcome {
         var completedStep = false
         var submitted = false
+        var activeHashes = revisions?.snapshot?.hashes.orEmpty()
         try {
+            revisions?.preflight(plan)
             for (step in plan) {
                 currentCoroutineContext().ensureActive()
+                val editRows = (step as? SecondPassStep.Edit)?.let { revisions?.editRows(it.rows, activeHashes) ?: it.rows }
+                val revertRows = (step as? SecondPassStep.Revert)?.let { revisions?.revertRows(it.pgms, activeHashes) }
                 val id = requestId()
                 submitted = true // A transport failure after this point leaves the CNC outcome uncertain.
                 var operation = when (step) {
-                    is SecondPassStep.Edit -> service.submitPgmEdits(job, material, id, step.rows)
-                    is SecondPassStep.Revert -> revert(job, material, id, step.pgms)
+                    is SecondPassStep.Edit -> service.submitPgmEdits(job, material, id, editRows!!)
+                    is SecondPassStep.Revert -> if (revisions != null) revisions.revert(job, material, id, revertRows!!) else revert(job, material, id, step.pgms)
                 }
                 onProgress(operation.stage)
                 while (!operation.isTerminal) {
@@ -150,7 +157,8 @@ class SecondPassRunner(
                     // These service/CLI refusals precede all file writes. A previous successful
                     // plan step still needs recorded read-back, even when this step was refused.
                     val refused = !completedStep && operation.state == "failed" &&
-                        (disabled || operation.code in setOf("invalid_edit_request", "missing_program", "compile_busy", "edit_busy"))
+                        (operation.mutation == "refused_before_mutation" || (operation.mutation == null &&
+                            (disabled || operation.code in setOf("invalid_edit_request", "missing_program", "compile_busy", "edit_busy"))))
                     return SecondPassOutcome.Failed(operation.code,
                         if (disabled) "Second-pass editing is switched off on the CNC" else operation.error ?: "Second-pass operation ${operation.state}",
                         completedStep || operation.state == "interrupted",
@@ -161,10 +169,18 @@ class SecondPassRunner(
                 }
                 completedStep = true
                 submitted = false
+                onNotices(secondPassNotices(operation.result))
+                if (step is SecondPassStep.Revert && revisions != null) {
+                    onProgress("Refreshing restored CNC revisions")
+                    activeHashes = revisions.afterRestore(step.pgms, activeHashes)
+                }
             }
             return SecondPassOutcome.Done
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (refused: RevisionRefused) {
+            return SecondPassOutcome.Failed("pgm_changed", refused.message ?: "Refresh CNC revisions", completedStep || submitted,
+                if (!completedStep && !submitted) SecondPassMutation.REFUSED_BEFORE_MUTATION else SecondPassMutation.UNCERTAIN)
         } catch (failure: Exception) {
             // Never retry a mutation whose acceptance/result is uncertain.
             return SecondPassOutcome.Failed(null, failure.message ?: "Unable to confirm the CNC operation. Reload CNC history before applying again.", completedStep || submitted)
@@ -181,3 +197,13 @@ class SecondPassRunner(
         }
     } catch (_: Exception) { false }
 }
+
+private fun secondPassNotices(result: Any?): List<PgmNotice> = runCatching {
+    val root = Gson().toJsonTree(result).asJsonObject
+    root.getAsJsonArray("files").flatMap { item ->
+        val file = item.asJsonObject
+        val notices = file.getAsJsonArray("notices")?.map { Gson().fromJson(it, PgmNotice::class.java) }.orEmpty()
+        val fallback = file.getAsJsonObject("conversion")?.getAsJsonArray("fallbackReasons")
+        notices + if (fallback != null && fallback.size() > 0) listOf(PgmNotice("scm_fallback", "SCM fallback used for ${file["name"]?.asString ?: "a PGM"}")) else emptyList()
+    }
+}.getOrDefault(emptyList())

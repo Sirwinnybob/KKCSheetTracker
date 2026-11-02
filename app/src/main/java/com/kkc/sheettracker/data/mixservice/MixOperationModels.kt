@@ -29,6 +29,7 @@ data class MixServiceOperation(
     val code: String? = null,
     val result: Any? = null,
     val warning: MixOperationWarning? = null,
+    val mutation: String? = null,
 ) {
     val isTerminal: Boolean get() = state in TERMINAL_STATES
 

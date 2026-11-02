@@ -3,13 +3,17 @@ package com.kkc.sheettracker.data.mixservice
 data class PgmInventoryItem(
     val name: String = "",
     val size: Long = 0,
-    val mtime: Long = 0
+    val mtime: Long = 0,
+    val sha256: String? = null,
+    val revisionError: String? = null,
 )
 
 data class PgmEditRow(
     val name: String,
     val secondPass: String,
-    val removePUnload: Boolean
+    val removePUnload: Boolean,
+    val expectedSha256: String? = null,
+    val expectedSourceSha256: String? = null,
 )
 
 data class PgmEditBatchRequest(

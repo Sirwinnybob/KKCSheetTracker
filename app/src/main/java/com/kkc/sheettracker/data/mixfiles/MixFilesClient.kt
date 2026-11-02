@@ -79,12 +79,19 @@ class MixFilesClient(
 
     /** Capability is checked before POST: old services must never be probed with a mutation. */
     suspend fun submitPgmEditRevert(job: String, material: String, requestId: String, pgms: List<String>): MixServiceOperation {
-        if ("pgm-edits-revert" !in features()) throw MixOperationClientException("Second-pass revert is not supported by this CNC")
+        return submitPgmEditRevertRows(job, material, requestId, pgms.map { com.kkc.sheettracker.data.mixservice.PgmRevertRow(it) })
+    }
+
+    suspend fun submitPgmEditRevertRows(job: String, material: String, requestId: String, pgms: List<com.kkc.sheettracker.data.mixservice.PgmRevertRow>): MixServiceOperation {
+        val supported = features()
+        if ("pgm-edits-revert" !in supported) throw MixOperationClientException("Second-pass revert is not supported by this CNC")
+        if (pgms.any { it.expectedSha256 != null } && "pgm-edit-revisions" !in supported) throw MixOperationClientException("Revision checks need a CNC editor update")
         val body = JsonObject().apply {
             addProperty("requestId", requestId)
             add("files", JsonArray().apply { pgms.forEach { pgm -> add(JsonObject().apply {
-                addProperty("name", pgm)
+                addProperty("name", pgm.name)
                 addProperty("to", "original")
+                pgm.expectedSha256?.let { addProperty("expectedSha256", it) }
             }) } })
         }
         val endpoint = root().addPathSegment("jobs").addPathSegment(job)

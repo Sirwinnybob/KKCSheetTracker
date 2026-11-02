@@ -29,19 +29,22 @@ class MixServiceClient(private val baseUrl: String = com.kkc.sheettracker.data.c
         private val mutationClient = client.newBuilder().retryOnConnectionFailure(false).build()
     }
 
-    suspend fun listPgms(job: String, material: String): List<PgmInventoryItem> = withContext(Dispatchers.IO) {
+    suspend fun listPgms(job: String, material: String, withSha256: Boolean = false): List<PgmInventoryItem> = withContext(Dispatchers.IO) {
         val url = "$root/jobs/".toHttpUrl().newBuilder()
             .addPathSegment(job)
             .addPathSegment("materials")
             .addPathSegment(material)
             .addPathSegment("pgms")
+            .apply { if (withSha256) addQueryParameter("withSha256", "true") }
             .build()
         val request = Request.Builder().url(url).get().build()
         runCatching {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@use emptyList()
                 val body = response.body?.string() ?: return@use emptyList()
-                gson.fromJson(body, PgmListEnvelope::class.java)?.pgms.orEmpty()
+                gson.fromJson(body, PgmListEnvelope::class.java)?.pgms.orEmpty().map { item ->
+                    if (item.sha256 == null || validPgmHash(item.sha256)) item else item.copy(sha256 = null, revisionError = "Invalid CNC revision")
+                }
             }
         }.getOrDefault(emptyList())
     }
@@ -88,7 +91,11 @@ class MixServiceClient(private val baseUrl: String = com.kkc.sheettracker.data.c
         material: String,
         requestId: String,
         files: List<PgmEditRow>
-    ): MixServiceOperation = submitOperation(
+    ): MixServiceOperation {
+        if (files.any { it.expectedSha256 != null || it.expectedSourceSha256 != null } && "pgm-edit-revisions" !in editorFeatures()) {
+            throw MixOperationClientException("The CNC editor needs an update for revision checks")
+        }
+        return submitOperation(
         url = "$root/jobs/".toHttpUrl().newBuilder()
             .addPathSegment(job)
             .addPathSegment("materials")
@@ -98,6 +105,22 @@ class MixServiceClient(private val baseUrl: String = com.kkc.sheettracker.data.c
         method = "POST",
         payload = PgmEditBatchRequest(requestId, files),
     )
+    }
+
+    suspend fun editorFeatures(): Set<String> = withContext(Dispatchers.IO) {
+        client.newCall(Request.Builder().url("$root/status").get().build()).execute().use { response ->
+            if (!response.isSuccessful) emptySet() else com.kkc.sheettracker.data.mixfiles.MixFilesJson.parseFeatures(response.body?.string().orEmpty())
+        }
+    }
+
+    suspend fun submitPgmPreview(job: String, material: String, requestId: String, row: PgmEditRow,
+        restoreOriginal: Boolean = false): MixServiceOperation {
+        if ("pgm-edit-preview" !in editorFeatures()) throw MixOperationClientException("Source preview needs a CNC service update")
+        return submitOperation(url = "$root/jobs/".toHttpUrl().newBuilder().addPathSegment(job)
+            .addPathSegment("materials").addPathSegment(material).addPathSegment("pgm-edits").addPathSegment("preview").build(),
+            method = "POST", payload = PgmPreviewRequest(requestId, listOf(PgmPreviewRow(row.name, row.secondPass,
+                row.removePUnload, row.expectedSha256, restoreOriginal))))
+    }
 
     override suspend fun getOperation(id: String): MixServiceOperation = withContext(Dispatchers.IO) {
         val url = "$root/operations/".toHttpUrl().newBuilder().addPathSegment(id).build()

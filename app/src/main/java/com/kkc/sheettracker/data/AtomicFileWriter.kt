@@ -33,19 +33,26 @@ internal fun atomicWriteFile(target: File, body: String) {
     var moved = false
     try {
         temp.writeText(body)
-        try {
-            Files.move(
-                temp.toPath(),
-                target.toPath(),
-                StandardCopyOption.REPLACE_EXISTING,
-                StandardCopyOption.ATOMIC_MOVE
-            )
-        } catch (_: AtomicMoveNotSupportedException) {
-            Files.move(
-                temp.toPath(),
-                target.toPath(),
-                StandardCopyOption.REPLACE_EXISTING
-            )
+        var sharingRetries = 0
+        while (true) {
+            try {
+                try {
+                    Files.move(
+                        temp.toPath(), target.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE
+                    )
+                } catch (_: AtomicMoveNotSupportedException) {
+                    Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }
+                break
+            } catch (failure: java.nio.file.AccessDeniedException) {
+                // Windows JVM tests read these same files while async stores publish.
+                // Such readers deny delete sharing until their handle closes. Keep
+                // the staged bytes and retry the rename only; Android remains unchanged.
+                if (!System.getProperty("os.name").orEmpty().startsWith("Windows") ||
+                    !target.isFile || sharingRetries++ >= 100) throw failure
+                Thread.sleep(10)
+            }
         }
         moved = true
     } finally {

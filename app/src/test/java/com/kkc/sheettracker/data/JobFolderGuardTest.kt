@@ -77,6 +77,33 @@ class JobFolderGuardTest {
     }
 
     @Test
+    fun windowsReaderTemporarilyBlockingReplacementDoesNotLoseTheWrite() {
+        org.junit.Assume.assumeTrue(System.getProperty("os.name").startsWith("Windows"))
+        val dir = base()
+        val target = File(dir, "out.json").apply { writeText("old") }
+        val reader = java.io.FileInputStream(target)
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val started = java.util.concurrent.CountDownLatch(1)
+        try {
+            val write = executor.submit {
+                started.countDown()
+                atomicWriteFile(target, "new")
+            }
+            assertTrue(started.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            Thread.sleep(50)
+            assertFalse("transient reader sharing must not fail the write", write.isDone)
+            assertEquals("old", target.readText())
+            reader.close()
+            write.get(2, java.util.concurrent.TimeUnit.SECONDS)
+            assertEquals("new", target.readText())
+            assertEquals(listOf("out.json"), dir.list()!!.toList())
+        } finally {
+            reader.close()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
     fun debouncerShowsAtMostOncePerJobPerWindow() {
         val d = JobFolderGuardDebouncer(windowMs = 10_000L)
         assertTrue(d.shouldShow("670", 1_000L))
