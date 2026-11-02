@@ -113,9 +113,12 @@ fun secondPassRequestIds(deviceId: String, epochMs: () -> Long = System::current
     } }
 }
 
+enum class SecondPassMutation { UNCERTAIN, REFUSED_BEFORE_MUTATION }
+
 sealed interface SecondPassOutcome {
     data object Done : SecondPassOutcome
-    data class Failed(val code: String?, val message: String, val partial: Boolean) : SecondPassOutcome
+    data class Failed(val code: String?, val message: String, val partial: Boolean,
+        val mutation: SecondPassMutation = SecondPassMutation.UNCERTAIN) : SecondPassOutcome
 }
 
 class SecondPassRunner(
@@ -143,10 +146,15 @@ class SecondPassRunner(
                     onProgress(operation.stage)
                 }
                 if (operation.state != "completed") {
-                    val disabled = operation.code == "edit_failed" && operation.error.orEmpty().contains("disabled", ignoreCase = true)
+                    val disabled = operation.code == "edit_failed" && operation.error == "second-pass PGM editing is disabled"
+                    // These service/CLI refusals precede all file writes. A previous successful
+                    // plan step still needs recorded read-back, even when this step was refused.
+                    val refused = !completedStep && operation.state == "failed" &&
+                        (disabled || operation.code in setOf("invalid_edit_request", "missing_program", "compile_busy", "edit_busy"))
                     return SecondPassOutcome.Failed(operation.code,
                         if (disabled) "Second-pass editing is switched off on the CNC" else operation.error ?: "Second-pass operation ${operation.state}",
-                        completedStep || operation.state == "interrupted")
+                        completedStep || operation.state == "interrupted",
+                        if (refused) SecondPassMutation.REFUSED_BEFORE_MUTATION else SecondPassMutation.UNCERTAIN)
                 }
                 if (!successfulFiles(operation.result)) {
                     return SecondPassOutcome.Failed(operation.code, "Second-pass operation did not succeed for every file. Reload CNC history before applying again.", true)

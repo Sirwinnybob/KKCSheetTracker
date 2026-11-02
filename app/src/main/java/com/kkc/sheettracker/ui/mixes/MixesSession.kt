@@ -23,8 +23,10 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
     var secondHistoryConfirmed by mutableStateOf(false); private set
     var historyLoading by mutableStateOf(false); private set
     var secondMessage by mutableStateOf<String?>(null)
-    // Once submitted, bootstrap permission cannot stand in for read-back verification, even on Retry.
+    // Uncertain submissions need recorded read-back, even on Retry. Only a proven refusal
+    // can release the requirement added by that submission; older requirements survive.
     private var pendingHistoryVerification: Set<String> = emptySet()
+    private var refusedSecondMessage: String? = null
     var history by mutableStateOf<PgmEditHistoryView?>(null); private set
     var rebaseMessage by mutableStateOf<String?>(null); private set
     var mixSaveBlockedReason by mutableStateOf<String?>(null); private set
@@ -66,7 +68,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
     fun discardSecond(): Boolean {
         if (secondApplying) return false
         secondPass = secondPass?.let { it.copy(wanted = it.current) }
-        if (secondHistoryConfirmed) secondMessage = null
+        if (secondHistoryConfirmed) { secondMessage = null; refusedSecondMessage = null }
         return true
     }
     fun abandonAll(latest: MixFilesCatalog?): Boolean {
@@ -175,10 +177,10 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
                 this.history = history
                 pendingHistoryVerification = emptySet()
                 secondPass = mergeWanted(SecondPassDrafts.from(history, pgms), secondPass)
-                secondMessage = if (!history.records(pgms)) NO_RECORDED_STATE else null
-            } else secondMessage = HISTORY_FAILURE
+                secondMessage = historyMessage(if (!history.records(pgms)) NO_RECORDED_STATE else null)
+            } else secondMessage = historyMessage(HISTORY_FAILURE)
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { secondMessage = HISTORY_FAILURE }
+        catch (_: Exception) { secondMessage = historyMessage(HISTORY_FAILURE) }
         finally { historyLoading = false }
     }
     suspend fun saveSecond(locked: () -> List<String>, submit: suspend (SecondPassDraft) -> SecondPassOutcome,
@@ -193,11 +195,18 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
         if (submitted.changeCount == 0) return // Nothing unlocked remains: never call the runner.
         secondApplying = true
         secondHistoryConfirmed = false
-        pendingHistoryVerification = submitted.wanted.filter { (pgm, state) -> state != submitted.current.pgmValue(pgm) }.keys
+        val earlierVerification = pendingHistoryVerification
+        val previouslyRecorded = this.history?.files?.keys.orEmpty()
+        pendingHistoryVerification = earlierVerification + submitted.wanted.filter { (pgm, state) -> state != submitted.current.pgmValue(pgm) }.keys
+        refusedSecondMessage = null
         try {
             val outcome = submit(submitted)
+            if (outcome is SecondPassOutcome.Failed && !outcome.partial && outcome.mutation == SecondPassMutation.REFUSED_BEFORE_MUTATION) {
+                pendingHistoryVerification = earlierVerification
+                refusedSecondMessage = outcome.message
+            }
             val history = load()
-            secondHistoryConfirmed = history?.records(pendingHistoryVerification) == true
+            secondHistoryConfirmed = history?.records(previouslyRecorded + pendingHistoryVerification) == true
             if (secondHistoryConfirmed && history != null) {
                 this.history = history
                 pendingHistoryVerification = emptySet()
@@ -206,12 +215,17 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
             }
             secondMessage = when (outcome) {
                 SecondPassOutcome.Done -> if (secondHistoryConfirmed) "Second-pass changes applied" else "Changes submitted. $HISTORY_FAILURE"
-                is SecondPassOutcome.Failed -> outcome.message + if (!secondHistoryConfirmed) " $HISTORY_FAILURE" else ""
+                is SecondPassOutcome.Failed -> outcome.message + when {
+                    !secondHistoryConfirmed -> " $HISTORY_FAILURE"
+                    history?.records(submitted.wanted.keys) != true -> " $NO_RECORDED_STATE"
+                    else -> ""
+                }
             }
-        } catch (cancelled: CancellationException) { secondMessage = HISTORY_FAILURE; throw cancelled }
-        catch (_: Exception) { secondHistoryConfirmed = false; secondMessage = "Couldn't confirm second-pass changes. Reload history before applying again." }
+        } catch (cancelled: CancellationException) { secondMessage = historyMessage(HISTORY_FAILURE); throw cancelled }
+        catch (_: Exception) { secondHistoryConfirmed = false; secondMessage = historyMessage("Couldn't confirm second-pass changes. Reload history before applying again.") }
         finally { secondApplying = false }
     }
+    private fun historyMessage(note: String?): String? = listOfNotNull(refusedSecondMessage, note).takeIf { it.isNotEmpty() }?.joinToString(" ")
     private fun mergeWanted(fresh: SecondPassDraft, old: SecondPassDraft?): SecondPassDraft {
         val deltas = old?.wanted.orEmpty().filter { (pgm, state) -> state != old?.current?.pgmValue(pgm) }
         return deltas.entries.fold(fresh) { draft, (pgm, wanted) -> SecondPassDrafts.set(draft, pgm, wanted) }
