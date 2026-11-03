@@ -22,8 +22,8 @@ class MixServiceClient(private val baseUrl: String = com.kkc.sheettracker.data.c
 
     companion object {
         private val client = OkHttpClient.Builder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
             .build()
         // POST acceptance may be lost after the CNC has already queued the mutation.
         private val mutationClient = client.newBuilder().retryOnConnectionFailure(false).build()

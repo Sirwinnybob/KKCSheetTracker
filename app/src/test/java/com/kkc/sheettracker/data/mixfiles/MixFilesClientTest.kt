@@ -67,10 +67,40 @@ class MixFilesClientTest {
     }
 
     @Test fun serverBusyAndSocketErrorAreOffline() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(503).setBody("""{"ok":false,"code":"server_busy","error":"try later"}"""))
+        repeat(6) { server.enqueue(MockResponse().setResponseCode(503).setBody("""{"ok":false,"code":"server_busy","error":"try later"}""")) }
         assertEquals(MixFilesResult.Offline, client().catalog("J", "M"))
         server.shutdown()
         assertEquals(MixFilesResult.Offline, client().catalog("J", "M"))
+    }
+
+    @Test fun busySaveRetriesOnlyAfterExplicitRefusal() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(503).setBody("""{"ok":false,"code":"server_busy","error":"server is busy"}"""))
+        success()
+        assertTrue(client().write("J", "M", "A.mix", "r", emptyList(), null) is MixFilesResult.Ok)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun busyReadRetriesAndRecovers() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(503).setBody("""{"ok":false,"code":"server_busy","error":"server is busy"}"""))
+        server.enqueue(MockResponse().setBody(MixFilesJsonTest.SAMPLE))
+        assertTrue(client().catalog("J", "M") is MixFilesResult.Ok)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun saveIsNotRetriedAfterBusyThenLostResponse() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(503).setBody("""{"ok":false,"code":"server_busy","error":"server is busy"}"""))
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+        success()
+        assertEquals(MixFilesResult.Offline, client().write("J", "M", "A.mix", "r", emptyList(), null))
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun saveWaitsLongerThanReadTimeoutForSlowCnc() = runBlocking {
+        val http = OkHttpClient.Builder().readTimeout(100, TimeUnit.MILLISECONDS).build()
+        server.enqueue(MockResponse().setHeadersDelay(300, TimeUnit.MILLISECONDS)
+            .setBody("""{"ok":true,"catalog":{"job":"J","material":"M","folderRevision":"new","files":[]}}"""))
+        assertTrue(client(http).write("J", "M", "A.mix", "r", emptyList(), null) is MixFilesResult.Ok)
+        assertEquals(1, server.requestCount)
     }
 
     @Test fun timeoutAndUnparsableBodiesAreOffline() = runBlocking {
