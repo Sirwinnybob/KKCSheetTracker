@@ -8,8 +8,10 @@ import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.kkc.sheettracker.data.mixfiles.MixFilesJson.revision
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
+import okhttp3.ConnectionPool
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -22,7 +24,11 @@ class MixFilesClient(
     private val machine: CncMachine,
     private val http: OkHttpClient = DEFAULT_HTTP,
 ) : MixFilesApi {
-    private val mutationHttp = http.newBuilder().retryOnConnectionFailure(false).build()
+    // The CNC uses HTTP/1.0 and may close a read connection while OkHttp is
+    // taking it from the shared pool. Never put a non-replayable write on one.
+    private val mutationHttp = http.newBuilder().connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
+        .retryOnConnectionFailure(false)
+        .readTimeout(90, TimeUnit.SECONDS).writeTimeout(30, TimeUnit.SECONDS).build()
     override suspend fun catalog(job: String, material: String): MixFilesResult<MixFilesCatalog> =
         execute(Request.Builder().url(url(job, material)).get().build(), MixFilesJson::parseCatalog)
 
@@ -131,29 +137,38 @@ class MixFilesClient(
             .post(MixFilesJson.stringify(body).toRequestBody(JSON_MEDIA_TYPE)).build(), MixFilesJson::parseMutationCatalog)
 
     private suspend fun <T> execute(request: Request, parse: (String) -> T?): MixFilesResult<T> = withContext(Dispatchers.IO) {
-        try {
-            (if (request.method == "GET") http else mutationHttp).newCall(request).execute().use { response ->
-                val body = response.body?.string() ?: return@use MixFilesResult.Offline
-                if (response.isSuccessful) {
-                    parse(body)?.let { MixFilesResult.Ok(it) } ?: MixFilesResult.Offline
-                } else {
-                    val error = MixFilesJson.parseError(body, response.code) ?: return@use MixFilesResult.Offline
-                    when {
-                        response.code == 404 && error.message.startsWith("unknown route") -> MixFilesResult.ServiceOutdated
-                        response.code == 503 && error.code == "server_busy" -> MixFilesResult.Offline
-                        else -> MixFilesResult.Rejected(error)
+        val retryDelays = longArrayOf(500, 1000, 2000, 3000, 5000)
+        for (attempt in 0..retryDelays.size) {
+            var busy = false
+            val result: MixFilesResult<T> = try {
+                (if (request.method == "GET") http else mutationHttp).newCall(request).execute().use { response ->
+                    val body = response.body?.string() ?: return@use MixFilesResult.Offline
+                    if (response.isSuccessful) {
+                        parse(body)?.let { MixFilesResult.Ok(it) } ?: MixFilesResult.Offline
+                    } else {
+                        val error = MixFilesJson.parseError(body, response.code) ?: return@use MixFilesResult.Offline
+                        when {
+                            response.code == 404 && error.message.startsWith("unknown route") -> MixFilesResult.ServiceOutdated
+                            response.code == 503 && error.code == "server_busy" -> { busy = true; MixFilesResult.Offline }
+                            else -> MixFilesResult.Rejected(error)
+                        }
                     }
                 }
+            } catch (_: IOException) {
+                MixFilesResult.Offline
             }
-        } catch (_: IOException) {
-            MixFilesResult.Offline
+            // The service returns server_busy before dispatching the request. A lost
+            // response is ambiguous, so never retry a mutation after an IO failure.
+            if (!busy || attempt == retryDelays.size) return@withContext result
+            delay(retryDelays[attempt])
         }
+        MixFilesResult.Offline
     }
 
     companion object {
         private val DEFAULT_HTTP = OkHttpClient.Builder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
             .build()
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }

@@ -50,6 +50,7 @@ class MixFilesStore(
     private var generation = 0L
     // A successful write may publish while a read is suspended. Its result must win.
     private var version = 0L
+    private var consecutiveOffline = 0
     private var pollJob: Job? = null
 
     init { require(pollMs > 0) }
@@ -116,6 +117,7 @@ class MixFilesStore(
                     is MixFilesResult.Ok -> {
                         val held = catalog
                         if (held != null && held.folderRevision == revision.value) {
+                            consecutiveOffline = 0
                             mutableState.value = CatalogState.Live(held)
                             false
                         } else true
@@ -144,6 +146,7 @@ class MixFilesStore(
 
     /** Called under lock; persist only if this is still the newest accepted snapshot. */
     private fun accept(next: MixFilesCatalog) {
+        consecutiveOffline = 0
         catalog = next
         mutableState.value = CatalogState.Live(next)
         val acceptedVersion = ++version
@@ -155,6 +158,8 @@ class MixFilesStore(
     }
 
     private fun failure(result: MixFilesResult<*>, catalogRequest: Boolean) {
+        if (result is MixFilesResult.Offline && mutableState.value is CatalogState.Live && ++consecutiveOffline < 3) return
+        if (result !is MixFilesResult.Offline) consecutiveOffline = 0
         mutableState.value = when {
             result is MixFilesResult.ServiceOutdated -> CatalogState.Outdated(catalog)
             catalogRequest && result is MixFilesResult.Rejected && result.error.code == "not_found" -> CatalogState.NoFolder

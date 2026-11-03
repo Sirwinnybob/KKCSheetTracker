@@ -81,6 +81,10 @@ class MixFilesStoreTest {
         val lease = store.acquire(); runCurrent()
         api.revisionResult = MixFilesResult.Offline
         advanceTimeBy(3_000); runCurrent()
+        assertEquals(CatalogState.Live(first), store.state.value)
+        advanceTimeBy(3_000); runCurrent()
+        assertEquals(CatalogState.Live(first), store.state.value)
+        advanceTimeBy(3_000); runCurrent()
         assertEquals(CatalogState.Offline(first), store.state.value)
         api.revisionResult = MixFilesResult.Ok("folder-1")
         advanceTimeBy(3_000); runCurrent()
@@ -99,6 +103,31 @@ class MixFilesStoreTest {
         response.complete(MixFilesResult.Ok(second)); runCurrent()
         assertEquals(CatalogState.Live(second), store.state.value)
         assertEquals(second, cache().read(key))
+        lease.close()
+    }
+
+    @Test fun successfulPollResetsOfflineGrace() = runTest(StandardTestDispatcher()) {
+        val api = FakeApi(first)
+        val store = store(api)
+        val lease = store.acquire(); runCurrent()
+        api.revisionResult = MixFilesResult.Offline
+        repeat(2) { advanceTimeBy(3_000); runCurrent() }
+        api.revisionResult = MixFilesResult.Ok(first.folderRevision)
+        advanceTimeBy(3_000); runCurrent()
+        api.revisionResult = MixFilesResult.Offline
+        repeat(2) { advanceTimeBy(3_000); runCurrent() }
+        assertEquals(CatalogState.Live(first), store.state.value)
+        lease.close()
+    }
+
+    @Test fun changedRevisionWithRepeatedCatalogFailuresEventuallyGoesOffline() = runTest(StandardTestDispatcher()) {
+        val api = FakeApi(first)
+        val store = store(api)
+        val lease = store.acquire(); runCurrent()
+        api.revisionResult = MixFilesResult.Ok(second.folderRevision)
+        api.catalogResult = MixFilesResult.Offline
+        repeat(3) { advanceTimeBy(3_000); runCurrent() }
+        assertEquals(CatalogState.Offline(first), store.state.value)
         lease.close()
     }
 
