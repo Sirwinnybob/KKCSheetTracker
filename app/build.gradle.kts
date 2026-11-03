@@ -20,8 +20,8 @@ android {
         applicationId = "com.kkc.sheettracker"
         minSdk = 26
         targetSdk = 36
-        versionCode = 90010
-        versionName = "9.0.10"
+        versionCode = 90013
+        versionName = "9.0.13"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
