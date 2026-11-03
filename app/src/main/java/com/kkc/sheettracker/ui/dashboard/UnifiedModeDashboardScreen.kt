@@ -56,13 +56,6 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
-import com.kkc.sheettracker.KKCApplication
-import com.kkc.sheettracker.ui.mixes.machineStatusLabel
-import kotlinx.coroutines.awaitCancellation
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.asImageBitmap
@@ -205,7 +198,7 @@ private fun CncDashboardContent(
     val scanState by scanCoordinator.state.collectAsState()
     val dashboard by appStateStore.dashboardUiModel.collectAsState()
     val cncProjection by appStateStore.cncProjection.collectAsState()
-    val cncMarks = rememberCncSheetMarks(appStateStore)
+    val cncMarks = rememberCncDashboardMarks(appStateStore)
     val appUiState by appStateStore.uiState.collectAsState()
     val appFlags = appStateFlags.snapshot()
     val lowEnd = LocalLowEndMode.current
@@ -247,7 +240,6 @@ private fun CncDashboardContent(
         hasContent = widgets.isNotEmpty(),
         topBarActions = { modeSwitcher?.invoke(this) }
     ) {
-        if (appStateStore.machineStatusEnabled) CncMachineStatusOverview()
         DashboardWidgetRenderer(
             widgets = nonRecentWidgets,
             onStatAction = {
@@ -374,7 +366,7 @@ internal fun CncRecentMaterialsSection(
     jobRepository: JobRepository,
     onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit,
     cncProjection: CncAppStateProjection = CncAppStateProjection(),
-    cncMarks: CncSheetMarks = CncSheetMarks(),
+    cncMarks: List<Pair<String, CncSheetMarks>> = emptyList(),
     onOpenLoadedSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit = onOpenSheet,
 ) {
     val presentation = remember(items, cncProjection, cncMarks) { projectCncDashboard(items, cncProjection, cncMarks) }
@@ -416,7 +408,7 @@ internal fun CncRecentMaterialsSection(
                         presentation.rows.forEach { row ->
                             if (row is CncDashboardRow.Unknown) {
                                 Column(Modifier.width(268.dp).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(row.name, style = MaterialTheme.typography.titleMedium)
+                                    Text(listOfNotNull(row.machine, row.name).joinToString(" · "), style = MaterialTheme.typography.titleMedium)
                                     Text(if (row.running) "Running" else "Loaded · idle",
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
@@ -424,7 +416,7 @@ internal fun CncRecentMaterialsSection(
                             }
                             val materialRow = row as CncDashboardRow.Material
                             val item = materialRow.item
-                            key(item.jobFolderName, item.pdfFilename) {
+                            key(item.jobFolderName, item.pdfFilename, materialRow.openPage, materialRow.pill?.dashboardText) {
                                 val thumbnail by produceState<Bitmap?>(
                                     initialValue = null,
                                     item.jobFolderName,
@@ -716,29 +708,6 @@ private fun renderPdfThumbnail(
         bitmap
     } catch (_: Exception) {
         null
-    }
-}
-
-@Composable
-private fun CncMachineStatusOverview() {
-    val app = LocalContext.current.applicationContext as KKCApplication
-    val owner = LocalLifecycleOwner.current
-    val red = app.machineStatusStore
-    val blue = app.newMachineStatusStore
-    val redStatus by red.status.collectAsState()
-    val blueStatus by blue.status.collectAsState()
-    LaunchedEffect(owner, red, blue) {
-        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            val redLease = red.acquire()
-            val blueLease = blue.acquire()
-            try { awaitCancellation() } finally { blueLease.close(); redLease.close() }
-        }
-    }
-    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-            Text(machineStatusLabel("Red SCM", redStatus), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(machineStatusLabel("Blue SCM", blueStatus), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
     }
 }
 

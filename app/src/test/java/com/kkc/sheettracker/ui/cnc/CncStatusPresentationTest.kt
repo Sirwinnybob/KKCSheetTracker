@@ -40,6 +40,30 @@ class CncStatusPresentationTest {
         assertEquals(listOf(CncDashboardRow.Unknown("UNKNOWN", false)), projectCncDashboard(emptyList(), projection, unknown).rows)
         assertEquals(listOf(CncDashboardRow.Unknown("R82010BN", true)), projectCncDashboard(emptyList(), CncAppStateProjection(), marks()).rows)
     }
+    @Test fun bothMachinesAppearOnRecentCardsWithTheirOwnPills() {
+        val blueRef = ref.copy(pdfFilename = "other.pdf", page = 3)
+        val blueItem = item.copy(pdfFilename = blueRef.pdfFilename)
+        val bothProjection = projection.copy(materialRows = projection.materialRows + (JobMaterialKey(blueRef.jobFolderName, blueRef.pdfFilename) to blueItem))
+        val machines = listOf("Red SCM" to marks(), "Blue SCM" to CncSheetMarks(CncLoadedMark.Matched(blueRef, "R2", false)))
+        val result = projectCncDashboard(listOf(item, blueItem), bothProjection, machines)
+        val cards = result.rows.filterIsInstance<CncDashboardRow.Material>()
+        assertEquals(2, cards.size)
+        assertEquals("RED SCM · ON CNC", cards[0].pill?.dashboardText)
+        assertEquals("BLUE SCM · LOADED · IDLE", cards[1].pill?.dashboardText)
+        assertEquals(3, cards[1].openPage)
+    }
+    @Test fun sameMaterialOnBothMachinesKeepsBothProgramCards() {
+        val blue = CncSheetMarks(CncLoadedMark.Matched(ref.copy(page = 7), "R2", true))
+        val result = projectCncDashboard(listOf(item), projection, listOf("Red SCM" to marks(), "Blue SCM" to blue))
+        val cards = result.rows.filterIsInstance<CncDashboardRow.Material>()
+        assertEquals(2, cards.size)
+        assertEquals(listOf(11, 7), cards.map { it.openPage })
+    }
+    @Test fun unmatchedProgramNamesItsMachineWithoutGuessingMaterial() {
+        val result = projectCncDashboard(listOf(item), projection, listOf("Blue SCM" to CncSheetMarks(CncLoadedMark.Unmatched("R2", true))))
+        assertEquals(CncDashboardRow.Unknown("R2", true, "Blue SCM"), result.rows.first())
+        assertEquals(item, (result.rows.last() as CncDashboardRow.Material).item)
+    }
     @Test fun loadedPillWinsAfterReloadAndCopyMatchesEveryPlacement() {
         val reloaded = marks().copy(lastFinished = CncFinishedMark(ref, "7:04"))
         val loaded = cncPillForSheet(reloaded, ref)!!

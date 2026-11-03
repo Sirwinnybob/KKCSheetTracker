@@ -39,3 +39,34 @@ internal fun rememberCncSheetMarks(
     return marks
 }
 
+
+/** Observe each controller independently while the CNC dashboard is visible. */
+@Composable
+internal fun rememberCncDashboardMarks(appStateStore: AppStateStore): List<Pair<String, CncSheetMarks>> {
+    val owner = LocalLifecycleOwner.current
+    val app = LocalContext.current.applicationContext as KKCApplication
+    val red = app.machineStatusStore
+    val blue = app.newMachineStatusStore
+    val marks by produceState(emptyList<Pair<String, CncSheetMarks>>(), appStateStore, owner, red, blue) {
+        if (!appStateStore.machineStatusEnabled) return@produceState
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            val redLease = red.acquire()
+            val blueLease = blue.acquire()
+            try {
+                combine(red.status, blue.status, appStateStore.cncProjection) { redStatus, blueStatus, projection ->
+                    val hints = cncProgramHints(redStatus).programs + cncProgramHints(blueStatus).programs
+                    appStateStore.setCncProgramHints(CncProgramHints(hints.distinct()))
+                    val blueKnown = (blueStatus as? MachineStatus.Live)?.let {
+                        it.loaded?.running != null || it.producing != null
+                    } == true
+                    listOf("Red SCM" to matchCncSheets(redStatus, projection.programIndex),
+                        "Blue SCM" to if (blueKnown) matchCncSheets(blueStatus, projection.programIndex) else CncSheetMarks())
+                }.collect { value = it }
+            } finally {
+                blueLease.close(); redLease.close()
+                value = emptyList()
+            }
+        }
+    }
+    return marks
+}

@@ -32,31 +32,31 @@ class CncLiveDashboardTest {
                 CompositionLocalProvider(LocalLowEndMode provides LowEndModeFlags(true, false, false, false, false)) {
                     CncRecentMaterialsSection(listOf(item), true, repository,
                         onOpenSheet = { job, pdf, page -> opened = CncSheetRef(job, pdf, page) },
-                        cncProjection = projection, cncMarks = marks.value,
+                        cncProjection = projection, cncMarks = listOf("Red SCM" to marks.value),
                         onOpenLoadedSheet = { job, pdf, page -> opened = CncSheetRef(job, pdf, page) })
                 }
             }
         }
-        compose.onNodeWithText("ON CNC").assertIsDisplayed()
+        compose.onNodeWithText("RED SCM \u00b7 ON CNC").assertIsDisplayed()
         compose.onNodeWithText("1 recent material").assertExists()
         val before = compose.onNodeWithTag("cnc-status-dot", useUnmergedTree = true).captureToImage()
         compose.mainClock.advanceTimeBy(1_000)
         val after = compose.onNodeWithTag("cnc-status-dot", useUnmergedTree = true).captureToImage()
         val a = before.toPixelMap(); val b = after.toPixelMap()
         assertEquals(a[a.width / 2, a.height / 2], b[b.width / 2, b.height / 2])
-        compose.onNodeWithText("ON CNC").performClick()
+        compose.onNodeWithText("RED SCM \u00b7 ON CNC").performClick()
         compose.runOnIdle { assertEquals(ref, opened) }
         compose.runOnIdle { marks.value = CncSheetMarks() }
-        compose.onNodeWithText("ON CNC").assertDoesNotExist()
+        compose.onNodeWithText("RED SCM \u00b7 ON CNC").assertDoesNotExist()
         compose.onNodeWithText("${ref.jobFolderName} • Next sheet 6").assertExists()
     }
     @Test fun unknownFilenameHasNoClickActionOrProgress() {
         val repository = JobRepository(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir)
         compose.setContent { MaterialTheme {
             CncRecentMaterialsSection(emptyList(), true, repository, onOpenSheet = { _, _, _ -> error("Unknown clicked") },
-                cncMarks = CncSheetMarks(CncLoadedMark.Unmatched("UNKNOWN_FILE", false)))
+                cncMarks = listOf("Blue SCM" to CncSheetMarks(CncLoadedMark.Unmatched("UNKNOWN_FILE", false))))
         } }
-        compose.onNodeWithText("UNKNOWN_FILE").assertHasNoClickAction()
+        compose.onNodeWithText("Blue SCM \u00b7 UNKNOWN_FILE").assertHasNoClickAction()
         compose.onNodeWithText("Loaded · idle").assertExists()
         compose.onNodeWithText("Nothing is in progress right now.").assertDoesNotExist()
         compose.onAllNodes(hasText("complete", substring = true)).assertCountEquals(0)

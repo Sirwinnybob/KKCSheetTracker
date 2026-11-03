@@ -36,7 +36,7 @@ internal fun cncPillsForMaterial(
 
 sealed interface CncDashboardRow {
     data class Material(val item: DashboardRecentMaterialItem, val openPage: Int, val pill: CncPill?) : CncDashboardRow
-    data class Unknown(val name: String, val running: Boolean) : CncDashboardRow
+    data class Unknown(val name: String, val running: Boolean, val machine: String? = null) : CncDashboardRow
 }
 data class CncDashboardProjection(val rows: List<CncDashboardRow>, val recentCount: Int)
 
@@ -65,3 +65,31 @@ internal fun projectCncDashboard(
     return CncDashboardProjection(rows.toList(), recent.size)
 }
 
+
+/** Preserve one loaded card per machine even when both point to the same material. */
+internal fun projectCncDashboard(
+    recent: List<DashboardRecentMaterialItem>,
+    projection: CncAppStateProjection,
+    machines: List<Pair<String, CncSheetMarks>>,
+): CncDashboardProjection {
+    val rows = recent.map { CncDashboardRow.Material(it, it.nextIncompletePage, null) }.toMutableList<CncDashboardRow>()
+    for ((machine, marks) in machines.asReversed()) {
+        when (val loaded = marks.loaded) {
+            is CncLoadedMark.Matched -> {
+                val ref = loaded.sheet
+                val item = projection.materialRows[JobMaterialKey(ref.jobFolderName, ref.pdfFilename)]
+                if (item == null) rows.add(0, CncDashboardRow.Unknown(loaded.name, loaded.running, machine))
+                else {
+                    rows.removeAll { row -> row is CncDashboardRow.Material && row.pill == null &&
+                        row.item.jobFolderName.equals(ref.jobFolderName, true) && row.item.pdfFilename.equals(ref.pdfFilename, true) }
+                    val pill = loadedPill(loaded.running).let { it.copy(dashboardText = "${machine.uppercase()} · ${it.dashboardText}") }
+                    rows.add(0, CncDashboardRow.Material(item.copy(nextIncompletePage = ref.page,
+                        thumbnailPath = projection.programIndex.thumbnailsBySheet[ref]), ref.page, pill))
+                }
+            }
+            is CncLoadedMark.Unmatched -> rows.add(0, CncDashboardRow.Unknown(loaded.name, loaded.running, machine))
+            null -> Unit
+        }
+    }
+    return CncDashboardProjection(rows, recent.size)
+}
