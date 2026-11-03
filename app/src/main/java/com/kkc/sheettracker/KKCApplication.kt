@@ -26,6 +26,15 @@ class KKCApplication : Application() {
         ) { available -> android.util.Log.i("MachineStatus", if (available) "available" else "unavailable") }
     }
 
+    val newMachineStatusStore: com.kkc.sheettracker.data.cnc.MachineStatusStore by lazy {
+        com.kkc.sheettracker.data.cnc.MachineStatusStore(
+            com.kkc.sheettracker.data.cnc.MachineStateClient(com.kkc.sheettracker.data.cnc.CncMachines.scmNew.baseUrl),
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
+            android.os.SystemClock::elapsedRealtime,
+            offlineGraceMs = 15_000L,
+        )
+    }
+
     override fun onCreate() {
         super.onCreate()
         CrashReporter.install(this)

@@ -58,8 +58,9 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     val stores = remember(materials.map { it.materialName }, jobFolderName, machine) {
         materials.associate { it.materialName to app.mixFilesStores.store(machine, jobFolderName, it.materialName) }
     }
-    ForegroundMixLeases(stores.values.toList(), app.machineStatusStore)
+    ForegroundMixLeases(stores.values.toList(), listOf(app.machineStatusStore, app.newMachineStatusStore))
     val machineStatus by app.machineStatusStore.status.collectAsState()
+    val newMachineStatus by app.newMachineStatusStore.status.collectAsState()
     val catalogStates = rememberMixCatalogStates(jobFolderName, stores.mapValues { it.value.state })
     var selectedMaterial by remember(jobFolderName) { mutableStateOf(initialMaterial) }
     LaunchedEffect(materials) { selectedMaterial = selectAvailableMaterial(selectedMaterial, materials.map { it.materialName }) }
@@ -225,7 +226,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     }
     MixesWorkspace(job?.let { "${it.jobNumber} · ${it.jobName}" } ?: jobFolderName, selectedMaterial, selected?.pages?.size ?: 0,
         ui, session.secondPass, revertSupported, inventory, material?.let { File(File(scan.snapshot.basePath, "$jobFolderName/CNC"), it.pdfFilename) },
-        onBack = { leave(onBack) }, onMaterial = { name -> leave { selectedMaterial = name } },
+        newMachineStatus = newMachineStatus, onBack = { leave(onBack) }, onMaterial = { name -> leave { selectedMaterial = name } },
         onTab = { key -> leaveMix { session.selectedTab = key } },
         onNew = { leaveMix { session.startNew(selectedMaterial ?: "Material", selected?.pages.orEmpty(), locks()) } },
         onDiscard = { session.discardMix(latestCatalog()) },
@@ -364,13 +365,13 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
 }
 /** STARTED leases also release on backgrounding, even when the composition remains retained. */
 @Composable
-private fun ForegroundMixLeases(stores: List<MixFilesStore>, machineStore: MachineStatusStore) {
+private fun ForegroundMixLeases(stores: List<MixFilesStore>, machineStores: List<MachineStatusStore>) {
     val owner = LocalLifecycleOwner.current
-    DisposableEffect(owner, stores, machineStore) {
+    DisposableEffect(owner, stores, machineStores) {
         var leases = emptyList<AutoCloseable>()
         fun sync() {
             if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                if (leases.isEmpty()) leases = stores.map { it.acquire() } + machineStore.acquire()
+                if (leases.isEmpty()) leases = stores.map { it.acquire() } + machineStores.map { it.acquire() }
             } else { leases.forEach { it.close() }; leases = emptyList() }
         }
         val observer = LifecycleEventObserver { _, _ -> sync() }
@@ -417,17 +418,17 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
     splitMode: Boolean = false, splitIds: Set<Long> = emptySet(), onSplitSelection: (RowModel) -> Unit = {},
     onSplitConfirm: () -> Unit = {}, onSplitCancel: () -> Unit = {}, companionMismatch: Boolean = false,
     revisionGroups: List<MixGroup> = emptyList(), onMaterialRevisions: (String) -> Unit = {},
-    catalogActionsEnabled: Boolean = !ui.readOnly && mixEditingEnabled, newMix: Boolean = false) {
+    catalogActionsEnabled: Boolean = !ui.readOnly && mixEditingEnabled, newMix: Boolean = false,
+    newMachineStatus: MachineStatus = MachineStatus.Unavailable) {
     val status = LocalKKCStatusColors.current
     Scaffold(snackbarHost = { snackbar?.let { SnackbarHost(it) } }, topBar = {
         TopAppBar(title = { Column { Text(title, style = MaterialTheme.typography.titleMedium); Text("Mixes", style = MaterialTheme.typography.labelMedium) } },
             navigationIcon = { IconButton(onClick = onBack, enabled = navigationEnabled) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = {
-                Text(when (val machine = ui.machineStatus) {
-                    MachineStatus.Unavailable -> "CNC unavailable"
-                    is MachineStatus.Live -> if (machine.producing == true) "CNC online · cutting" else "CNC online · idle"
-                }, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.labelLarge,
-                    color = if (ui.machineStatus is MachineStatus.Live) status.complete else MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(Modifier.padding(horizontal = 12.dp)) {
+                    Text(machineStatusLabel("Red SCM", ui.machineStatus), style = MaterialTheme.typography.labelMedium)
+                    Text(machineStatusLabel("Blue SCM", newMachineStatus), style = MaterialTheme.typography.labelMedium)
+                }
             })
     }) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding)) {
@@ -551,4 +552,17 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
             }
         }
     }
+}
+
+internal fun machineStatusLabel(name: String, status: MachineStatus): String {
+    val value = when (status) {
+        MachineStatus.Unavailable -> "unavailable"
+        is MachineStatus.Live -> when (status.producing) {
+            true -> "cutting"
+            false -> if (status.state == "ready") "ready" else "idle"
+            null -> "unknown"
+        }
+    }
+    val program = (status as? MachineStatus.Live)?.loaded?.name?.takeIf { it.isNotBlank() }
+    return listOfNotNull(name, value, program).joinToString(" \u00b7 ")
 }

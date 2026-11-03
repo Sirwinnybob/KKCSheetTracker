@@ -27,6 +27,7 @@ class MachineStatusStore(
     private val source: MachineStateSource,
     private val scope: CoroutineScope,
     private val elapsedRealtimeMs: () -> Long,
+    private val offlineGraceMs: Long = MACHINE_OFFLINE_GRACE_MS,
     private val onAvailabilityChanged: (Boolean) -> Unit = {},
 ) {
     private val lock = Any()
@@ -97,7 +98,7 @@ class MachineStatusStore(
         expiryJob?.cancel()
         val success = lastSuccessMs ?: return
         expiryJob = scope.launch {
-            delay((success + MACHINE_OFFLINE_GRACE_MS - elapsedRealtimeMs()).coerceAtLeast(0L))
+            delay((success + offlineGraceMs - elapsedRealtimeMs()).coerceAtLeast(0L))
             synchronized(lock) {
                 if (generation == expected && observers > 0) expireIfNeeded()
             }
@@ -106,7 +107,7 @@ class MachineStatusStore(
 
     private fun expireIfNeeded() {
         val success = lastSuccessMs ?: return
-        if (elapsedRealtimeMs() - success >= MACHINE_OFFLINE_GRACE_MS) publish(MachineStatus.Unavailable)
+        if (elapsedRealtimeMs() - success >= offlineGraceMs) publish(MachineStatus.Unavailable)
     }
 
     private fun publish(next: MachineStatus) {

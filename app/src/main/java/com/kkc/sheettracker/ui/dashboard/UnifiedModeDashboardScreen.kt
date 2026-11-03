@@ -56,6 +56,13 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import com.kkc.sheettracker.KKCApplication
+import com.kkc.sheettracker.ui.mixes.machineStatusLabel
+import kotlinx.coroutines.awaitCancellation
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.asImageBitmap
@@ -240,6 +247,7 @@ private fun CncDashboardContent(
         hasContent = widgets.isNotEmpty(),
         topBarActions = { modeSwitcher?.invoke(this) }
     ) {
+        if (appStateStore.machineStatusEnabled) CncMachineStatusOverview()
         DashboardWidgetRenderer(
             widgets = nonRecentWidgets,
             onStatAction = {
@@ -708,6 +716,29 @@ private fun renderPdfThumbnail(
         bitmap
     } catch (_: Exception) {
         null
+    }
+}
+
+@Composable
+private fun CncMachineStatusOverview() {
+    val app = LocalContext.current.applicationContext as KKCApplication
+    val owner = LocalLifecycleOwner.current
+    val red = app.machineStatusStore
+    val blue = app.newMachineStatusStore
+    val redStatus by red.status.collectAsState()
+    val blueStatus by blue.status.collectAsState()
+    LaunchedEffect(owner, red, blue) {
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            val redLease = red.acquire()
+            val blueLease = blue.acquire()
+            try { awaitCancellation() } finally { blueLease.close(); redLease.close() }
+        }
+    }
+    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Text(machineStatusLabel("Red SCM", redStatus), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(machineStatusLabel("Blue SCM", blueStatus), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 

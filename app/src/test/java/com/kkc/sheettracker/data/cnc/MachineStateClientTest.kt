@@ -17,6 +17,10 @@ class MachineStateClientTest {
             block(server, MachineStateClient(server.url("/").toString()))
         }
     }
+    @Test fun parsesMaestroDisplayStateWithoutChangingGuardContract() = withServer { server, client ->
+        server.enqueue(MockResponse().setBody("""{"ok":true,"producing":null,"displayProducing":true}"""))
+        assertEquals(true, runBlocking { client.fetch().getOrThrow().producing })
+    }
     @Test fun parsesRealLoadedProgram() = withServer { server, client ->
         val body = javaClass.getResource("/cnc/machine-state.json")!!.readText()
         server.enqueue(MockResponse().setBody(body))

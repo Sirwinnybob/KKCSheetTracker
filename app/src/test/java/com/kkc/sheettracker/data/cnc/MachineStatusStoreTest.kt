@@ -10,6 +10,26 @@ class MachineStatusStoreTest {
     private val loaded = MachineState(currentProgram = LoadedProgram("R82010BN", false, "2026-10-23T17:00:00"))
     private val failure = Result.failure<MachineState>(java.io.IOException("offline"))
 
+    @Test fun oneMachineFailingDoesNotHideOtherMachine() = runTest {
+        var blue = Result.success(loaded)
+        val redStore = MachineStatusStore(MachineStateSource { Result.success(loaded) }, backgroundScope, { testScheduler.currentTime })
+        val blueStore = MachineStatusStore(MachineStateSource { blue }, backgroundScope, { testScheduler.currentTime }, offlineGraceMs = 15_000L)
+        val redLease = redStore.acquire(); val blueLease = blueStore.acquire(); runCurrent()
+        blue = failure
+        advanceTimeBy(15_000); runCurrent()
+        assertTrue(redStore.status.value is MachineStatus.Live)
+        assertEquals(MachineStatus.Unavailable, blueStore.status.value)
+        redLease.close(); blueLease.close()
+    }
+    @Test fun blueFeedExpiresIndependentlyAfterFifteenSeconds() = runTest {
+        var response = Result.success(loaded)
+        val store = MachineStatusStore(MachineStateSource { response }, backgroundScope, { testScheduler.currentTime }, offlineGraceMs = 15_000L)
+        val handle = store.acquire(); runCurrent()
+        response = failure
+        advanceTimeBy(15_000); runCurrent()
+        assertEquals(MachineStatus.Unavailable, store.status.value)
+        handle.close()
+    }
     @Test fun startsUnavailableAndDoesNotPollWithoutObservers() = runTest {
         var requests = 0
         val store = MachineStatusStore(MachineStateSource { requests++; Result.success(loaded) }, backgroundScope, { testScheduler.currentTime })
@@ -49,7 +69,7 @@ class MachineStatusStoreTest {
     @Test fun successResetsDeadlineAndLogsAvailabilityTransitionsOnly() = runTest {
         val transitions = mutableListOf<Boolean>()
         var response = Result.success(loaded)
-        val store = MachineStatusStore(MachineStateSource { response }, backgroundScope, { testScheduler.currentTime }, transitions::add)
+        val store = MachineStatusStore(MachineStateSource { response }, backgroundScope, { testScheduler.currentTime }, onAvailabilityChanged = transitions::add)
         val handle = store.acquire(); runCurrent()
         advanceTimeBy(5_000); runCurrent() // second success at 5000
         response = failure
