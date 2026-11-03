@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
+import okhttp3.ConnectionPool
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -23,7 +24,10 @@ class MixFilesClient(
     private val machine: CncMachine,
     private val http: OkHttpClient = DEFAULT_HTTP,
 ) : MixFilesApi {
-    private val mutationHttp = http.newBuilder().retryOnConnectionFailure(false)
+    // HTTP/1.0 CNC connections can close while a read socket is pooled.
+    // Non-replayable writes always get their own fresh connection.
+    private val mutationHttp = http.newBuilder().connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
+        .retryOnConnectionFailure(false)
         .readTimeout(90, TimeUnit.SECONDS).writeTimeout(30, TimeUnit.SECONDS).build()
     override suspend fun catalog(job: String, material: String): MixFilesResult<MixFilesCatalog> =
         execute(Request.Builder().url(url(job, material)).get().build(), MixFilesJson::parseCatalog)
