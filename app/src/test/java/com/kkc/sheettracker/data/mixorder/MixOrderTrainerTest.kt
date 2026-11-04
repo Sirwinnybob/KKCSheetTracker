@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.abs
 import kotlin.random.Random
 
 class MixOrderTrainerTest {
@@ -113,7 +114,6 @@ class MixOrderTrainerTest {
 
         val heldOut = smartSheets(random, 20)
         val agreement = concordance(smartOrder(heldOut, weights), rank)
-        println("interior preference: agreement=$agreement weights=${weights.values}")
         assertTrue("held-out agreement $agreement, weights=$weights", agreement >= 0.9)
     }
 
@@ -129,7 +129,6 @@ class MixOrderTrainerTest {
 
         val heldOut = smartSheets(random, 20)
         val agreement = concordance(smartOrder(heldOut, weights), priorRank)
-        println("prior-consistent: agreement=$agreement weights=${weights.values}")
         assertTrue("held-out agreement $agreement, weights=$weights", agreement >= 0.95)
     }
 
@@ -202,7 +201,57 @@ class MixOrderTrainerTest {
             (System.nanoTime() - start) / 1_000_000.0
         }.sorted()
         val median = millis[2]
-        println("MixOrderTrainer 500x20 timings ms: $millis median=$median")
-        assertTrue("median $median ms", median < 100.0)
+        assertTrue("median $median ms of $millis", median < 100.0)
+    }
+
+    @Test
+    fun fewOddRecordsStayAnchoredToPrior() {
+        val random = Random(9)
+        val priorRank = { f: SheetFeatures -> PRIOR_WEIGHTS.score(f) }
+        // Exactly the minimum: five records that all push their most edge-heavy sheet to the very end.
+        val records = (1..5).map {
+            val r = rankedRecord(random, "r$it", 12, rank = priorRank)
+            val edgeHeaviest = r.finalOrder.first()
+            r.copy(finalOrder = r.finalOrder.drop(1) + edgeHeaviest)
+        }
+
+        val weights = trainMixOrderWeights(records)
+        assertTrue(weights.values.all { it.isFinite() })
+        // Edge stays clearly positive and within a factor ~3 of the prior's 1.0.
+        assertTrue("weights=$weights", weights.values[0] in 0.3..3.0)
+        // No other feature may swing the score more over its full range (the generator's value
+        // ranges: edge 30, interior 30, area 0.05, minDim 6, partCount 60) than half of edge's.
+        val ranges = doubleArrayOf(30.0, 30.0, 0.05, 6.0, 60.0)
+        val edgeSwing = weights.values[0] * ranges[0]
+        for (k in 1 until FEATURE_COUNT) {
+            assertTrue("feature $k swing ${abs(weights.values[k]) * ranges[k]} vs edge $edgeSwing", abs(weights.values[k]) * ranges[k] <= 0.5 * edgeSwing)
+        }
+
+        // Five odd mixes must not rewrite the hand rule: the 80% bar leaves room for mild drift
+        // (each of 5 records contradicts the prior on 11 of its 66 pairs) but rules out a flip.
+        val heldOut = smartSheets(random, 20)
+        val agreement = concordance(smartOrder(heldOut, weights), priorRank)
+        assertTrue("held-out agreement $agreement, weights=$weights", agreement >= 0.8)
+    }
+
+    @Test
+    fun moreEvidenceMovesFurtherFromPrior() {
+        val rank = { f: SheetFeatures -> f.smallInterior.toDouble() }
+        fun interiorShare(count: Int): Double {
+            val random = Random(10)
+            val weights = trainMixOrderWeights((1..count).map { rankedRecord(random, "r$it", 12, rank = rank) })
+            return weights.values[1] / (weights.values[0] + weights.values[1])
+        }
+        assertTrue(interiorShare(5) < interiorShare(30))
+        assertTrue(interiorShare(30) < interiorShare(200))
+    }
+
+    @Test
+    fun thinningIsDeterministic() {
+        val random = Random(11)
+        // 500 x 20 sheets is 95k pairs, beyond the pair cap, so the strided thinning is exercised.
+        val records = (1..500).map { rankedRecord(random, "r$it", 20) { f -> f.smallInterior + 0.1 * f.smallEdge } }
+        assertEquals(trainMixOrderWeights(records), trainMixOrderWeights(records))
+        assertEquals(trainMixOrderWeights(records), trainMixOrderWeights(records.map { it.copy() }))
     }
 }

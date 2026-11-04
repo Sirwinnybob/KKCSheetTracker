@@ -8,8 +8,10 @@ import kotlin.math.sqrt
 private const val MODE_SMART = "smart"
 private const val MODE_DEFAULT = "default"
 
-// Strength of the pull toward PRIOR_WEIGHTS, measured in scaled feature space (unit-RMS pair differences).
-private const val L2_STRENGTH = 0.001
+// The loss sums one unit of logistic loss per record, so this is the pull toward PRIOR_WEIGHTS (in
+// scaled feature space, unit-RMS pair differences) expressed as a number of pseudo-records of prior
+// evidence. The prior therefore dominates with few records and fades as the history grows.
+private const val L2_STRENGTH = 0.1
 private const val MAX_NEWTON_STEPS = 30
 private const val STEP_TOLERANCE = 1e-5
 private const val LOSS_TOLERANCE = 1e-7
@@ -36,7 +38,8 @@ fun isTrainable(r: MixOrderRecord): Boolean {
  * both `suggestedOrder` and `finalOrder`, described in `sheets`, and not locked.
  *
  * Training is Newton's method on a convex objective (so there is no learning rate or run-to-run
- * variation): per-record-normalized logistic loss plus an L2 pull toward [PRIOR_WEIGHTS]. Features
+ * variation): logistic loss summed over records (each record's pairs average to one unit) plus a
+ * fixed L2 pull toward [PRIOR_WEIGHTS], so anchoring is graded by evidence. Features
  * are scaled by the RMS of their pair differences and the prior is scaled the same way, so the pull
  * is consistent; weights are converted back to raw feature units before returning.
  *
@@ -120,13 +123,13 @@ private fun buildPairData(records: List<MixOrderRecord>): PairData? {
     }
     if (pairs == 0) return null
 
+    // Weights sum to one per record, so the loss grows with the number of records while the prior
+    // pull below stays fixed; the RMS scale is a per-record average.
     val total = contributing.toDouble()
-    for (p in 0 until pairs) weights[p] /= total
-
     val scale = DoubleArray(FEATURE_COUNT)
     for (p in 0 until pairs) for (k in 0 until FEATURE_COUNT) {
         val d = diffs[p * FEATURE_COUNT + k]
-        scale[k] += weights[p] * d * d
+        scale[k] += weights[p] * d * d / total
     }
     for (k in 0 until FEATURE_COUNT) {
         val rms = sqrt(scale[k])
