@@ -134,7 +134,8 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
         if (draftPgms.isEmpty()) return null
         val sheets = smartSheets(metadataPages, draftPgms)?.takeIf { it.isNotEmpty() } ?: return null
         // A continuation page with its own PGMs, or a PGM no page explains, would be ordered and logged wrongly.
-        if (sheets.flatMap { it.pgms }.map(::key).toSet() != draftPgms) return null
+        // Sheets may list PGMs startNew left out (a double-sided sheet whose A is in another mix), but every draft PGM must be explained.
+        if (!sheets.flatMap { it.pgms }.map(::key).toSet().containsAll(draftPgms)) return null
         val validWeights = sanitizedSmartWeights(weights)
         val suggested = smartOrder(sheets, validWeights).map { it.key }
         return SmartMixContext(MixOrderMode.SMART, sheets, sheets.map { it.key }, suggested, validWeights)

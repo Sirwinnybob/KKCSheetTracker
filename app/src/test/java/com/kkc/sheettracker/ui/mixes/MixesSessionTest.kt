@@ -477,25 +477,75 @@ class MixesSessionTest {
         val session = MixesSession()
         session.startSmart()
         val smart = session.smart
-        val submitted = session.draft
         val release = CountDownLatch(1)
         val entered = CountDownLatch(1)
-        val wrote = AtomicBoolean(false)
-        // The session never sees a store: Apply returns before anything is written.
-        val result = session.saveMix({ emptyList() }) { MixFilesResult.Ok(catalog("saved")) }
-        assertTrue(result is MixFilesResult.Ok)
-        val job = launchMixOrderRecordWrite(this, Dispatchers.IO,
-            record = { buildMixOrderRecord(submitted!!, smart, true, emptyList(), "J", "M", "tablet", "1.0", 0L) }) {
-            entered.countDown(); release.await(); wrote.set(true)
-        }
-        // The launcher returned with the shared-dir write still blocked on its latch.
-        assertTrue(entered.await(5, TimeUnit.SECONDS))
-        assertTrue(job.isActive)
-        assertFalse(wrote.get())
-        assertNull(session.draft)
-        release.countDown()
-        job.join()
-        assertTrue(wrote.get())
+        val landed = CountDownLatch(1)
+        val written = java.util.concurrent.atomic.AtomicReference<MixOrderRecord?>(null)
+        val application = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Default)
+        try {
+            // The real composition Apply uses: the submission wrapper launches the record write after an Ok reply.
+            val result = session.saveMix({ emptyList() }) { draft ->
+                submitMixWithLearning(application,
+                    record = { buildMixOrderRecord(draft, smart, true, emptyList(), "J", "M", "tablet", "1.0", 0L) },
+                    write = { entered.countDown(); release.await(); written.set(it); landed.countDown() }
+                ) { MixFilesResult.Ok(catalog("saved")) }
+            }
+            // saveMix returned Ok while the shared-dir write is (or is about to be) blocked on its latch.
+            assertTrue(result is MixFilesResult.Ok)
+            assertNull(session.draft)
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            assertNull(written.get())
+            release.countDown()
+            assertTrue(landed.await(5, TimeUnit.SECONDS))
+            assertEquals("smart", written.get()!!.mode)
+            assertEquals(smart!!.suggestedOrder, written.get()!!.finalOrder)
+        } finally { application.coroutineContext[kotlinx.coroutines.Job]!!.cancel() }
+    }
+    @Test fun doubleSidedSheetWithAInAnotherMixStillQualifiesWithoutItsA() {
+        val metadata = listOf(meta(1, listOf(bigPart)), meta(2, listOf(smallEdgePart), files = listOf("R2A", "R2Z")), meta(3, listOf(bigPart)))
+        val session = MixesSession().also { it.onCatalog(catalog("base", "R2A.pgm")) }
+        session.startNew("Maple", sheetPages(metadata), emptyList(), metadata)
+        val smart = session.smart!!
+        // Z leads at its sheet's smart position; A is in another mix and never enters this draft.
+        assertEquals(listOf("R2Z.pgm", "R1.pgm", "R3.pgm"), session.order())
+        assertEquals(listOf("2|R2A.pgm+R2Z.pgm", "1|R1.pgm", "3|R3.pgm"), smart.suggestedOrder)
+        session.setSmartMode(MixOrderMode.DEFAULT)
+        assertEquals(listOf("R1.pgm", "R2Z.pgm", "R3.pgm"), session.order())
+        session.setSmartMode(MixOrderMode.SMART)
+        val record = buildMixOrderRecord(session.draft!!, session.smart, true, listOf("R3.pgm"), "J", "M", "t", "1", 0L)!!
+        assertEquals(smart.suggestedOrder, record.finalOrder)
+        assertEquals(listOf("3|R3.pgm"), record.lockedSheets)
+        // A completed sheet keeps its slot with the A missing too.
+        val locked = MixesSession().also { it.onCatalog(catalog("base", "R2A.pgm")) }
+        locked.startNew("Maple", sheetPages(metadata), listOf("R3.pgm"), metadata)
+        assertEquals(listOf("R2Z.pgm", "R1.pgm", "R3.pgm"), locked.order())
+    }
+    @Test fun unplacedPageWhollyInAnotherMixDoesNotDisqualifyDraft() {
+        val metadata = qualifying() + meta(4, listOf(Part(width = 10.0, length = 10.0)))
+        val session = MixesSession().also { it.onCatalog(catalog("base", "R4.pgm")) }
+        session.startNew("Maple", sheetPages(metadata), emptyList(), metadata)
+        assertNotNull(session.smart)
+        assertEquals(listOf("R3.pgm", "R2.pgm", "R1.pgm"), session.order())
+    }
+    @Test fun stageRevisionAndStartRemainingClearSmart() {
+        val session = session()
+        session.startSmart()
+        assertNotNull(session.smart)
+        // Staging a revision replaces the open new-mix draft; its suggestion must not linger.
+        val group = group(session.catalog!!)
+        assertTrue(session.stageRevision(group, group.primary, emptyList()))
+        assertNull(session.smart)
+        // Create-remaining needs no open draft; its freshly staged mix has no suggestion either.
+        val template = catalog("base").files.single()
+        val entries = listOf("a.pgm", "b.pgm").map { template.entries.single().copy(pgm = it, path = "Z:\\$it") }
+        val c = catalog("base").copy(files = listOf(template.copy(entries = entries)))
+        val remaining = MixesSession().also { it.onCatalog(c) }
+        remaining.startSmart()
+        assertFalse(remaining.startRemaining(group(c), listOf("a.pgm"))) // draft open: refused, suggestion kept
+        assertNotNull(remaining.smart)
+        remaining.discardMix(null)
+        assertTrue(remaining.startRemaining(group(c), listOf("a.pgm")))
+        assertNull(remaining.smart)
     }
     @Test fun recordWriteErrorsAreSwallowed() = runTest {
         val job = launchMixOrderRecordWrite(this, Dispatchers.IO, record = { error("boom") }) { }

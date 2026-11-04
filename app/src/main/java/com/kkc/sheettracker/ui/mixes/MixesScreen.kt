@@ -282,12 +282,14 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         scope.launch {
             // Read before saveMix clears the draft and its suggestion.
             val smartContext = session.smart
+            // The record closure runs in the app scope: hold the application context, never the Activity.
+            val appContext = context.applicationContext
             val result = session.saveMix(::locks) { draft ->
                 val write = buildWrite(draft, group, draft.completedPgms.toList(), resolutions)
                 operations.submitMixWrite(machine, jobFolderName, name, mixWriteLabel(write)) {
                     submitMixWithLearning(app.applicationScope, record = {
                         buildMixOrderRecord(draft, smartContext, true, draft.completedPgms, jobFolderName, name,
-                            tabletDeviceId(context), com.kkc.sheettracker.BuildConfig.VERSION_NAME, System.currentTimeMillis())
+                            tabletDeviceId(appContext), com.kkc.sheettracker.BuildConfig.VERSION_NAME, System.currentTimeMillis())
                     }, write = { mixOrderStore.record(baseDir, it) }) { api.submitMixWrite(jobFolderName, name, write) }
                 }
             }
@@ -807,7 +809,7 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
                                 KKCSlidingPillRow(listOf(
                                     KKCPillOption("Smart suggestion", mode == MixOrderMode.SMART, { onSmartMode(MixOrderMode.SMART) }, enabled = mixEditingEnabled),
                                     KKCPillOption("Default", mode == MixOrderMode.DEFAULT, { onSmartMode(MixOrderMode.DEFAULT) }, enabled = mixEditingEnabled),
-                                ), Modifier.testTag("mixes-smart-toggle"), persistKey = "mixes-smart-mode")
+                                ), Modifier.testTag("mixes-smart-toggle"))
                             }
                         }
                         ui.card?.let { card ->
