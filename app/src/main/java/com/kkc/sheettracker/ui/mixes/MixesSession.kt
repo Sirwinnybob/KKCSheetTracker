@@ -95,7 +95,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
     }
     /**
      * Opens a new-mix draft in Default (page) order. When [metadataPages] place every part of every sheet in the
-     * draft, and the sheets account for exactly the draft's PGMs, the draft is re-sorted by [smartWeights]
+     * draft, and the sheets' PGMs cover the draft's PGMs (draft PGMs are a subset of the union), the draft is re-sorted by [smartWeights]
      * and [smart] records the suggestion; otherwise [smart] stays null and nothing changes from Default.
      */
     fun startNew(material: String, pages: List<SheetPage>, locked: List<String>, metadataPages: List<PageMetadata> = emptyList()) {
@@ -119,7 +119,8 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
         val file = nextMixName(material, catalog?.files.orEmpty().filter { it.kind != MixFileKind.REVISION }.map { it.file }) + ".mix"
         val other = catalog?.let(::groupMixFiles).orEmpty().filter { it.mix != null || it.frz != null }.flatMap { it.primary.entries }.map { it.pgm }.toSet()
         val base = MixDrafts.startNew(file, pages, other).copy(completedPgms = locked.map(::key).toSet())
-        val context = smartContext(base, metadataPages, weights)
+        // Metadata comes from JSON; any failure in the geometry or scoring means Default order with no toggle.
+        val context = runCatching { smartContext(base, metadataPages, weights) }.getOrNull()
         return (context?.let { MixDrafts.reorderSheets(base, orderedPgms(it.sheets, it.suggestedOrder)) } ?: base) to context
     }
     private fun installNew(seed: Pair<MixDraft, SmartMixContext?>) {

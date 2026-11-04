@@ -378,6 +378,19 @@ class MixesSessionTest {
         assertNull(orphan.smart)
         assertEquals(listOf("R1.pgm", "R2.pgm", "R3.pgm", "X.pgm"), orphan.order())
     }
+    @Suppress("UNCHECKED_CAST")
+    @Test fun startNewMalformedMetadataFallsBackToDefaultWithoutCrashing() {
+        // Gson can leave a null inside a Kotlin List<Part> / List<Double>; model that directly.
+        val nullPart = meta(1, listOf<Part?>(null) as List<Part>)
+        val nullDim = meta(2, listOf(smallEdgePart)).copy(sheetDimensions = listOf<Double?>(48.0, null) as List<Double>)
+        for (broken in listOf(nullPart, nullDim)) {
+            val metadata = qualifying().filter { it.pageNumber != broken.pageNumber } + broken
+            val session = MixesSession()
+            session.startSmart(metadata.sortedBy { it.pageNumber })
+            assertNull(session.smart)
+            assertEquals(listOf("R1.pgm", "R2.pgm", "R3.pgm"), session.order())
+        }
+    }
     @Test fun setSmartModeDefaultRestoresPageOrder() {
         val session = MixesSession()
         session.startSmart()

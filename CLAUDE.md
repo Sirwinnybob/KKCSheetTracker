@@ -91,7 +91,7 @@ Format with `"%.2f"` (two decimal places), never `"%.1f"`. Hub rounds up to near
 
 - `com.kkc.sheettracker.data.mixorder` owns sheet geometry, qualification, scoring, learning records, training, and consolidation.
 - Learning data is shared across jobs and tablets under `<Ready Jobs>\.metadata\mix_order_learning\`; single records live at the root, bundles in `bundles\`, and unreadable files in `bad\`. Offline records wait in `filesDir/mix_order_learning/pending`.
-- Smart applies only to New mix. Strict no-fallback rule: if any draft sheet lacks qualifying dimensions, parts, or placements, keep Default order, show no Smart/Default toggle, and write no learning record. Sheets excluded because their PGMs are already in another mix do not disqualify the draft.
+- Smart applies only to New mix. Strict no-fallback rule: if any draft sheet lacks qualifying dimensions, parts, or placements, keep Default order, show no Smart/Default toggle, and write no learning record. Sheets excluded because their PGMs are already in another mix do not disqualify the draft. The sheets must also cover every PGM in the draft; a continuation page with its own PGM, or a draft PGM no page explains, also turns Smart off.
 - Record/bundle v1 formats, training rules, and verify-before-delete consolidation are defined in `docs/superpowers/specs/2026-11-03-smart-mix-order-design.md`.
 
 ## Build

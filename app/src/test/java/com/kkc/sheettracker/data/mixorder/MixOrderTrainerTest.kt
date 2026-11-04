@@ -85,6 +85,20 @@ class MixOrderTrainerTest {
     }
 
     @Test
+    fun defaultRecordWithOnlyARemovalIsNotTrainable() {
+        val f = SheetFeatures(0, 0, 0.0, 1.0, 1)
+        val sheets = mapOf("a" to f, "b" to f, "c" to f)
+        // Operator removed "b" (finalOrder drops it) without dragging anything.
+        assertFalse(isTrainable(record("1", sheets, listOf("a", "b", "c"), listOf("a", "c"), mode = "default")))
+        // A removal plus a real drag still trains.
+        assertTrue(isTrainable(record("2", sheets, listOf("a", "b", "c"), listOf("c", "a"), mode = "default")))
+        // A drag with no removal still trains.
+        assertTrue(isTrainable(record("3", sheets, listOf("a", "b", "c"), listOf("b", "a", "c"), mode = "default")))
+        // Smart records always train, removal or not.
+        assertTrue(isTrainable(record("4", sheets, listOf("a", "b", "c"), listOf("a", "c"), mode = "smart")))
+    }
+
+    @Test
     fun belowMinimumReturnsPrior() {
         val random = Random(1)
         val records = (1..4).map { rankedRecord(random, "r$it", 10) { f -> f.smallInterior.toDouble() } }

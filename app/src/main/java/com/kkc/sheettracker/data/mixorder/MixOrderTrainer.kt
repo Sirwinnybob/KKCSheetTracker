@@ -28,7 +28,12 @@ private const val ZERO_DIFF = 1e-12
 fun isTrainable(r: MixOrderRecord): Boolean {
     val mode: String? = r.mode
     if (mode == MODE_SMART) return true
-    if (mode == MODE_DEFAULT) return r.finalOrder != r.defaultOrder
+    if (mode == MODE_DEFAULT) {
+        // finalOrder omits sheets the operator removed, so compare against the default order of the kept
+        // sheets: a removal alone is not a drag and carries no ordering signal.
+        val kept = r.finalOrder.toSet()
+        return r.finalOrder != r.defaultOrder.filter { it in kept }
+    }
     return false
 }
 
