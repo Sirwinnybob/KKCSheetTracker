@@ -90,6 +90,12 @@ data class OcrBoxMetadata(
     val bottom: Int = 0
 )
 
+data class SheetPlacement(
+    val x: Double = 0.0,
+    val y: Double = 0.0,
+    val angle: Double = 0.0
+)
+
 data class Part(
     val number: Int = 0,
     val width: Double = 0.0,
@@ -99,7 +105,8 @@ data class Part(
     val room: String = "",
     val rotated: Boolean = false,
     val graphicPath: String? = null,
-    val banding: String? = null
+    val banding: String? = null,
+    val sheetPlacement: SheetPlacement? = null
 )
 
 enum class ReferenceDocType {
