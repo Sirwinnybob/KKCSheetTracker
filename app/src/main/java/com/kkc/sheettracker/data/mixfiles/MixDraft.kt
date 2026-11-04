@@ -80,6 +80,26 @@ object MixDrafts {
         return changed(d, d.entries.map { if (d.locked(it)) it else iterator.next() })
     }
 
+    /**
+     * Lays unlocked entries out in [sheetPgmOrder] (each sheet's PGMs stay in listed order); entries matching
+     * no listed PGM keep their relative order after them. Locked entries keep their slots, as in [move].
+     * This is a view-order choice, so it neither counts as an edit nor changes `changeCount`.
+     */
+    fun reorderSheets(d: MixDraft, sheetPgmOrder: List<List<String>>): MixDraft {
+        if (d.rawRestore != null) return d
+        val pending = d.entries.filterNot { d.locked(it) }.toMutableList()
+        val ordered = mutableListOf<DraftEntry>()
+        sheetPgmOrder.flatten().forEach { pgm ->
+            val key = pgm.key()
+            val matched = pending.filter { it.pgm().key() == key }
+            ordered += matched
+            pending.removeAll(matched)
+        }
+        val iterator = (ordered + pending).iterator()
+        val entries = d.entries.map { if (d.locked(it)) it else iterator.next() }
+        return if (entries == d.entries) d else d.copy(entries = entries)
+    }
+
     fun add(d: MixDraft, pgm: String): MixDraft {
         if (d.rawRestore != null) return d
         if (pgm.key() in d.completedPgms) return d

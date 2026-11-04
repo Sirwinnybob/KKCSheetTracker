@@ -124,6 +124,54 @@ class MixDraftTest {
         assertEquals("New.mix", request.file)
     }
 
+    private fun newDraft(vararg pgms: String, locked: Set<String> = emptySet()) =
+        MixDrafts.startNew("New.mix", pgms.mapIndexed { i, p -> SheetPage(i + 1, listOf(p), false, false, null) }, emptySet())
+            .copy(completedPgms = locked.map { it.lowercase() }.toSet())
+
+    @Test fun reorderSheets_keepsLockedSlots() {
+        val d = newDraft("A.pgm", "B.pgm", "C.pgm", "D.pgm", locked = setOf("B.pgm"))
+        val result = MixDrafts.reorderSheets(d, listOf(listOf("D.pgm"), listOf("C.pgm"), listOf("A.pgm")))
+        assertEquals(listOf("D.pgm", "B.pgm", "C.pgm", "A.pgm"), names(result))
+        assertEquals(d.changeCount, result.changeCount)
+    }
+
+    @Test fun reorderSheets_keepsDoubleSidedPair() {
+        val pages = listOf(SheetPage(1, listOf("R0.pgm"), false, false, null),
+            SheetPage(2, listOf("R1A.pgm", "R1Z.pgm"), false, false, null),
+            SheetPage(3, listOf("R2.pgm"), false, false, null))
+        val d = MixDrafts.startNew("New.mix", pages, emptySet())
+        val result = MixDrafts.reorderSheets(d, listOf(listOf("R1A.pgm", "R1Z.pgm"), listOf("R2.pgm"), listOf("R0.pgm")))
+        assertEquals(listOf("R1A.pgm", "R1Z.pgm", "R2.pgm", "R0.pgm"), names(result))
+        val lower = MixDrafts.reorderSheets(d, listOf(listOf("r2.PGM"), listOf("R1A.PGM", "r1z.pgm"), listOf("R0.pgm")))
+        assertEquals(listOf("R2.pgm", "R1A.pgm", "R1Z.pgm", "R0.pgm"), names(lower))
+    }
+
+    @Test fun toggleRoundTrip() {
+        val d = newDraft("A.pgm", "B.pgm", "C.pgm", "D.pgm", "E.pgm", locked = setOf("C.pgm"))
+        val page = listOf(listOf("A.pgm"), listOf("B.pgm"), listOf("C.pgm"), listOf("D.pgm"), listOf("E.pgm"))
+        val smart = listOf(listOf("E.pgm"), listOf("C.pgm"), listOf("A.pgm"), listOf("D.pgm"), listOf("B.pgm"))
+        val s1 = MixDrafts.reorderSheets(d, smart)
+        val p = MixDrafts.reorderSheets(s1, page)
+        val s2 = MixDrafts.reorderSheets(p, smart)
+        assertEquals(listOf("E.pgm", "A.pgm", "C.pgm", "D.pgm", "B.pgm"), names(s1))
+        assertEquals(MixDrafts.reorderSheets(d, smart), s1)
+        assertEquals(MixDrafts.reorderSheets(d, page), p)
+        assertEquals(MixDrafts.reorderSheets(d, smart), s2)
+        assertEquals(names(d), names(p))
+        assertEquals(d.changeCount, s2.changeCount)
+    }
+
+    @Test fun reorderSheets_unmatchedEntriesStayAfter() {
+        val d = MixDrafts.add(newDraft("A.pgm", "B.pgm"), "Extra.pgm")
+        val result = MixDrafts.reorderSheets(d, listOf(listOf("B.pgm"), listOf("A.pgm")))
+        assertEquals(listOf("B.pgm", "A.pgm", "Extra.pgm"), names(result))
+    }
+
+    @Test fun reorderSheets_noOpReturnsSameDraft() {
+        val d = newDraft("A.pgm", "B.pgm")
+        assertSame(d, MixDrafts.reorderSheets(d, listOf(listOf("A.pgm"), listOf("B.pgm"))))
+    }
+
     @Test fun fromRevisionOfPairKeepsOnlyOrderOfPendingSheets() {
         val g = group(listOf(entry("Done.pgm", remaining = 0), entry("A.pgm", 3, 2), entry("B.pgm", 2, 1)), interrupted = true)
         val revision = row("OLD1_Run.mix", listOf(entry("B.pgm", 8), entry("Done.pgm"), entry("A.pgm", 8), entry("Gone.pgm")))
