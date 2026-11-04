@@ -21,9 +21,19 @@ enum class TransferState {
     SUBMITTED,
     /** No reply to the POST. Never re-POSTed automatically. */
     UNCERTAIN,
+    /** Verified: the destination read back and the source retired. The only state that relocates the tile. */
     COMPLETED,
+    /** The source is untouched and nothing was published. */
     FAILED,
+    /**
+     * The source was retired into recovery but activation didn't verify (or the outcome is unknown to this tablet).
+     * Terminal: never polled, resent or retried; it blocks edits and moves of the material until dismissed.
+     */
+    NEEDS_ATTENTION,
 }
+
+/** Operator text for a move that needs the office. Files are recoverable on the source machine. */
+const val MOVE_NEEDS_ATTENTION = "Move needs attention — call the office. The files are safe in recovery."
 
 /** Durable mutation record. Endpoints are snapshots: a later machine config change never retargets it. */
 data class MaterialTransferRecord(
@@ -45,6 +55,8 @@ data class MaterialTransferRecord(
     val updatedAtMs: Long,
 ) {
     val active: Boolean get() = state == TransferState.SUBMITTING || state == TransferState.SUBMITTED || state == TransferState.UNCERTAIN
+    /** Active, or stopped where only the office can resolve it: no edits or new moves of this material. */
+    val blocksMaterial: Boolean get() = active || state == TransferState.NEEDS_ATTENTION
 }
 
 sealed interface TransferStart {
@@ -71,10 +83,13 @@ class MaterialTransferStore(
     fun activeFor(job: String, material: String): MaterialTransferRecord? =
         records.value.firstOrNull { it.active && it.job == job && it.material == material }
 
+    fun needsAttentionFor(job: String, material: String): MaterialTransferRecord? =
+        records.value.firstOrNull { it.state == TransferState.NEEDS_ATTENTION && it.job == job && it.material == material }
+
     suspend fun start(source: CncMachine, destination: CncMachine, job: String, material: String, preview: TransferPreview,
         expectedSourceRevision: String, policy: PunloadPolicy): TransferStart {
         val record = mutex.withLock {
-            activeFor(job, material)?.let { return TransferStart.AlreadyActive(it) }
+            (activeFor(job, material) ?: needsAttentionFor(job, material))?.let { return TransferStart.AlreadyActive(it) }
             val time = now()
             MaterialTransferRecord(newRequestId(), job, material, source.id, source.baseUrl, destination.id, destination.baseUrl,
                 preview.previewId, expectedSourceRevision, policy.wire, null, TransferState.SUBMITTING, null, null, time, time)
@@ -129,15 +144,20 @@ class MaterialTransferStore(
         true
     }
 
-    private fun MaterialTransferRecord.withOperation(operation: TransferOperation) = copy(
-        phase = operation.phase.ifBlank { phase },
-        state = when {
+    private fun MaterialTransferRecord.withOperation(operation: TransferOperation): MaterialTransferRecord {
+        val next = when {
             !operation.isTerminal -> TransferState.SUBMITTED
             operation.succeeded -> TransferState.COMPLETED
-            else -> TransferState.FAILED
-        },
-        message = if (operation.isTerminal && !operation.succeeded) operation.error ?: "The move didn't finish" else null,
-    )
+            operation.failed -> TransferState.FAILED
+            // needs_attention, or an outcome this tablet doesn't know: never assume the source is intact.
+            else -> TransferState.NEEDS_ATTENTION
+        }
+        return copy(phase = operation.phase.ifBlank { phase }, state = next, message = when (next) {
+            TransferState.FAILED -> operation.error?.takeIf { it.isNotBlank() } ?: "The move didn't finish"
+            TransferState.NEEDS_ATTENTION -> operation.error?.takeIf { it.isNotBlank() }
+            else -> null
+        })
+    }
 
     private fun put(record: MaterialTransferRecord) =
         save(records.value.filterNot { it.requestId == record.requestId } + record)

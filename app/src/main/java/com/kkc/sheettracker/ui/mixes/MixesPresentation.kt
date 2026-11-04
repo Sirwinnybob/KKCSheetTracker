@@ -6,6 +6,7 @@ import com.kkc.sheettracker.data.cnc.CncCapability
 import com.kkc.sheettracker.data.cnc.MachineAccess
 import com.kkc.sheettracker.data.cnc.MaterialTransferRecord
 import com.kkc.sheettracker.data.cnc.MixServiceStatus
+import com.kkc.sheettracker.data.cnc.TransferState
 import com.kkc.sheettracker.data.cnc.machineAccess
 import com.kkc.sheettracker.data.cnc.MachineStatus
 import com.kkc.sheettracker.data.mixfiles.*
@@ -218,16 +219,17 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
 }
 
 /** A machine owns a material when its folder is known there; offline machines keep only cached materials. */
-internal fun ownsMaterial(state: CatalogState): Boolean = when (state) {
-    is CatalogState.Live, is CatalogState.Outdated -> true
-    is CatalogState.Offline -> state.cached != null
-    CatalogState.Loading, CatalogState.NoFolder -> false
-}
+internal fun ownsMaterial(state: CatalogState): Boolean = catalogHoldsMaterial(state)
 
 private fun buildMachineGroups(input: MixesUiInput, selected: MaterialMixesInput?): List<MachineGroupModel> {
     val machines = (input.machines + input.materials.map { it.machine }).distinctBy { it.id }
     val names = input.materials.map { it.material.materialName }.distinct()
-    val owned = input.materials.filter { it == selected || ownsMaterial(it.catalogState) }
+    // A pending or unresolved move keeps its tile in the source group, even after the source folder is retired.
+    fun moving(m: MaterialMixesInput) = input.transfers.any {
+        it.state != TransferState.COMPLETED && it.sourceMachineId == m.machine.id &&
+            it.material == m.material.materialName && (input.job == null || it.job == input.job)
+    }
+    val owned = input.materials.filter { it == selected || ownsMaterial(it.catalogState) || moving(it) }
     // Unknown everywhere (loading, offline without cache, or no folder): keep it under the first machine, as before.
     val fallback = names.filter { name -> owned.none { it.material.materialName == name } }.mapNotNull { name ->
         input.materials.firstOrNull { it.material.materialName == name && it.machine.id == machines.first().id }

@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.ui.viewer
 
+import com.kkc.sheettracker.data.cnc.CncMachine
 import com.kkc.sheettracker.data.mixfiles.*
 import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.ui.components.mixCatalogSnapshot
@@ -25,8 +26,12 @@ internal fun retainedViewerPage(current: Int, previous: List<Int>, next: List<In
     return next.firstOrNull() ?: fallback
 }
 
-internal fun viewerOrderForState(material: Material, state: CatalogState?, mixFile: String?): ViewerOrder = when {
+/** A machine without FRZ support (Blue SCM) never orders by an FRZ, even from a restored or deep-linked route. */
+internal fun viewerOrderForState(material: Material, state: CatalogState?, mixFile: String?, frzSupported: Boolean = true,
+    machineName: String? = null): ViewerOrder = when {
     mixFile == null -> ViewerOrder.Natural(null)
+    !frzSupported && mixFile.endsWith(".frz", ignoreCase = true) ->
+        ViewerOrder.Natural("${machineName ?: "This CNC"} doesn't run FRZ files; showing natural sheet order.")
     state is CatalogState.Outdated -> ViewerOrder.Natural("The CNC mix service needs updating; showing natural sheet order.")
     else -> liveViewerOrder(material, state.mixCatalogSnapshot(), mixFile)
 }
@@ -42,4 +47,14 @@ internal fun Material.visibleSheetPages(): List<Int> {
         .distinct()
         .sorted()
     return if (visibleFromMetadata.isNotEmpty()) visibleFromMetadata else (1..pageCount).toList()
+}
+
+/** "Red SCM and Blue SCM" for a material whose folder is on several machines. */
+internal fun machineChoiceLabel(machines: List<CncMachine>): String = "On " + machines.joinToString(" and ") { it.displayName }
+
+/** Prefixes the owning machine to the viewer's mix notice, so mix context always names its CNC. */
+internal fun viewerMixNotice(notice: String?, machine: CncMachine?): String? = when {
+    machine == null -> notice
+    notice == null -> machine.displayName
+    else -> "${machine.displayName} · $notice"
 }

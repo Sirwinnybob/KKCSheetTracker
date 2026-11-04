@@ -485,6 +485,63 @@ class MixesPresentationTest {
         assertNull(otherJob.machineGroups[0].items.single().transfer)
     }
 
+    private fun transferRecord(state: com.kkc.sheettracker.data.cnc.TransferState, message: String? = null) =
+        com.kkc.sheettracker.data.cnc.MaterialTransferRecord("req-1", "Job", "Oak", "scm", CncMachines.scm.baseUrl,
+            "scm-new", blue.baseUrl, "pv-1", "folder-1", "remove", "op-1", state, "activating", message, 1L, 1L)
+
+    @Test fun unresolvedMoveKeepsItsTileInTheSourceGroupAfterTheSourceIsRetired() {
+        // Red's folder is retired (NoFolder) and Blue hasn't verified: the tile stays on Red with the notice.
+        val retired = listOf(material().copy(catalogState = CatalogState.NoFolder), material().copy(machine = blue, catalogState = CatalogState.NoFolder))
+        val attention = buildMixesUi(MixesUiInput(retired, "Oak", job = "Job",
+            transfers = listOf(transferRecord(com.kkc.sheettracker.data.cnc.TransferState.NEEDS_ATTENTION, "Activation unverified"))))
+        assertEquals(listOf(1, 0), attention.machineGroups.map { it.items.size })
+        assertEquals(com.kkc.sheettracker.data.cnc.MOVE_NEEDS_ATTENTION, attention.machineGroups[0].items.single().transfer)
+        val running = buildMixesUi(MixesUiInput(retired, "Oak", selectedMachineId = "scm-new", job = "Job",
+            transfers = listOf(transferRecord(com.kkc.sheettracker.data.cnc.TransferState.SUBMITTED))))
+        assertEquals("Moving to Blue SCM · PUNLOAD will be removed", running.machineGroups[0].items.single().transfer)
+        // A failed move left the source untouched, so its live tile simply stays put with the reason.
+        val failed = buildMixesUi(MixesUiInput(listOf(material()), "Oak", job = "Job",
+            transfers = listOf(transferRecord(com.kkc.sheettracker.data.cnc.TransferState.FAILED, "Destination exists"))))
+        assertEquals("Move didn't finish: Destination exists", failed.machineGroups[0].items.single().transfer)
+    }
+
+    @Test fun transferNoticesExplainEachTerminalOutcome() {
+        val failed = transferNotice(transferRecord(com.kkc.sheettracker.data.cnc.TransferState.FAILED, "Destination exists"))!!
+        assertTrue(failed, failed.contains("Destination exists") && failed.contains("still on Red SCM"))
+        val attention = transferNotice(transferRecord(com.kkc.sheettracker.data.cnc.TransferState.NEEDS_ATTENTION, "Activation unverified"))!!
+        assertTrue(attention, attention.startsWith(com.kkc.sheettracker.data.cnc.MOVE_NEEDS_ATTENTION) && attention.contains("call the office"))
+        assertTrue(transferNotice(transferRecord(com.kkc.sheettracker.data.cnc.TransferState.UNCERTAIN))!!.contains("Checking move status"))
+        assertNull(transferNotice(transferRecord(com.kkc.sheettracker.data.cnc.TransferState.SUBMITTED)))
+        assertNull(transferNotice(transferRecord(com.kkc.sheettracker.data.cnc.TransferState.COMPLETED)))
+        val blocked = planMaterialMove(MoveContext(CncMachines.scm, blue, "Oak", moveStatus("scm"), moveStatus("scm-new"),
+            false, false, true, false, needsAttention = true)) as MovePlan.Blocked
+        assertTrue(blocked.reason, blocked.reason.contains("call the office"))
+    }
+
+    @Test fun previewReviewShowsCountsEveryConflictAndWarning() {
+        val plan = move() as MovePlan.Prepare
+        val ok = movePreviewReview("Oak", plan, com.kkc.sheettracker.data.cnc.TransferPreview("pv", listOf("R1.pgm", "R2.pgm"), listOf("R3.pgm"),
+            emptyList(), listOf("R9.pgm isn't in the progress snapshot; it is left out of the runnable MIX."), true))
+        assertTrue(ok.startable)
+        assertEquals("Move Oak to Blue SCM?", ok.title)
+        assertTrue(ok.summary.any { it.startsWith("Completed: 2 programs") })
+        assertTrue(ok.summary.any { it.startsWith("Remaining: 1 program go") })
+        assertEquals(1, ok.warnings.size)
+        val blocked = movePreviewReview("Oak", plan, com.kkc.sheettracker.data.cnc.TransferPreview("pv", emptyList(), emptyList(),
+            listOf("Progress snapshot is empty", "Destination already has Oak"), listOf("w"), false))
+        assertFalse(blocked.startable)
+        assertEquals("Can't move Oak to Blue SCM", blocked.title)
+        assertEquals(listOf("Progress snapshot is empty", "Destination already has Oak"), blocked.conflicts)
+        assertEquals(listOf("w"), blocked.warnings)
+        // canStart=true with a conflict, or canStart=false with no stated conflict, still offers no start.
+        assertFalse(movePreviewReview("Oak", plan, com.kkc.sheettracker.data.cnc.TransferPreview("pv", emptyList(), listOf("R1.pgm"), listOf("c"), emptyList(), true)).startable)
+        val silent = movePreviewReview("Oak", plan, com.kkc.sheettracker.data.cnc.TransferPreview("pv", emptyList(), listOf("R1.pgm"), emptyList(), emptyList(), false))
+        assertFalse(silent.startable)
+        assertEquals(listOf("Blue SCM didn't allow this move."), silent.conflicts)
+        val done = movePreviewReview("Oak", plan, com.kkc.sheettracker.data.cnc.TransferPreview("pv", listOf("R1.pgm"), emptyList(), emptyList(), emptyList(), true))
+        assertTrue(done.summary.any { it.contains("moves as done") })
+    }
+
     @Test fun moveToBlueRemovesPunloadWithoutAsking() {
         val plan = move() as MovePlan.Prepare
         assertEquals(com.kkc.sheettracker.data.cnc.PunloadPolicy.REMOVE, plan.policy)

@@ -48,6 +48,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import com.kkc.sheettracker.data.cnc.CncMachine
 import com.kkc.sheettracker.data.cnc.CncMachines
 import com.kkc.sheettracker.data.mixfiles.*
@@ -155,6 +156,9 @@ internal fun jobDetailLoadKey(
     @Suppress("UNUSED_PARAMETER") scanGeneration: Long
 ): JobDetailLoadKey = JobDetailLoadKey(jobFolderName, retryAttempt)
 
+internal fun jobDetailMachineNotice(machine: CncMachine?, notice: String): String =
+    machine?.let { "${it.displayName} · $notice" } ?: notice
+
 internal enum class JobDetailCatalogStatus {
     FRESH,
     STALE,
@@ -185,7 +189,8 @@ fun JobDetailScreen(
     specialtyStateStore: SpecialtyStateStore,
     appStateFlags: AppStateFeatureFlags,
     jobFolderName: String,
-    onMaterialClick: (Material, Int, ViewerMixSelection?) -> Unit,
+    /** Passes the machine that owns the clicked row's mix context (null for archived snapshots). */
+    onMaterialClick: (Material, Int, ViewerMixSelection?, String?) -> Unit,
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenJobPacketDocument: (JobPdfRef) -> Unit,
     onOpenThreeD: () -> Unit,
@@ -199,8 +204,6 @@ fun JobDetailScreen(
     archiveClientFactory: suspend () -> ArchiveLifecycleClient?,
     onArchiveCompleted: () -> Unit,
     loadMixCatalog: Boolean = true,
-    /** Mix catalogs are read from this machine; callers without machine context keep Red. */
-    cncMachine: CncMachine = CncMachines.scm,
     clockInState: ClockInState? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
@@ -238,16 +241,26 @@ fun JobDetailScreen(
     }
     val job = jobLoadResult.job
     val jobLoadState = jobDetailLoadState(jobLoadResult.hasResolved, job != null)
-    val stores = remember(job?.materials?.map { it.materialName }, jobFolderName, loadMixCatalog, cncMachine) {
-        if (loadMixCatalog) job?.materials.orEmpty().associate { material ->
-            material.materialName to app.mixFilesStores.store(cncMachine, jobFolderName, material.materialName)
-        } else emptyMap() // Archived snapshots never query the live machine.
+    // Both machines' catalogs are observed; each material shows the machine that holds its folder.
+    val cncMachines = CncMachines.mixMachines
+    val storesByMachine = remember(job?.materials?.map { it.materialName }, jobFolderName, loadMixCatalog) {
+        cncMachines.associate { machine ->
+            machine.id to if (loadMixCatalog) job?.materials.orEmpty().associate { material ->
+                material.materialName to app.mixFilesStores.store(machine, jobFolderName, material.materialName)
+            } else emptyMap() // Archived snapshots never query the live machine.
+        }
     }
-    val catalogStates = rememberForegroundMixFiles(jobFolderName, stores)
+    val catalogStatesByMachine = cncMachines.associate { machine ->
+        machine.id to key(machine.id) { rememberForegroundMixFiles(jobFolderName, storesByMachine.getValue(machine.id)) }
+    }
+    fun statesFor(materialName: String) = cncMachines.associate { it.id to catalogStatesByMachine[it.id]?.get(materialName) }
     val catalogScope = rememberCoroutineScope()
     val materialEntries = job?.materials.orEmpty().flatMap { material ->
-        jobDetailMixRows(material, catalogStates[material.materialName].mixCatalogSnapshot()) { SheetStatus.NOT_STARTED }
-            .map { JobDetailMaterialEntry(material, it.title, it.selection) }
+        val states = statesFor(material.materialName)
+        jobDetailMaterialMachines(loadMixCatalog, states).flatMap { machine ->
+            jobDetailMixRows(material, machine?.let { states[it.id] }.mixCatalogSnapshot(), machine?.supportsFrz ?: true) { SheetStatus.NOT_STARTED }
+                .map { JobDetailMaterialEntry(material, it.title, it.selection, machine) }
+        }
     }.sortedBy { entry ->
         when {
             entry.material.metadata?.remakeLabel != null -> 0
@@ -535,11 +548,15 @@ fun JobDetailScreen(
                 }
 
                 items(materialEntries, key = { entry ->
-                    "${entry.material.pdfFilename}|${entry.mixSelection?.name.orEmpty()}"
+                    "${entry.machine?.id.orEmpty()}|${entry.material.pdfFilename}|${entry.mixSelection?.name.orEmpty()}"
                 }) { entry ->
                     val material = entry.material
                     val mixSelection = entry.mixSelection
-                    val liveState = catalogStates[material.materialName]
+                    val entryMachine = entry.machine
+                    val liveState = entryMachine?.let { catalogStatesByMachine[it.id]?.get(material.materialName) }
+                    val refreshCatalog = {
+                        catalogScope.launch { entryMachine?.let { storesByMachine[it.id]?.get(material.materialName)?.refreshNow() } }
+                    }
                     val catalogStatus = jobDetailCatalogStatus(loadMixCatalog, liveState)
                     val catalog = liveState.mixCatalogSnapshot()
                     val statusColors = KKCThemeColors.statusColors
@@ -563,7 +580,7 @@ fun JobDetailScreen(
                     } else {
                         legacyPageStatuses[material.pdfFilename].orEmpty()
                     }
-                    val mixRow = jobDetailMixRows(material, catalog) { statusByPage[it] ?: SheetStatus.NOT_STARTED }
+                    val mixRow = jobDetailMixRows(material, catalog, entryMachine?.supportsFrz ?: true) { statusByPage[it] ?: SheetStatus.NOT_STARTED }
                         .firstOrNull { it.selection == mixSelection }
                     val displayedPages = mixSelection?.let {
                         (liveViewerOrder(material, catalog, it.mixFile) as? ViewerOrder.Mix)?.pages.orEmpty()
@@ -591,6 +608,7 @@ fun JobDetailScreen(
                         tintColor = tintColor,
                         subtitle = buildList {
                             add("${counts.complete}/${counts.total} complete")
+                            entryMachine?.let { add(it.displayName) }
                             if (mixRow?.interrupted == true) add("Interrupted")
                             if (mixRow?.error == true) add("Mix file error")
                             if ((mixRow?.unmatched ?: 0) > 0) add("${mixRow?.unmatched} unmatched")
@@ -639,7 +657,7 @@ fun JobDetailScreen(
                                 displayedPages.firstOrNull() ?: trackablePages.firstOrNull() ?: 1
                             }
                             suppressLeavePrompt = true
-                            onMaterialClick(material, startPage, mixSelection)
+                            onMaterialClick(material, startPage, mixSelection, entryMachine?.id)
                         }
                     ) {
                         PageStatusBar(
@@ -661,14 +679,12 @@ fun JobDetailScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    if (catalog != null) "Offline · showing saved mix order." else "Mix order unavailable; showing natural sheet order.",
+                                    jobDetailMachineNotice(entryMachine, if (catalog != null) "Offline · showing saved mix order." else "Mix order unavailable; showing natural sheet order."),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.weight(1f),
                                 )
-                                TextButton(onClick = {
-                                    catalogScope.launch { stores[material.materialName]?.refreshNow() }
-                                }) { Text("Retry") }
+                                TextButton(onClick = { refreshCatalog() }) { Text("Retry") }
                             }
                         }
                         JobDetailCatalogStatus.UNAVAILABLE -> {
@@ -678,14 +694,12 @@ fun JobDetailScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    if (liveState is CatalogState.Outdated) "The CNC mix service needs updating; showing natural sheet order." else "Mix order unavailable; showing natural sheet order.",
+                                    jobDetailMachineNotice(entryMachine, if (liveState is CatalogState.Outdated) "The CNC mix service needs updating; showing natural sheet order." else "Mix order unavailable; showing natural sheet order."),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.weight(1f),
                                 )
-                                TextButton(onClick = {
-                                    catalogScope.launch { stores[material.materialName]?.refreshNow() }
-                                }) { Text("Retry") }
+                                TextButton(onClick = { refreshCatalog() }) { Text("Retry") }
                             }
                         }
                         JobDetailCatalogStatus.FRESH -> Unit

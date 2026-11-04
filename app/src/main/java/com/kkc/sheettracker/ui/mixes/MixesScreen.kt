@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -87,6 +88,17 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     // Drafts, history, previews and in-flight saves belong to one machine/job/material session.
     val session = remember(machine.id, jobFolderName, selectedMaterial) {
         MixesSession(key = mixesSessionKey(machine, jobFolderName, selectedMaterial), punloadFixed = machine.forcesPUnloadRemoval)
+    }
+    // Without a machine from navigation, settle once on the machine that holds the requested material.
+    // Held by both: stay put; both tiles are visible and the operator picks one. Never retargets a dirty session.
+    var ownerResolved by rememberSaveable(jobFolderName) { mutableStateOf(initialMachineId != null || initialMaterial == null) }
+    val initialStates = machines.associate { it.id to catalogStatesByMachine.getValue(it.id)[initialMaterial] }
+    LaunchedEffect(ownerResolved, initialStates) {
+        if (ownerResolved) return@LaunchedEffect
+        if (selectedMaterial != initialMaterial || session.dirty) { ownerResolved = true; return@LaunchedEffect }
+        if (!materialOwnershipSettled(initialStates, machines)) return@LaunchedEffect
+        (resolveMaterialOwnership(initialStates, machines = machines) as? MaterialOwnership.Single)?.let { selectedMachineId = it.machine.id }
+        ownerResolved = true
     }
     var inventory by remember(machine.id, selectedMaterial) { mutableStateOf<List<String>>(emptyList()) }
     var revertSupported by remember(machine) { mutableStateOf(false) }
@@ -200,7 +212,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     val access = ui.access
     // FRZ groups stay view-only on machines without FRZ support; the guarded api refuses them as well.
     // While this material is being moved, both copies stay read-only on the tablet; the services also reserve it.
-    val activeMove = transfers.firstOrNull { it.active && it.job == jobFolderName && it.material == selectedMaterial }
+    val activeMove = transfers.firstOrNull { it.blocksMaterial && it.job == jobFolderName && it.material == selectedMaterial }
     val catalogWritable = catalogLive && activeMove == null && access?.mixFiles != false && (access?.frz != false || group?.isInterrupted != true)
     val secondWritable = catalogLive && activeMove == null && access?.secondPass != false
     // Read ProgressStore at the action boundary, rather than a status map from the last composition.
@@ -301,6 +313,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
             val plan = planMaterialMove(MoveContext(source, destination, materialName, sourceStatus, destinationStatus,
                 dirty = fromId == machine.id && materialName == selectedMaterial && session.dirty,
                 activeTransfer = transferStore.activeFor(jobFolderName, materialName) != null,
+                needsAttention = transferStore.needsAttentionFor(jobFolderName, materialName) != null,
                 sourceCatalogLive = catalogStatesByMachine[source.id]?.get(materialName) is CatalogState.Live,
                 destinationHasMaterial = destinationState != null && ownsMaterial(destinationState)))
             when (plan) {
@@ -336,6 +349,13 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
             if (record.state == TransferState.SUBMITTED) add(MaterialMenuAction("Check move status", true) { scope.launch { transferStore.refreshActive() } })
             if (record.state == TransferState.UNCERTAIN) add(MaterialMenuAction("Resend the same move request", true) {
                 scope.launch { transferStore.resendUncertain(record.requestId) }
+            })
+            // Needs attention is terminal: no retry or resend. Its notice clears only once the office has resolved it.
+            if (record.state == TransferState.NEEDS_ATTENTION) add(MaterialMenuAction("Office resolved \u2014 dismiss notice", true) {
+                scope.launch {
+                    transferStore.dismiss(record.requestId)
+                    storesByMachine.values.forEach { it[record.material]?.refreshNow() }
+                }
             })
             if (record.state == TransferState.UNCERTAIN || record.state == TransferState.FAILED) add(MaterialMenuAction("Dismiss move notice", true) {
                 scope.launch {
@@ -393,7 +413,8 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         }, secondMessage = listOfNotNull(session.secondMessage, revisionState.message.takeIf { revisionSupported }).distinct().takeIf { it.isNotEmpty() }?.joinToString(" "),
         recoveryEnabled = session.gate.deferredCatalog != null,
         reapplyEnabled = session.reapplyEnabled,
-        mixMessage = session.recoveryMessage ?: RESTORE_PREVIEW_MESSAGE.takeIf { session.draft?.rawRestore != null },
+        mixMessage = listOfNotNull(selectedRecord?.let(::transferNotice),
+            session.recoveryMessage ?: RESTORE_PREVIEW_MESSAGE.takeIf { session.draft?.rawRestore != null }).joinToString("\n").ifEmpty { null },
         mixEditingEnabled = !session.applying && activeMove == null, secondEditingEnabled = secondWritable && !session.secondApplying && session.secondHistoryConfirmed && !session.historyLoading,
         secondDiscardEnabled = !session.secondApplying, navigationEnabled = !session.saving,
         historyRetryVisible = !session.secondHistoryConfirmed, historyLoading = session.historyLoading,
@@ -503,27 +524,27 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     }
     pendingMove?.let { move ->
         val preview = move.preview
-        val startable = preview.canStart && preview.conflicts.isEmpty()
+        val review = movePreviewReview(move.material, move.plan, preview)
         AlertDialog(onDismissRequest = { pendingMove = null },
-            title = { Text("Move ${move.material} to ${move.plan.destination.displayName}?") },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(move.plan.notice)
-                Text("${preview.completed.size} completed sheets move with their status unchanged and are not cut again. " +
-                    "${preview.remaining.size} remaining sheets go into the active mix.")
-                preview.conflicts.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
-                preview.warnings.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+            title = { Text(review.title) },
+            text = { Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()).testTag("move-preview"),
+                verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                review.summary.forEach { Text(it) }
+                review.conflicts.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
+                review.warnings.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
             } },
-            confirmButton = { Button(enabled = startable, onClick = {
+            confirmButton = { if (review.startable) Button(modifier = Modifier.testTag("move-start"), onClick = {
                 pendingMove = null // One tap starts at most one request; the journal refuses duplicates as well.
                 scope.launch {
                     when (val started = transferStore.start(move.plan.source, move.plan.destination, jobFolderName, move.material,
                         preview, move.sourceRevision, move.plan.policy)) {
-                        is TransferStart.AlreadyActive -> snackbar.showSnackbar("This material is already moving. Checking move status.")
-                        is TransferStart.Started -> started.record.message?.takeIf { started.record.state == TransferState.FAILED }?.let { snackbar.showSnackbar(it) }
+                        is TransferStart.AlreadyActive -> snackbar.showSnackbar(
+                            if (started.record.state == TransferState.NEEDS_ATTENTION) MOVE_NEEDS_ATTENTION else "This material is already moving. Checking move status.")
+                        is TransferStart.Started -> transferNotice(started.record)?.let { snackbar.showSnackbar(it) }
                     }
                 }
             }) { Text("Start move") } },
-            dismissButton = { TextButton(onClick = { pendingMove = null }) { Text("Cancel") } })
+            dismissButton = { TextButton(onClick = { pendingMove = null }) { Text(if (review.startable) "Cancel" else "Close") } })
     }
 }
 /** STARTED leases also release on backgrounding, even when the composition remains retained. */

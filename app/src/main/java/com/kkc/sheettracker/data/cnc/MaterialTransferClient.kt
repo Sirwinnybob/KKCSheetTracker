@@ -55,6 +55,10 @@ data class TransferOperation(val id: String, val phase: String, val outcome: Str
     val isTerminal: Boolean get() = outcome != null
     /** Only a completed outcome is a verified move (destination read back and source retired). */
     val succeeded: Boolean get() = outcome == "completed"
+    /** The service guarantees the source is untouched and nothing was published. */
+    val failed: Boolean get() = outcome == "failed"
+    /** Source retired into recovery but activation didn't verify. Terminal; the office resolves it. */
+    val needsAttention: Boolean get() = outcome == "needs_attention"
 }
 
 sealed interface TransferResult<out T> {

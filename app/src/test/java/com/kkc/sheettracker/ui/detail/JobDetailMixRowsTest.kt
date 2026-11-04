@@ -65,6 +65,40 @@ class JobDetailMixRowsTest {
         assertTrue(viewerOrderForState(material, CatalogState.Outdated(cached), "A.mix") is ViewerOrder.Natural)
     }
 
+    @Test fun blueNeverOffersAnFrz() {
+        val c = catalog(row(companion = "A.FRZ"), row("A.FRZ", listOf("R2Z.pgm"), MixFileKind.FRZ, "A.mix"),
+            row("Only.FRZ", listOf("R6.pgm"), MixFileKind.FRZ))
+        val blue = jobDetailMixRows(material, c, frzSupported = false) { SheetStatus.NOT_STARTED }
+        assertEquals(listOf(ViewerMixSelection("A", "A.mix")), blue.map { it.selection })
+        assertFalse(blue.single().interrupted)
+        assertEquals(2, jobDetailMixRows(material, c) { SheetStatus.NOT_STARTED }.size) // Red keeps its FRZ rows.
+        // A restored or deep-linked FRZ selection on Blue falls back to natural order and names the machine.
+        val order = viewerOrderForState(material, CatalogState.Live(c), "A.FRZ", frzSupported = false, machineName = "Blue SCM")
+        assertEquals(ViewerOrder.Natural("Blue SCM doesn't run FRZ files; showing natural sheet order."), order)
+        assertTrue(viewerOrderForState(material, CatalogState.Live(c), "A.mix", frzSupported = false) is ViewerOrder.Mix)
+    }
+
+    @Test fun eachMaterialShowsItsOwningMachineAndNeverMergesBoth() {
+        val red = com.kkc.sheettracker.data.cnc.CncMachines.scm
+        val blue = com.kkc.sheettracker.data.cnc.CncMachines.scmNew
+        val live = CatalogState.Live(catalog(row()))
+        assertEquals(listOf(blue), jobDetailMaterialMachines(true, mapOf("scm" to CatalogState.NoFolder, "scm-new" to live)))
+        assertEquals(listOf(red), jobDetailMaterialMachines(true, mapOf("scm" to live, "scm-new" to CatalogState.NoFolder)))
+        assertEquals(listOf(red), jobDetailMaterialMachines(true, mapOf("scm" to CatalogState.Loading, "scm-new" to CatalogState.Loading)))
+        assertEquals(listOf(red, blue), jobDetailMaterialMachines(true, mapOf("scm" to live, "scm-new" to live)))
+        assertEquals(listOf(null), jobDetailMaterialMachines(false, mapOf("scm-new" to live))) // Archived snapshots.
+        assertEquals("Blue SCM · Offline · showing saved mix order.", jobDetailMachineNotice(blue, "Offline · showing saved mix order."))
+        assertEquals("Mix order unavailable", jobDetailMachineNotice(null, "Mix order unavailable"))
+    }
+
+    @Test fun viewerMixNoticeNamesTheMachine() {
+        val blue = com.kkc.sheettracker.data.cnc.CncMachines.scmNew
+        assertEquals("Blue SCM", viewerMixNotice(null, blue))
+        assertEquals("Blue SCM · Offline · showing saved mix order.", viewerMixNotice("Offline · showing saved mix order.", blue))
+        assertNull(viewerMixNotice(null, null))
+        assertEquals("On Red SCM and Blue SCM", machineChoiceLabel(com.kkc.sheettracker.data.cnc.CncMachines.mixMachines))
+    }
+
     @Test fun caseOnlyFrzFilenameChangeKeepsLiveMixScope() {
         val c = catalog(row("19mm Pre_FinishedMix.frz", listOf("R2Z.pgm", "R1.pgm"), MixFileKind.FRZ))
         assertEquals(ViewerOrder.Mix(listOf(2, 1), emptyList<String>()),

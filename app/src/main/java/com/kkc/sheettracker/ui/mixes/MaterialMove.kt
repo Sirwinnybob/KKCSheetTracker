@@ -1,6 +1,9 @@
 package com.kkc.sheettracker.ui.mixes
 
 import com.kkc.sheettracker.data.cnc.CncMachine
+import com.kkc.sheettracker.data.cnc.CncMachines
+import com.kkc.sheettracker.data.cnc.MOVE_NEEDS_ATTENTION
+import com.kkc.sheettracker.data.cnc.TransferPreview
 import com.kkc.sheettracker.data.cnc.MaterialTransferRecord
 import com.kkc.sheettracker.data.cnc.MixServiceStatus
 import com.kkc.sheettracker.data.cnc.PunloadPolicy
@@ -21,6 +24,8 @@ data class MoveContext(
     val activeTransfer: Boolean,
     val sourceCatalogLive: Boolean,
     val destinationHasMaterial: Boolean,
+    /** An earlier move of this material stopped in recovery; only the office can resolve it. */
+    val needsAttention: Boolean = false,
 )
 
 enum class PunloadChoice { RESTORE, KEEP_REMOVED, CANCEL }
@@ -52,6 +57,7 @@ fun planMaterialMove(context: MoveContext): MovePlan {
     val source = context.source
     val destination = context.destination
     if (source.id == destination.id) return MovePlan.Blocked("${context.material} is already on ${source.displayName}.")
+    if (context.needsAttention) return MovePlan.Blocked(MOVE_NEEDS_ATTENTION)
     if (context.activeTransfer) return MovePlan.Blocked("A move of ${context.material} is already running. Checking move status.")
     if (context.dirty) return MovePlan.Blocked("Apply or discard the mix and second-pass changes for ${context.material} before moving it.")
     for ((machine, status) in listOf(source to context.sourceStatus, destination to context.destinationStatus)) {
@@ -82,5 +88,40 @@ internal fun transferLabel(record: MaterialTransferRecord, destinationName: Stri
         moveNotice(destinationName, PunloadPolicy.entries.firstOrNull { it.wire == record.punloadPolicy } ?: PunloadPolicy.REMOVE)
     TransferState.UNCERTAIN -> "Checking move status"
     TransferState.FAILED -> "Move didn't finish" + (record.message?.let { ": $it" } ?: "")
+    TransferState.NEEDS_ATTENTION -> MOVE_NEEDS_ATTENTION
     TransferState.COMPLETED -> null
+}
+
+/** Operator message for the selected material's move, shown under its header. Null when nothing needs saying. */
+internal fun transferNotice(record: MaterialTransferRecord): String? {
+    val destination = CncMachines.mixMachine(record.destinationMachineId).displayName
+    val source = CncMachines.mixMachine(record.sourceMachineId).displayName
+    return when (record.state) {
+        TransferState.SUBMITTING, TransferState.SUBMITTED -> null // The tile shows progress.
+        TransferState.UNCERTAIN -> "Checking move status. The move request to $destination wasn't confirmed; don't start another move."
+        TransferState.FAILED -> "Move to $destination didn't finish" + (record.message?.let { ": $it" } ?: "") +
+            ". Nothing was moved; the material is still on $source."
+        TransferState.NEEDS_ATTENTION -> MOVE_NEEDS_ATTENTION + (record.message?.let { " ($it)" } ?: "")
+        TransferState.COMPLETED -> null
+    }
+}
+
+/** What the operator reviews before a move starts. [startable] false means no start button at all. */
+internal data class MovePreviewReview(val title: String, val summary: List<String>, val conflicts: List<String>,
+    val warnings: List<String>, val startable: Boolean)
+
+internal fun movePreviewReview(material: String, plan: MovePlan.Prepare, preview: TransferPreview): MovePreviewReview {
+    val destination = plan.destination.displayName
+    val startable = preview.canStart && preview.conflicts.isEmpty()
+    fun programs(n: Int) = if (n == 1) "1 program" else "$n programs"
+    val summary = buildList {
+        add(plan.notice)
+        add("Completed: ${programs(preview.completed.size)} move with their status unchanged and are not cut again.")
+        add(if (preview.remaining.isEmpty()) "Remaining: none. $material moves as done, without a runnable mix."
+            else "Remaining: ${programs(preview.remaining.size)} go into the active mix on $destination.")
+        if (!startable) add("$destination can't start this move. Nothing was changed.")
+    }
+    val conflicts = preview.conflicts.ifEmpty { if (startable) emptyList() else listOf("$destination didn't allow this move.") }
+    return MovePreviewReview(if (startable) "Move $material to $destination?" else "Can't move $material to $destination",
+        summary, conflicts, preview.warnings, startable)
 }

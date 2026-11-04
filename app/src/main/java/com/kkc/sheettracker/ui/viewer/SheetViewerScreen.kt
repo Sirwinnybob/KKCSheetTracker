@@ -317,15 +317,18 @@ fun SheetViewerScreen(
     selectedMixName: String? = null,
     selectedMixFile: String? = null,
     loadMixCatalog: Boolean = true,
-    /** Mix order is read from this machine; callers without machine context keep Red. */
-    cncMachine: CncMachine = CncMachines.scm,
+    /**
+     * The CNC whose catalog supplies mix order (from navigation). Null resolves the owner from both machines'
+     * catalogs: Blue when only Blue holds the folder, Red otherwise, and an explicit choice when both hold it.
+     */
+    cncMachineId: String? = null,
     isDarkTheme: Boolean,
     useStandardSheets: Boolean,
     isClockedInHere: Boolean = false,
     onClockIn: (jobNumber: String, jobName: String) -> Unit = { _, _ -> },
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeDTarget: (cabinet: String?, assemblyPage: Int?, plansPage: Int?, room: String?) -> Unit,
-    onOpenMixes: (materialName: String) -> Unit = {},
+    onOpenMixes: (materialName: String, machineId: String?) -> Unit = { _, _ -> },
     onBack: () -> Unit,
     onMaterialUnavailable: () -> Unit = onBack,
     onUiVisibilityChanged: (Boolean) -> Unit = {},
@@ -867,23 +870,41 @@ fun SheetViewerScreen(
         previousMaterialIdentity = nextIdentity
     }
 
-    val mixStores = remember(currentMaterial?.materialName, jobFolderName, loadMixCatalog, cncMachine) {
+    // An explicit machine reads only its own catalog; otherwise both are read to find the owner. Never merged.
+    val explicitMachine = CncMachines.mixMachines.firstOrNull { it.id == cncMachineId }
+    val observedMachines = explicitMachine?.let { listOf(it) } ?: CncMachines.mixMachines
+    val mixStoresByMachine = remember(currentMaterial?.materialName, jobFolderName, loadMixCatalog, explicitMachine) {
         val material = currentMaterial
-        if (loadMixCatalog && material != null) mapOf(material.materialName to
-            (context.applicationContext as com.kkc.sheettracker.KKCApplication).mixFilesStores.store(
-                cncMachine, jobFolderName, material.materialName)) else emptyMap()
+        CncMachines.mixMachines.associate { machine ->
+            machine.id to if (loadMixCatalog && material != null && machine in observedMachines) mapOf(material.materialName to
+                (context.applicationContext as com.kkc.sheettracker.KKCApplication).mixFilesStores.store(
+                    machine, jobFolderName, material.materialName)) else emptyMap()
+        }
     }
-    val mixStates = rememberForegroundMixFiles(jobFolderName, mixStores)
-    val mixState = mixStates[currentMaterial?.materialName]
-    val viewerOrder = currentMaterial?.let { viewerOrderForState(it, mixState, selectedMixFile) } ?: ViewerOrder.Natural(null)
+    val mixStatesByMachine = CncMachines.mixMachines.associate { machine ->
+        machine.id to key(machine.id) { rememberForegroundMixFiles(jobFolderName, mixStoresByMachine.getValue(machine.id)) }[currentMaterial?.materialName]
+    }
+    // When both machines hold this material the operator picks one; the choice stays with this job/material.
+    var chosenMixMachineId by rememberSaveable(jobFolderName, currentMaterial?.materialName) { mutableStateOf<String?>(null) }
+    val mixHolders = if (explicitMachine == null) CncMachines.mixMachines.filter { catalogHoldsMaterial(mixStatesByMachine[it.id]) } else emptyList()
+    val mixOwnership = resolveMaterialOwnership(mixStatesByMachine.filterKeys { id -> observedMachines.any { it.id == id } },
+        explicitMachine?.id ?: chosenMixMachineId?.takeIf { id -> mixHolders.any { it.id == id } })
+    val mixMachine = (mixOwnership as? MaterialOwnership.Single)?.machine
+    val mixState = mixMachine?.let { mixStatesByMachine[it.id] }
+    val viewerOrder = currentMaterial?.let { material ->
+        if (mixOwnership is MaterialOwnership.Ambiguous && selectedMixFile != null)
+            ViewerOrder.Natural("${machineChoiceLabel(mixOwnership.machines)} · choose a machine for mix order.")
+        else viewerOrderForState(material, mixState, selectedMixFile, frzSupported = mixMachine?.supportsFrz ?: true,
+            machineName = mixMachine?.displayName)
+    } ?: ViewerOrder.Natural(null)
     val isMixOrder = viewerOrder is ViewerOrder.Mix
     val unmatchedPgms = (viewerOrder as? ViewerOrder.Mix)?.unmatched.orEmpty()
     val emptyMix = viewerOrder is ViewerOrder.Mix && viewerOrder.pages.isEmpty()
-    val mixOrderNotice = when {
+    val mixOrderNotice = viewerMixNotice(when {
         viewerOrder is ViewerOrder.Natural -> viewerOrder.reason
         mixState is CatalogState.Offline -> "Offline · showing saved mix order."
         else -> null
-    }
+    }, mixMachine.takeIf { loadMixCatalog && (selectedMixFile != null || mixMachine?.id != CncMachines.scm.id) })
     ObserveViewerOrder(currentMaterial, viewerOrder, currentPage, visiblePages) { pages, page ->
         visiblePages = pages
         currentPage = page
@@ -1441,7 +1462,7 @@ fun SheetViewerScreen(
                         }
                     }
                     Button(
-                        onClick = { currentMaterial?.let { onOpenMixes(it.materialName) } },
+                        onClick = { currentMaterial?.let { onOpenMixes(it.materialName, mixMachine?.id) } },
                         enabled = currentMaterial != null
                     ) {
                         Icon(ActionMixesIcon, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -1493,6 +1514,17 @@ fun SheetViewerScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            if (loadMixCatalog && mixHolders.size > 1) {
+                // Folder on both machines: an explicit choice, never a merged order.
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("${machineChoiceLabel(mixHolders)}:", style = MaterialTheme.typography.bodySmall)
+                    mixHolders.forEach { holder ->
+                        FilterChip(selected = mixMachine?.id == holder.id, onClick = { chosenMixMachineId = holder.id },
+                            label = { Text(holder.displayName) })
+                    }
+                }
+            }
             mixOrderNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) }
             if (sheetFilesLabel.isNotBlank() || currentPageRemake != null || cncHeaderPill != null) {

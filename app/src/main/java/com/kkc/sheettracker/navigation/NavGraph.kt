@@ -1751,8 +1751,8 @@ private fun JobsTabHost(
                         if (!isCncSubScreen) clockInState.triggerPrompt()
                     }
                 },
-                onMaterialClick = { material, startPage, mixSelection ->
-                    navController.navigate(viewerRoute(folderName, material.pdfFilename, startPage, mixSelection)) {
+                onMaterialClick = { material, startPage, mixSelection, machineId ->
+                    navController.navigate(viewerRoute(folderName, material.pdfFilename, startPage, mixSelection, machineId = machineId)) {
                         launchSingleTop = true
                     }
                 },
@@ -1935,7 +1935,8 @@ private fun JobsTabHost(
                 navArgument("startPage") { type = NavType.IntType },
                 navArgument("mixName") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("mixFile") { type = NavType.StringType; nullable = true; defaultValue = null },
-                navArgument("preferStartPage") { type = NavType.BoolType; defaultValue = false }
+                navArgument("preferStartPage") { type = NavType.BoolType; defaultValue = false },
+                navArgument("machine") { type = NavType.StringType; nullable = true; defaultValue = null }
             )
         ) { backStack ->
             val folderName = backStack.arguments?.getString("folderName").orEmpty()
@@ -1957,6 +1958,7 @@ private fun JobsTabHost(
                 preferStartPage = backStack.arguments?.getBoolean("preferStartPage") ?: false,
                 selectedMixName = mixSelection?.name,
                 selectedMixFile = mixSelection?.mixFile,
+                cncMachineId = backStack.arguments?.getString("machine"),
                 isDarkTheme = cncSheetIsDarkTheme,
                 useStandardSheets = useStandardSheets,
                 isClockedInHere = isClockedInHere,
@@ -1987,10 +1989,8 @@ private fun JobsTabHost(
                         launchSingleTop = true
                     }
                 },
-                onOpenMixes = { materialName ->
-                    navController.navigate(
-                        "manage_code/${URLEncoder.encode(folderName, "UTF-8")}?material=${URLEncoder.encode(materialName, "UTF-8")}"
-                    ) { launchSingleTop = true }
+                onOpenMixes = { materialName, machineId ->
+                    navController.navigate(manageCodeRoute(folderName, materialName, machineId)) { launchSingleTop = true }
                 },
                 onBack = { navController.popBackStack() },
                 onUiVisibilityChanged = onUiVisibilityChanged
@@ -2777,9 +2777,10 @@ private fun LegacySingleStackNavigation(
         page: Int,
         mixSelection: com.kkc.sheettracker.data.mixservice.ViewerMixSelection? = null,
         preferStartPage: Boolean = false,
+        machineId: String? = null,
     ) {
-        if (!preferStartPage && isCurrentViewerTarget(backStackEntry, jobFolderName, pdfFilename, page, mixSelection)) return
-        navController.navigate(viewerRoute(jobFolderName, pdfFilename, page, mixSelection, preferStartPage)) {
+        if (!preferStartPage && isCurrentViewerTarget(backStackEntry, jobFolderName, pdfFilename, page, mixSelection, machineId)) return
+        navController.navigate(viewerRoute(jobFolderName, pdfFilename, page, mixSelection, preferStartPage, machineId)) {
             launchSingleTop = !preferStartPage
         }
     }
@@ -3297,8 +3298,8 @@ private fun LegacySingleStackNavigation(
                         sharedTransitionScope = this@SharedTransitionLayout,
                         animatedVisibilityScope = this,
                         onLeaveWhileClockedIn = { if (isClockedInHere) clockInState.triggerPrompt() },
-                        onMaterialClick = { material, startPage, mixSelection ->
-                            openSheetLegacy(folderName, material.pdfFilename, startPage, mixSelection)
+                        onMaterialClick = { material, startPage, mixSelection, machineId ->
+                            openSheetLegacy(folderName, material.pdfFilename, startPage, mixSelection, machineId = machineId)
                         },
                         onOpenReferenceDocument = { docType, startPage ->
                             navController.navigate(referenceViewerRoute(folderName, docType, startPage)) {
@@ -3510,7 +3511,8 @@ private fun LegacySingleStackNavigation(
                         navArgument("startPage") { type = NavType.IntType },
                         navArgument("mixName") { type = NavType.StringType; nullable = true; defaultValue = null },
                         navArgument("mixFile") { type = NavType.StringType; nullable = true; defaultValue = null },
-                        navArgument("preferStartPage") { type = NavType.BoolType; defaultValue = false }
+                        navArgument("preferStartPage") { type = NavType.BoolType; defaultValue = false },
+                        navArgument("machine") { type = NavType.StringType; nullable = true; defaultValue = null }
                     )
                 ) { backStack ->
                     val folderName = backStack.arguments?.getString("folderName").orEmpty()
@@ -3532,6 +3534,7 @@ private fun LegacySingleStackNavigation(
                         preferStartPage = backStack.arguments?.getBoolean("preferStartPage") ?: false,
                         selectedMixName = mixSelection?.name,
                         selectedMixFile = mixSelection?.mixFile,
+                        cncMachineId = backStack.arguments?.getString("machine"),
                         isDarkTheme = isDarkTheme,
                         useStandardSheets = useStandardSheets,
                         isClockedInHere = isClockedInHere,
@@ -3562,10 +3565,8 @@ private fun LegacySingleStackNavigation(
                                 launchSingleTop = true
                             }
                         },
-                        onOpenMixes = { materialName ->
-                            navController.navigate(
-                                "manage_code/${URLEncoder.encode(folderName, "UTF-8")}?material=${URLEncoder.encode(materialName, "UTF-8")}"
-                            ) { launchSingleTop = true }
+                        onOpenMixes = { materialName, machineId ->
+                            navController.navigate(manageCodeRoute(folderName, materialName, machineId)) { launchSingleTop = true }
                         },
                         onBack = { navController.popBackStack() },
                         onUiVisibilityChanged = { viewerUiVisible = it }
@@ -4301,7 +4302,8 @@ private fun isCurrentViewerTarget(
     jobFolderName: String,
     pdfFilename: String,
     page: Int,
-    mixSelection: com.kkc.sheettracker.data.mixservice.ViewerMixSelection? = null
+    mixSelection: com.kkc.sheettracker.data.mixservice.ViewerMixSelection? = null,
+    machineId: String? = null
 ): Boolean {
     val route = backStackEntry?.destination?.route ?: return false
     if (!route.startsWith("viewer/")) return false
@@ -4310,7 +4312,8 @@ private fun isCurrentViewerTarget(
     val currentPdf = args.getString("pdfFilename") ?: return false
     val currentPage = args.getInt("startPage")
     val currentMix = viewerMixSelection(args.getString("mixName"), args.getString("mixFile"))
-    return currentFolder == jobFolderName && currentPdf == pdfFilename && currentPage == page && currentMix == mixSelection
+    return currentFolder == jobFolderName && currentPdf == pdfFilename && currentPage == page && currentMix == mixSelection &&
+        args.getString("machine") == machineId
 }
 
 private data class PendingClockOut(

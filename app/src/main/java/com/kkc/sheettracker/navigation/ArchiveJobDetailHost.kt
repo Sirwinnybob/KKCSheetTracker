@@ -336,7 +336,7 @@ private fun ArchiveCncDetail(
         specialtyStateStore = session.specialtyStateStore,
         appStateFlags = appStateFlags,
         jobFolderName = session.folderName,
-        onMaterialClick = { material, startPage, _ ->
+        onMaterialClick = { material, startPage, _, _ ->
             navController.navigate("viewer/${viewerRouteSegment(material.pdfFilename)}/$startPage")
         },
         onOpenReferenceDocument = { docType, startPage ->

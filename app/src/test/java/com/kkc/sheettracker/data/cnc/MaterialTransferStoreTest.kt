@@ -134,6 +134,63 @@ class MaterialTransferStoreTest {
         assertTrue(store(mapOf(blue.baseUrl to api)).records.value.isEmpty())
     }
 
+    @Test fun needsAttentionIsTerminalNeverRetriedAndBlocksNewMoves() = runTest {
+        val api = FakeApi().apply { operationResult = TransferResult.Ok(TransferOperation("op-1", "activating", "needs_attention", "Activation unverified")) }
+        val apis = mapOf(blue.baseUrl to api)
+        val store = store(apis)
+        store.start(red, blue, "711", "19mm", preview, "r", PunloadPolicy.REMOVE)
+        store.refreshActive()
+        val record = store.records.value.single()
+        assertEquals(TransferState.NEEDS_ATTENTION, record.state)
+        assertEquals("Activation unverified", record.message)
+        assertFalse(record.active)
+        assertTrue(record.blocksMaterial)
+        // Terminal: no more polls, no resend, and a second move of the same material is refused.
+        repeat(2) { store.refreshActive() }
+        assertEquals(1, api.polls.size)
+        assertNull(store.resendUncertain(record.requestId))
+        assertTrue(store.start(blue, red, "711", "19mm", preview, "r", PunloadPolicy.KEEP_REMOVED) is TransferStart.AlreadyActive)
+        assertEquals(1, api.starts.size)
+        // Survives a restart unchanged.
+        val restored = store(apis)
+        assertEquals(TransferState.NEEDS_ATTENTION, restored.records.value.single().state)
+        assertNotNull(restored.needsAttentionFor("711", "19mm"))
+        // Only the operator's explicit dismissal (after the office resolves it) clears it.
+        assertTrue(restored.dismiss(record.requestId))
+        assertTrue(restored.records.value.isEmpty())
+    }
+
+    @Test fun unknownOutcomeIsTreatedAsNeedsAttentionNotSuccessOrSafeFailure() = runTest {
+        val api = FakeApi().apply { operationResult = TransferResult.Ok(TransferOperation("op-1", "activating", "aborted", null)) }
+        val store = store(mapOf(blue.baseUrl to api))
+        store.start(red, blue, "711", "19mm", preview, "r", PunloadPolicy.REMOVE)
+        store.refreshActive()
+        assertEquals(TransferState.NEEDS_ATTENTION, store.records.value.single().state)
+    }
+
+    @Test fun pollingContinuesThroughEveryPhaseUntilAnOutcome() = runTest {
+        val api = FakeApi()
+        val apis = mapOf(blue.baseUrl to api)
+        store(apis).start(red, blue, "711", "19mm", preview, "r", PunloadPolicy.REMOVE)
+        for (phase in listOf("queued", "reserving", "copying", "preparing", "retiring", "activating")) {
+            // A restart between polls resumes on the same operation and endpoint.
+            val restored = store(apis)
+            api.operationResult = TransferResult.Ok(TransferOperation("op-1", phase, null, null))
+            restored.refreshActive()
+            assertEquals(TransferState.SUBMITTED, restored.records.value.single().state)
+            assertEquals(phase, restored.records.value.single().phase)
+        }
+        // A refusal to report (e.g. unknown operation after a service restart) is not an outcome.
+        api.operationResult = TransferResult.Rejected("unknown_operation", "not found")
+        store(apis).refreshActive()
+        assertEquals(TransferState.SUBMITTED, store(apis).records.value.single().state)
+        api.operationResult = TransferResult.Ok(TransferOperation("op-1", "completed", "completed", null))
+        store(apis).refreshActive()
+        assertEquals(TransferState.COMPLETED, store(apis).records.value.single().state)
+        assertEquals(List(8) { "op-1" }, api.polls)
+        assertEquals(1, api.starts.size)
+    }
+
     @Test fun corruptJournalIsKeptAsideAndStartsEmpty() {
         val file = temp.root.resolve("transfers.json")
         file.writeText("{bad")
