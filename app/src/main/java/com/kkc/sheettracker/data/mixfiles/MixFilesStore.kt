@@ -123,7 +123,7 @@ class MixFilesStore(
                         } else true
                     }
                     else -> {
-                        failure(revision, catalogRequest = false)
+                        failure(revision)
                         false
                     }
                 }
@@ -136,7 +136,7 @@ class MixFilesStore(
             if (!isCurrent(expected, startedVersion)) return@withLock
             when (response) {
                 is MixFilesResult.Ok -> accept(response.value)
-                else -> failure(response, catalogRequest = true)
+                else -> failure(response)
             }
         }
     }
@@ -157,13 +157,30 @@ class MixFilesStore(
         }
     }
 
-    private fun failure(result: MixFilesResult<*>, catalogRequest: Boolean) {
+    private fun failure(result: MixFilesResult<*>) {
         if (result is MixFilesResult.Offline && mutableState.value is CatalogState.Live && ++consecutiveOffline < 3) return
         if (result !is MixFilesResult.Offline) consecutiveOffline = 0
-        mutableState.value = when {
-            result is MixFilesResult.ServiceOutdated -> CatalogState.Outdated(catalog)
-            catalogRequest && result is MixFilesResult.Rejected && result.error.code == "not_found" -> CatalogState.NoFolder
+        if (result is MixFilesResult.Rejected && result.error.code == "not_found") {
+            // The folder is gone from this machine (for example moved to the other CNC). Forget the
+            // catalog so a later outage cannot show the material here from memory or disk.
+            forgetCatalog()
+            mutableState.value = CatalogState.NoFolder
+            return
+        }
+        mutableState.value = when (result) {
+            is MixFilesResult.ServiceOutdated -> CatalogState.Outdated(catalog)
             else -> CatalogState.Offline(catalog)
+        }
+    }
+
+    /** Called under lock; a newer accepted snapshot wins over the pending delete. */
+    private fun forgetCatalog() {
+        catalog = null
+        val forgotten = ++version
+        scope.launch {
+            synchronized(lock) {
+                if (version == forgotten) runCatching { cache.delete(key) }
+            }
         }
     }
 
@@ -206,6 +223,11 @@ class MixFilesCatalogCache(private val dir: File) {
                 Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
         } finally { temporary.delete() }
+    }
+
+    @Synchronized
+    fun delete(key: MaterialKey) {
+        file(key).delete()
     }
 
     private fun file(key: MaterialKey): File {

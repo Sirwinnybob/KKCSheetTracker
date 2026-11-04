@@ -229,9 +229,31 @@ class MixFilesStoreTest {
         api.catalogResult = rejected("not_found")
         store.refreshNow()
         assertEquals(CatalogState.NoFolder, store.state.value)
+        api.catalogResult = MixFilesResult.Ok(first)
+        store.refreshNow()
         api.catalogResult = rejected("other")
         store.refreshNow()
         assertEquals(CatalogState.Offline(first), store.state.value)
+        lease.close()
+    }
+
+    @Test fun materialMovedAwayStaysNoFolderAcrossPollsAndForgetsItsCatalog() = runTest(StandardTestDispatcher()) {
+        val api = FakeApi(first)
+        val store = store(api)
+        val lease = store.acquire(); runCurrent()
+        assertEquals(CatalogState.Live(first), store.state.value)
+        api.revisionResult = rejected("not_found")
+        api.catalogResult = rejected("not_found")
+        repeat(3) {
+            advanceTimeBy(3_000); runCurrent()
+            assertEquals(CatalogState.NoFolder, store.state.value)
+        }
+        assertNull(cache().read(key))
+        // The machine later goes unreachable: the moved material must not come back from memory or disk.
+        api.revisionResult = MixFilesResult.Offline
+        api.catalogResult = MixFilesResult.Offline
+        advanceTimeBy(3_000); runCurrent()
+        assertEquals(CatalogState.Offline(null), store.state.value)
         lease.close()
     }
 
