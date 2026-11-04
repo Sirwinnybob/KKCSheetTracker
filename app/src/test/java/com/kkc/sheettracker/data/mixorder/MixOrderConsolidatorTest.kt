@@ -66,6 +66,31 @@ class MixOrderConsolidatorTest {
         root(base).walkTopDown().filter { it.isFile }.map { "${it.relativeTo(root(base)).path}|${it.length()}|${it.lastModified()}" }.sorted().toList()
 
     @Test
+    fun readsPowerShellBundle() {
+        val bytes = requireNotNull(javaClass.getResourceAsStream("/mixorder/pc_bundle.json")) {
+            "Missing checked-in bundle produced by tools/consolidate-mix-learning.ps1"
+        }.use { it.readBytes() }
+        assertFalse("PowerShell bundle must be UTF-8 without BOM", bytes.take(3) == listOf(0xef.toByte(), 0xbb.toByte(), 0xbf.toByte()))
+        val base = tmp.newFolder()
+        val dir = bundlesDir(base).apply { mkdirs() }
+        File(dir, "pc_bundle.json").writeBytes(bytes)
+
+        val records = newStore().readAll(base)
+
+        assertEquals(setOf("pc-1", "pc-2", "pc-3", "pc-4"), records.map { it.recordId }.toSet())
+        assertEquals(4, records.size)
+        records.forEach { record ->
+            assertEquals("720", record.job)
+            assertEquals("smart", record.mode)
+            assertEquals(PRIOR_WEIGHTS.values, record.weightsUsed)
+            assertEquals(listOf("2|R2A.pgm", "1|R1A.pgm"), record.finalOrder)
+            assertEquals(SheetFeatures(1, 2, 0.125, 3.0, 9), record.sheets["1|R1A.pgm"])
+            assertEquals(SheetFeatures(4, 0, 0.25, 2.0, 12), record.sheets["2|R2A.pgm"])
+            assertTrue(record.lockedSheets.isEmpty())
+        }
+    }
+
+    @Test
     fun mergesSinglesAndBundlesDedupe() {
         val base = tmp.newFolder()
         val store = newStore()
