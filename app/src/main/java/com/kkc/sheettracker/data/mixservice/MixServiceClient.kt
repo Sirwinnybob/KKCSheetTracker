@@ -1,6 +1,11 @@
 package com.kkc.sheettracker.data.mixservice
 
 import com.google.gson.Gson
+import com.kkc.sheettracker.data.cnc.CncMachine
+import com.kkc.sheettracker.data.cnc.MixServiceStatus
+import com.kkc.sheettracker.data.cnc.machineAccess
+import com.kkc.sheettracker.data.cnc.machineIdentityRefusal
+import com.kkc.sheettracker.data.cnc.parseMixServiceStatus
 import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -12,7 +17,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.util.concurrent.TimeUnit
 
-class MixServiceClient(private val baseUrl: String = com.kkc.sheettracker.data.cnc.CncMachines.scm.baseUrl) : MixOperationService {
+/** Second-pass and PGM inventory client bound to one explicit machine. */
+class MixServiceClient(private val machine: CncMachine) : MixOperationService {
+    private val baseUrl: String get() = machine.baseUrl
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val gson = Gson()
     private val root: String get() = baseUrl.trimEnd('/')
@@ -26,7 +33,10 @@ class MixServiceClient(private val baseUrl: String = com.kkc.sheettracker.data.c
             .readTimeout(90, TimeUnit.SECONDS)
             .build()
         // POST acceptance may be lost after the CNC has already queued the mutation.
-        private val mutationClient = client.newBuilder().retryOnConnectionFailure(false).build()
+        // The CNC uses HTTP/1.0 and may close a pooled read connection (such as the /status
+        // preflight) as it is reused. Never put a non-replayable write on one.
+        private val mutationClient = client.newBuilder().connectionPool(okhttp3.ConnectionPool(0, 1, TimeUnit.SECONDS))
+            .retryOnConnectionFailure(false).build()
     }
 
     suspend fun listPgms(job: String, material: String, withSha256: Boolean = false): List<PgmInventoryItem> = withContext(Dispatchers.IO) {
@@ -92,7 +102,12 @@ class MixServiceClient(private val baseUrl: String = com.kkc.sheettracker.data.c
         requestId: String,
         files: List<PgmEditRow>
     ): MixServiceOperation {
-        if (files.any { it.expectedSha256 != null || it.expectedSourceSha256 != null } && "pgm-edit-revisions" !in editorFeatures()) {
+        // Verify the service at this address is still the bound, writable machine before any POST.
+        val status = serviceStatus()
+        val access = machineAccess(machine, status, requireStatus = true)
+        access.reason?.let { throw MixOperationClientException(it) }
+        if (!access.secondPass) throw MixOperationClientException("Second-pass editing isn't available on ${machine.displayName}")
+        if (files.any { it.expectedSha256 != null || it.expectedSourceSha256 != null } && "pgm-edit-revisions" !in status?.features.orEmpty()) {
             throw MixOperationClientException("The CNC editor needs an update for revision checks")
         }
         return submitOperation(
@@ -107,15 +122,22 @@ class MixServiceClient(private val baseUrl: String = com.kkc.sheettracker.data.c
     )
     }
 
-    suspend fun editorFeatures(): Set<String> = withContext(Dispatchers.IO) {
-        client.newCall(Request.Builder().url("$root/status").get().build()).execute().use { response ->
-            if (!response.isSuccessful) emptySet() else com.kkc.sheettracker.data.mixfiles.MixFilesJson.parseFeatures(response.body?.string().orEmpty())
-        }
+    suspend fun editorFeatures(): Set<String> = serviceStatus()?.features.orEmpty()
+
+    suspend fun serviceStatus(): MixServiceStatus? = withContext(Dispatchers.IO) {
+        runCatching {
+            client.newCall(Request.Builder().url("$root/status").get().build()).execute().use { response ->
+                if (!response.isSuccessful) null else parseMixServiceStatus(response.body?.string().orEmpty())
+            }
+        }.getOrNull()
     }
 
     suspend fun submitPgmPreview(job: String, material: String, requestId: String, row: PgmEditRow,
         restoreOriginal: Boolean = false): MixServiceOperation {
-        if ("pgm-edit-preview" !in editorFeatures()) throw MixOperationClientException("Source preview needs a CNC service update")
+        val status = serviceStatus()
+        // Preview writes nothing, so a read-only service may still preview; a different machine may not.
+        status?.let { machineIdentityRefusal(machine, it) }?.let { throw MixOperationClientException(it.second) }
+        if ("pgm-edit-preview" !in status?.features.orEmpty()) throw MixOperationClientException("Source preview needs a CNC service update")
         return submitOperation(url = "$root/jobs/".toHttpUrl().newBuilder().addPathSegment(job)
             .addPathSegment("materials").addPathSegment(material).addPathSegment("pgm-edits").addPathSegment("preview").build(),
             method = "POST", payload = PgmPreviewRequest(requestId, listOf(PgmPreviewRow(row.name, row.secondPass,

@@ -54,7 +54,7 @@ class FinalMixRecoveryTest {
                 """{"ok":true,"stateSource":"future","files":{}}""")) {
                 server.enqueue(MockResponse().setBody(body))
                 val s = MixesSession()
-                s.reloadHistory(listOf("R1.pgm")) { MixServiceClient(server.url("/").toString()).listPgmEdits("J", "M") }
+                s.reloadHistory(listOf("R1.pgm")) { MixServiceClient(com.kkc.sheettracker.data.cnc.CncMachines.scm.copy(baseUrl = server.url("/").toString())).listPgmEdits("J", "M") }
                 assertFalse(body, s.secondHistoryConfirmed)
                 assertNotNull(s.secondMessage)
             }
@@ -188,7 +188,7 @@ class FinalMixRecoveryTest {
                 """{"ok":true,"stateSource":"ledger","error":null,"files":{"a.pgm":{"stateSource":"ledger","current":{"mode":"none","punloadRemoved":"false"},"history":[]}}}"""
             )) {
                 server.enqueue(MockResponse().setBody(body))
-                assertNull(body, MixServiceClient(server.url("/").toString()).listPgmEdits("J", "M"))
+                assertNull(body, MixServiceClient(com.kkc.sheettracker.data.cnc.CncMachines.scm.copy(baseUrl = server.url("/").toString())).listPgmEdits("J", "M"))
             }
         }
     }

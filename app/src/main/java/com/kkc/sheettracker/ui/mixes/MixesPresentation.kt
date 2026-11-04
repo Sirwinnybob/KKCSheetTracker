@@ -2,13 +2,23 @@ package com.kkc.sheettracker.ui.mixes
 
 import com.kkc.sheettracker.data.cnc.CncMachine
 import com.kkc.sheettracker.data.cnc.CncMachines
+import com.kkc.sheettracker.data.cnc.CncCapability
+import com.kkc.sheettracker.data.cnc.MachineAccess
+import com.kkc.sheettracker.data.cnc.MaterialTransferRecord
+import com.kkc.sheettracker.data.cnc.MixServiceStatus
+import com.kkc.sheettracker.data.cnc.machineAccess
 import com.kkc.sheettracker.data.cnc.MachineStatus
 import com.kkc.sheettracker.data.mixfiles.*
 import com.kkc.sheettracker.data.models.Material
 import com.kkc.sheettracker.data.models.SheetStatus
 import java.util.Locale
 
-data class MaterialNavItem(val material: String, val machineId: String, val chip: MaterialChip, val selected: Boolean)
+data class MaterialNavItem(val material: String, val machineId: String, val chip: MaterialChip, val selected: Boolean,
+    /** Progress/outcome of a move from this tile's machine; the tile stays in its source group until verified. */
+    val transfer: String? = null)
+
+/** One caption per machine. An empty group still renders, as the drop target for moves. */
+data class MachineGroupModel(val machineId: String, val name: String, val status: MachineStatus, val items: List<MaterialNavItem>)
 sealed interface MaterialChip {
     data class Left(val n: Int, val interrupted: Boolean) : MaterialChip
     data object Done : MaterialChip
@@ -67,6 +77,11 @@ data class MixesUiModel(
     val secondPassApplyEnabled: Boolean,
     val machineStatus: MachineStatus,
     val restorePreview: Boolean = false,
+    /** Effective actions for the selected machine; null when no material is selected. */
+    val access: MachineAccess? = null,
+    val machineGroups: List<MachineGroupModel> = emptyList(),
+    /** Blue SCM pause: offer an operator-reviewed fresh MIX of the remaining sheets (never an FRZ resume). */
+    val remainingMixAvailable: Boolean = false,
 )
 
 data class MaterialMixesInput(
@@ -97,6 +112,12 @@ data class MixesUiInput(
     val applying: Boolean = false,
     val secondPassApplying: Boolean = false,
     val machineStatus: MachineStatus = MachineStatus.Unavailable,
+    /** Live `/status` of the selected machine's service; null until read. */
+    val serviceStatus: MixServiceStatus? = null,
+    val machines: List<CncMachine> = CncMachines.mixMachines,
+    val machineStatuses: Map<String, MachineStatus> = emptyMap(),
+    val job: String? = null,
+    val transfers: List<MaterialTransferRecord> = emptyList(),
 )
 
 /** Split entries have left the main rows, but current tablet completion still protects every occurrence. */
@@ -128,7 +149,17 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
     val outdated = selected?.catalogState is CatalogState.Outdated || input.applyResult is MixFilesResult.ServiceOutdated
     val offline = selected?.catalogState is CatalogState.Offline
     val unavailable = selected == null || selected.catalogState is CatalogState.Loading
-    val readOnly = outdated || offline || unavailable || (group?.errorFile != null && draft?.rawRestore == null)
+    val access = selected?.let { machineAccess(it.machine, input.serviceStatus) }
+    // A restored draft or deep link can still land on an interrupted mix; FRZ-less machines only view it.
+    val frzBlocked = access != null && !access.frz && (group?.isInterrupted == true || draft?.isInterrupted == true)
+    val accessReason = when {
+        access == null -> null
+        access.reason != null -> access.reason
+        !access.mixFiles -> "${selected.machine.displayName}'s mix service doesn't allow mix edits."
+        frzBlocked -> frzUnsupported(selected.machine)
+        else -> null
+    }
+    val readOnly = outdated || offline || unavailable || accessReason != null || (group?.errorFile != null && draft?.rawRestore == null)
     val changed = input.conflict || error?.code == "revision_conflict" || (draft != null && (
         (input.draftFolderRevision != null && catalog?.folderRevision != input.draftFolderRevision) ||
             (draft.newFile == null && (draft.baseMixRevision != group?.mix?.revision || draft.baseFrzRevision != group?.frz?.revision))
@@ -137,6 +168,7 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
     val banner = when {
         unconfirmed -> Banner.SaveUnconfirmed
         outdated -> Banner.ServiceOutdated
+        accessReason != null -> Banner.Message(accessReason)
         changed -> Banner.ChangedOnCnc
         offline -> Banner.Offline
         error != null -> Banner.Message(errorCopy(error))
@@ -155,6 +187,7 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
         val count = draft?.changeCount ?: 0
         val block = when {
             outdated -> "The CNC mix service needs updating"
+            accessReason != null -> accessReason
             offline || unavailable -> "Connect to the CNC before saving"
             group?.errorFile != null && draft?.rawRestore == null -> "Restore a revision or delete this unreadable mix"
             changed -> "This mix changed on the CNC"
@@ -174,11 +207,44 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
     }
     val secondCount = input.secondPassDraft?.changeCount ?: 0
     // A mix revision conflict or unreadable mix does not affect the separate PGM edit draft.
-    val secondEnabled = secondCount > 0 && !outdated && !offline && !unavailable && !input.secondPassApplying
-    return MixesUiModel(input.materials.map { material ->
-        MaterialNavItem(material.material.materialName, material.machine.id, navChip(material), material == selected)
-    }, tabs, tab, card, rows, "Apply 2nd pass ($secondCount)".takeIf { secondCount > 0 }, banner, readOnly,
-        unconfirmed, secondEnabled, input.machineStatus, draft?.rawRestore != null)
+    val secondEnabled = secondCount > 0 && !outdated && !offline && !unavailable && !input.secondPassApplying && access?.secondPass != false
+    val groups = buildMachineGroups(input, selected)
+    val remainingMix = selected != null && CncCapability.FRZ_EDITING !in selected.machine.capabilities && !readOnly &&
+        input.draft == null && group?.mix != null && group.frz == null && rows != null &&
+        rows.completed.isNotEmpty() && rows.remaining.isNotEmpty()
+    return MixesUiModel(groups.firstOrNull { it.machineId == input.selectedMachineId }?.items.orEmpty(),
+        tabs, tab, card, rows, "Apply 2nd pass ($secondCount)".takeIf { secondCount > 0 }, banner, readOnly,
+        unconfirmed, secondEnabled, input.machineStatus, draft?.rawRestore != null, access, groups, remainingMix)
+}
+
+/** A machine owns a material when its folder is known there; offline machines keep only cached materials. */
+internal fun ownsMaterial(state: CatalogState): Boolean = when (state) {
+    is CatalogState.Live, is CatalogState.Outdated -> true
+    is CatalogState.Offline -> state.cached != null
+    CatalogState.Loading, CatalogState.NoFolder -> false
+}
+
+private fun buildMachineGroups(input: MixesUiInput, selected: MaterialMixesInput?): List<MachineGroupModel> {
+    val machines = (input.machines + input.materials.map { it.machine }).distinctBy { it.id }
+    val names = input.materials.map { it.material.materialName }.distinct()
+    val owned = input.materials.filter { it == selected || ownsMaterial(it.catalogState) }
+    // Unknown everywhere (loading, offline without cache, or no folder): keep it under the first machine, as before.
+    val fallback = names.filter { name -> owned.none { it.material.materialName == name } }.mapNotNull { name ->
+        input.materials.firstOrNull { it.material.materialName == name && it.machine.id == machines.first().id }
+            ?: input.materials.firstOrNull { it.material.materialName == name }
+    }
+    val shown = (owned + fallback).toSet()
+    return machines.map { machine ->
+        MachineGroupModel(machine.id, machine.displayName, input.machineStatuses[machine.id] ?: MachineStatus.Unavailable,
+            input.materials.filter { it.machine.id == machine.id && it in shown }.map { material ->
+                val record = input.transfers.firstOrNull {
+                    it.sourceMachineId == machine.id && it.material == material.material.materialName && (input.job == null || it.job == input.job)
+                }
+                val destination = record?.let { r -> machines.firstOrNull { it.id == r.destinationMachineId }?.displayName ?: r.destinationMachineId }
+                MaterialNavItem(material.material.materialName, machine.id, navChip(material), material == selected,
+                    record?.let { transferLabel(it, destination!!) })
+            })
+    }
 }
 
 private fun CatalogState.catalog(): MixFilesCatalog? = when (this) {

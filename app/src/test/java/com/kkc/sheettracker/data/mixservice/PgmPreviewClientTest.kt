@@ -12,7 +12,7 @@ class PgmPreviewClientTest {
     @Test fun previewPostsEncodedPathAndShaInventoryIsOptIn() = runTest {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setBody("""{"ok":true,"pgms":[{"name":"P.pgm","sha256":"${"a".repeat(64)}"}]}"""))
-            val api = MixServiceClient(server.url("/").toString())
+            val api = MixServiceClient(com.kkc.sheettracker.data.cnc.CncMachines.scm.copy(baseUrl = server.url("/").toString()))
             assertEquals("a".repeat(64), api.listPgms("Job +","M",withSha256=true).single().sha256)
             assertEquals("true",server.takeRequest().requestUrl!!.queryParameter("withSha256"))
             server.enqueue(MockResponse().setBody("""{"ok":true,"features":["pgm-edit-preview"]}"""))
@@ -42,11 +42,21 @@ class PgmPreviewClientTest {
     @Test fun oldServiceReceivesNoPreviewMutation() = runTest {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setBody("""{"ok":true,"features":[]}"""))
-            val result=runCatching { MixServiceClient(server.url("/").toString())
+            val result=runCatching { MixServiceClient(com.kkc.sheettracker.data.cnc.CncMachines.scm.copy(baseUrl = server.url("/").toString()))
                 .submitPgmPreview("J","M","id",PgmEditRow("P.pgm","standard",false)) }
             assertTrue(result.isFailure)
             assertEquals(1,server.requestCount)
             assertEquals("/status",server.takeRequest().path)
+        }
+    }
+
+    @Test fun previewRefusesAServiceIdentifyingAsAnotherMachine() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("""{"ok":true,"features":["pgm-edit-preview"],"machineId":"scm","machineName":"Red SCM"}"""))
+            val result=runCatching { MixServiceClient(com.kkc.sheettracker.data.cnc.CncMachines.scmNew.copy(baseUrl = server.url("/").toString()))
+                .submitPgmPreview("J","M","id",PgmEditRow("P.pgm","standard",false)) }
+            assertTrue(result.exceptionOrNull()!!.message!!.contains("Blue SCM"))
+            assertEquals(1,server.requestCount)
         }
     }
 }

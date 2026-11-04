@@ -68,13 +68,15 @@ internal fun SecondPassControls(draft: SecondPassDraft?, pgms: List<String>, ena
             val checked = when (tri) { TriState.ON -> ToggleableState.On; TriState.OFF -> ToggleableState.Off; is TriState.PARTIAL -> ToggleableState.Indeterminate }
             val applied = draft?.let { SecondPassDrafts.tri(it.copy(wanted = it.current), pgms, field) } ?: TriState.OFF
             // Without revert capability, already-applied controls remain visibly checked and disabled.
-            val canChange = enabled && draft != null && pgms.isNotEmpty() && (revertSupported || applied == TriState.OFF) &&
+            // A machine that always removes P-unload shows it checked and fixed.
+            val fixed = field == SecondPassField.PUNLOAD && draft?.punloadFixed == true
+            val canChange = !fixed && enabled && draft != null && pgms.isNotEmpty() && (revertSupported || applied == TriState.OFF) &&
                 (field != SecondPassField.SUPER || SecondPassDrafts.tri(draft, pgms, SecondPassField.SECOND) == TriState.ON)
             val label = if (compact) when (field) { SecondPassField.PUNLOAD -> "PUN"; SecondPassField.SECOND -> "2ND"; SecondPassField.SUPER -> "SUP" }
-                else when (field) { SecondPassField.PUNLOAD -> "Remove P-unload"; SecondPassField.SECOND -> "2nd pass"; SecondPassField.SUPER -> "Super pass" }
+                else when (field) { SecondPassField.PUNLOAD -> if (fixed) "P-unload always removed" else "Remove P-unload"; SecondPassField.SECOND -> "2nd pass"; SecondPassField.SUPER -> "Super pass" }
             Column {
                 TriStateCheckbox(checked, onClick = { onSet(field, tri != TriState.ON) }, enabled = canChange,
-                    modifier = Modifier.semantics { contentDescription = "$label · ${pgms.joinToString()}" })
+                    modifier = Modifier.semantics { contentDescription = "$label · ${pgms.joinToString()}" + if (fixed) " · always removed" else "" })
                 Text(label, style = MaterialTheme.typography.labelSmall)
                 if (!compact && tri is TriState.PARTIAL) Text("${tri.count} of ${pgms.size}", style = MaterialTheme.typography.labelSmall)
             }

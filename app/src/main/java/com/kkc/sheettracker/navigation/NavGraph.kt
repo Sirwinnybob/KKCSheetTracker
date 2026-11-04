@@ -1998,10 +1998,11 @@ private fun JobsTabHost(
         }
 
         composable(
-            "manage_code/{folderName}?material={material}",
+            "manage_code/{folderName}?material={material}&machine={machine}",
             arguments = listOf(
                 navArgument("folderName") { type = NavType.StringType },
-                navArgument("material") { type = NavType.StringType; nullable = true; defaultValue = null }
+                navArgument("material") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("machine") { type = NavType.StringType; nullable = true; defaultValue = null }
             )
         ) { backStack ->
             val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
@@ -2011,6 +2012,7 @@ private fun JobsTabHost(
                 progressStore = progressStore,
                 jobFolderName = folderName,
                 initialMaterial = material,
+                initialMachineId = backStack.arguments?.getString("machine"),
                 onBack = { navController.popBackStack() }
             )
         }
@@ -3571,10 +3573,11 @@ private fun LegacySingleStackNavigation(
                 }
 
                 composable(
-                    "manage_code/{folderName}?material={material}",
+                    "manage_code/{folderName}?material={material}&machine={machine}",
                     arguments = listOf(
                         navArgument("folderName") { type = NavType.StringType },
-                        navArgument("material") { type = NavType.StringType; nullable = true; defaultValue = null }
+                        navArgument("material") { type = NavType.StringType; nullable = true; defaultValue = null },
+                        navArgument("machine") { type = NavType.StringType; nullable = true; defaultValue = null }
                     )
                 ) { backStack ->
                     val folderName = URLDecoder.decode(backStack.arguments?.getString("folderName") ?: "", "UTF-8")
@@ -3584,6 +3587,7 @@ private fun LegacySingleStackNavigation(
                         progressStore = progressStore,
                         jobFolderName = folderName,
                         initialMaterial = material,
+                        initialMachineId = backStack.arguments?.getString("machine"),
                         onBack = { navController.popBackStack() }
                     )
                 }

@@ -367,4 +367,181 @@ class MixesPresentationTest {
         assertTrue(ui.card!!.applyEnabled)
         assertNull(ui.card.applyBlockedReason)
     }
+
+    // ---- Two machines with identical job/material/PGM names ----
+    private val blue = CncMachines.scmNew
+    private fun blueStatus(id: String? = "scm-new", readOnly: Boolean = false) =
+        com.kkc.sheettracker.data.cnc.MixServiceStatus(emptySet(), id, id?.let { if (it == "scm") "Red SCM" else "Blue SCM" }, null, readOnly)
+    private fun secondDraft(): SecondPassDraft {
+        val current = mapOf("P1.pgm" to SecondPassState(false, false, false))
+        return SecondPassDraft(current.mapValues { SecondPassState(true, false, false) }, current)
+    }
+    private fun twoMachines(red: MixFilesCatalog, blueCatalog: MixFilesCatalog) =
+        listOf(material(red), material(blueCatalog).copy(machine = blue))
+
+    @Test fun selectedMachineChoosesItsOwnCatalogForIdenticalNames() {
+        val materials = twoMachines(catalog(row("Red.mix")), catalog(row("Blue.mix")))
+        val redUi = buildMixesUi(MixesUiInput(materials, "Oak", selectedMachineId = "scm"))
+        val blueUi = buildMixesUi(MixesUiInput(materials, "Oak", selectedMachineId = "scm-new", serviceStatus = blueStatus()))
+        assertEquals(listOf("Red"), redUi.tabs.map { it.title })
+        assertEquals(listOf("Blue"), blueUi.tabs.map { it.title })
+        assertEquals(listOf("scm"), redUi.nav.map { it.machineId })
+        assertEquals(listOf("scm-new"), blueUi.nav.map { it.machineId })
+        assertTrue(blueUi.nav.single().selected)
+        assertFalse(blueUi.readOnly)
+        // Without a selected-machine match nothing from the other machine is borrowed.
+        assertNull(buildMixesUi(MixesUiInput(listOf(material()), "Oak", selectedMachineId = "scm-new")).groups)
+    }
+
+    @Test fun identityMismatchMakesBlueReadOnlyWithClearMessage() {
+        val c = catalog(row())
+        val m = material(c).copy(machine = blue)
+        val ui = buildMixesUi(MixesUiInput(listOf(m), "Oak", selectedMachineId = "scm-new", draft = edited(c),
+            secondPassDraft = secondDraft(), serviceStatus = blueStatus("scm")))
+        assertTrue(ui.readOnly)
+        val message = (ui.banner as Banner.Message).text
+        assertTrue(message, message.contains("Blue SCM") && message.contains("Red SCM"))
+        assertFalse(ui.card!!.applyEnabled)
+        assertEquals(message, ui.card.applyBlockedReason)
+        assertFalse(ui.secondPassApplyEnabled)
+        assertTrue(ui.groups!!.remaining.none { it.draggable || it.canRemove })
+        assertFalse(ui.access!!.mixFiles)
+    }
+
+    @Test fun readOnlyServiceGatesMixAndSecondPassEdits() {
+        val c = catalog(row())
+        val ui = buildMixesUi(MixesUiInput(listOf(material(c).copy(machine = blue)), "Oak", selectedMachineId = "scm-new",
+            draft = edited(c), secondPassDraft = secondDraft(), serviceStatus = blueStatus(readOnly = true)))
+        assertTrue(ui.readOnly)
+        assertTrue((ui.banner as Banner.Message).text.contains("read-only"))
+        assertFalse(ui.card!!.applyEnabled)
+        assertFalse(ui.secondPassApplyEnabled)
+        // The same catalog on a verified Blue service is editable.
+        val ok = buildMixesUi(MixesUiInput(listOf(material(c).copy(machine = blue)), "Oak", selectedMachineId = "scm-new",
+            draft = edited(c), secondPassDraft = secondDraft(), serviceStatus = blueStatus()))
+        assertTrue(ok.card!!.applyEnabled)
+        assertTrue(ok.secondPassApplyEnabled)
+    }
+
+    @Test fun oldRedServiceWithoutIdentityStaysEditable() {
+        val c = catalog(row())
+        val ui = buildMixesUi(MixesUiInput(listOf(material(c)), "Oak", draft = edited(c),
+            serviceStatus = com.kkc.sheettracker.data.cnc.MixServiceStatus(setOf("pgm-edits-revert"))))
+        assertFalse(ui.readOnly)
+        assertTrue(ui.card!!.applyEnabled)
+    }
+
+    @Test fun interruptedMixOnBlueIsViewOnlyEvenWithRestoredDraft() {
+        val c = pair(listOf(entry("P1.pgm", left = 1)), listOf(entry("P1.pgm")))
+        val restoredDraft = edited(c)
+        val blueUi = buildMixesUi(MixesUiInput(listOf(material(c).copy(machine = blue)), "Oak", selectedMachineId = "scm-new",
+            draft = restoredDraft, secondPassDraft = secondDraft(), serviceStatus = blueStatus()))
+        assertTrue(blueUi.readOnly)
+        assertTrue((blueUi.banner as Banner.Message).text.contains("FRZ"))
+        assertFalse(blueUi.card!!.applyEnabled)
+        assertTrue(blueUi.groups!!.remaining.none { it.draggable || it.canEditCounts })
+        assertFalse(blueUi.access!!.frz)
+        assertTrue(blueUi.secondPassApplyEnabled) // PGM second-pass edits do not depend on FRZ support.
+        val redUi = buildMixesUi(MixesUiInput(listOf(material(c)), "Oak", draft = restoredDraft))
+        assertFalse(redUi.readOnly)
+        assertTrue(redUi.card!!.applyEnabled)
+    }
+
+    // ---- Machine groups, material moves and Blue's remaining MIX ----
+    private fun moveStatus(id: String, move: Boolean = true) = com.kkc.sheettracker.data.cnc.MixServiceStatus(emptySet(), id,
+        if (id == "scm") "Red SCM" else "Blue SCM", setOf("MIX_FILES", "SECOND_PASS") + (if (move) setOf("MOVE_MATERIAL") else emptySet()), false)
+    private fun move(source: com.kkc.sheettracker.data.cnc.CncMachine = CncMachines.scm, destination: com.kkc.sheettracker.data.cnc.CncMachine = blue,
+        sourceStatus: com.kkc.sheettracker.data.cnc.MixServiceStatus? = moveStatus(source.id), destinationStatus: com.kkc.sheettracker.data.cnc.MixServiceStatus? = moveStatus(destination.id),
+        dirty: Boolean = false, active: Boolean = false, live: Boolean = true, exists: Boolean = false) =
+        planMaterialMove(MoveContext(source, destination, "Oak", sourceStatus, destinationStatus, dirty, active, live, exists))
+
+    @Test fun groupsShowOwningMachineAndEmptyGroupStillRenders() {
+        val redOnly = material(catalog(row("Red.mix"))).copy(material = Material("Oak.pdf", "Oak", 1))
+        val blueSide = material().copy(machine = blue, catalogState = CatalogState.NoFolder)
+        val ui = buildMixesUi(MixesUiInput(listOf(redOnly, blueSide), "Oak"))
+        assertEquals(listOf("scm", "scm-new"), ui.machineGroups.map { it.machineId })
+        assertEquals(listOf("Red SCM", "Blue SCM"), ui.machineGroups.map { it.name })
+        assertEquals(listOf("Oak"), ui.machineGroups[0].items.map { it.material })
+        assertTrue(ui.machineGroups[1].items.isEmpty()) // Rendered as a drop target, never hidden.
+        // Identical names live on both machines when both folders exist; each tile carries its machine.
+        val both = buildMixesUi(MixesUiInput(twoMachines(catalog(row("Red.mix")), catalog(row("Blue.mix"))), "Oak", selectedMachineId = "scm-new"))
+        assertEquals(listOf("scm"), both.machineGroups[0].items.map { it.machineId })
+        assertEquals(listOf(false, true), both.machineGroups.map { it.items.single().selected })
+        // A material whose folder is on Blue only moves to Blue's group.
+        val moved = buildMixesUi(MixesUiInput(listOf(material().copy(catalogState = CatalogState.NoFolder), material().copy(machine = blue)), "Oak", selectedMachineId = "scm-new"))
+        assertEquals(listOf(0, 1), moved.machineGroups.map { it.items.size })
+    }
+
+    @Test fun activeTransferShowsProgressTileInSourceGroup() {
+        val record = com.kkc.sheettracker.data.cnc.MaterialTransferRecord("req-1", "Job", "Oak", "scm", CncMachines.scm.baseUrl,
+            "scm-new", blue.baseUrl, "pv-1", "folder-1", "remove", "op-1",
+            com.kkc.sheettracker.data.cnc.TransferState.SUBMITTED, "staging", null, 1L, 1L)
+        val materials = listOf(material())
+        val ui = buildMixesUi(MixesUiInput(materials, "Oak", job = "Job", transfers = listOf(record)))
+        assertEquals("Moving to Blue SCM · PUNLOAD will be removed", ui.machineGroups[0].items.single().transfer)
+        val uncertain = buildMixesUi(MixesUiInput(materials, "Oak", job = "Job", transfers = listOf(record.copy(state = com.kkc.sheettracker.data.cnc.TransferState.UNCERTAIN))))
+        assertEquals("Checking move status", uncertain.machineGroups[0].items.single().transfer)
+        val otherJob = buildMixesUi(MixesUiInput(materials, "Oak", job = "Job", transfers = listOf(record.copy(job = "Other"))))
+        assertNull(otherJob.machineGroups[0].items.single().transfer)
+    }
+
+    @Test fun moveToBlueRemovesPunloadWithoutAsking() {
+        val plan = move() as MovePlan.Prepare
+        assertEquals(com.kkc.sheettracker.data.cnc.PunloadPolicy.REMOVE, plan.policy)
+        assertEquals("Moving to Blue SCM · PUNLOAD will be removed", plan.notice)
+    }
+
+    @Test fun moveToRedAsksAndCancelSendsNothing() {
+        val ask = move(blue, CncMachines.scm) as MovePlan.AskPunload
+        assertEquals("Restore PUNLOAD for Red SCM?", ask.question)
+        assertEquals(com.kkc.sheettracker.data.cnc.PunloadPolicy.RESTORE, (ask.choose(PunloadChoice.RESTORE) as MovePlan.Prepare).policy)
+        assertEquals(com.kkc.sheettracker.data.cnc.PunloadPolicy.KEEP_REMOVED, (ask.choose(PunloadChoice.KEEP_REMOVED) as MovePlan.Prepare).policy)
+        assertNull(ask.choose(PunloadChoice.CANCEL))
+    }
+
+    @Test fun moveIsBlockedUntilBothServicesAdvertiseMoveMaterial() {
+        val today = move(sourceStatus = moveStatus("scm", move = false), destinationStatus = moveStatus("scm-new", move = false)) as MovePlan.Blocked
+        assertTrue(today.reason, today.reason.contains("update"))
+        assertTrue(move(sourceStatus = com.kkc.sheettracker.data.cnc.MixServiceStatus(emptySet())) is MovePlan.Blocked) // Legacy Red.
+        val offline = move(destinationStatus = null) as MovePlan.Blocked
+        assertTrue(offline.reason, offline.reason.contains("Blue SCM") && offline.reason.contains("offline"))
+        val swapped = move(destinationStatus = moveStatus("scm")) as MovePlan.Blocked
+        assertTrue(swapped.reason, swapped.reason.contains("Expected Blue SCM"))
+        assertTrue((move(dirty = true) as MovePlan.Blocked).reason.contains("Apply or discard"))
+        assertTrue((move(active = true) as MovePlan.Blocked).reason.contains("Checking move status"))
+        assertTrue((move(exists = true) as MovePlan.Blocked).reason.contains("already has Oak"))
+        assertTrue((move(live = false) as MovePlan.Blocked).reason.contains("Connect"))
+        assertTrue((move(destination = CncMachines.scm) as MovePlan.Blocked).reason.contains("already on Red SCM"))
+    }
+
+    @Test fun progressSnapshotCopiesStatusesAndNeverChangesThem() {
+        val pages = listOf(page(1, "R1.pgm"), page(2, "R2A.pgm", "R2Z.pgm"))
+        val statuses = mapOf(1 to SheetStatus.COMPLETE)
+        val m = material(catalog(row()), pages, statuses)
+        val before = m.statusByPage.toMap()
+        val snapshot = transferProgressSnapshot("Job", m.copy(material = m.material.copy(fileFingerprint = "fp")), capturedAtMs = 5L)
+        assertEquals(listOf("COMPLETE", "NOT_STARTED"), snapshot.entries.map { it.status })
+        assertEquals(listOf(listOf("R1.pgm"), listOf("R2A.pgm", "R2Z.pgm")), snapshot.entries.map { it.pgms })
+        assertEquals(listOf("fp", "fp"), snapshot.entries.map { it.fileFingerprint })
+        assertEquals(before, m.statusByPage)
+    }
+
+    @Test fun remainingMixIsOfferedOnBlueOnlyForPartlyCutMixes() {
+        val c = catalog(row(entries = listOf(entry("P1.pgm"), entry("P2.pgm"))))
+        val pages = listOf(page(1), page(2))
+        fun ui(machineMaterial: MaterialMixesInput, id: String) = buildMixesUi(MixesUiInput(listOf(machineMaterial), "Oak",
+            selectedMachineId = id, serviceStatus = moveStatus(id, move = false)))
+        assertTrue(ui(material(c, pages, mapOf(1 to SheetStatus.COMPLETE)).copy(machine = blue), "scm-new").remainingMixAvailable)
+        assertFalse(ui(material(c, pages, mapOf(1 to SheetStatus.COMPLETE)), "scm").remainingMixAvailable) // Red pauses with native FRZ.
+        assertFalse(ui(material(c, pages).copy(machine = blue), "scm-new").remainingMixAvailable) // Nothing cut yet.
+        assertFalse(ui(material(c, pages, mapOf(1 to SheetStatus.COMPLETE, 2 to SheetStatus.COMPLETE)).copy(machine = blue), "scm-new").remainingMixAvailable)
+    }
+
+    @Test fun dropOnlyLandsOnAnotherMachinesGroup() {
+        val groups = mapOf("scm" to androidx.compose.ui.geometry.Rect(0f, 0f, 200f, 100f), "scm-new" to androidx.compose.ui.geometry.Rect(0f, 110f, 200f, 160f))
+        assertEquals("scm-new", dropTarget(androidx.compose.ui.geometry.Offset(50f, 130f), groups, "scm"))
+        assertNull(dropTarget(androidx.compose.ui.geometry.Offset(50f, 50f), groups, "scm")) // Own group: no move.
+        assertNull(dropTarget(androidx.compose.ui.geometry.Offset(50f, 105f), groups, "scm")) // Between groups: no move.
+        assertEquals("scm", dropTarget(androidx.compose.ui.geometry.Offset(10f, 10f), groups, "scm-new"))
+    }
 }

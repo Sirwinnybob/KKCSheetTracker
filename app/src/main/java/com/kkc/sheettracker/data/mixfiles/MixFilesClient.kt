@@ -2,6 +2,9 @@ package com.kkc.sheettracker.data.mixfiles
 
 import com.google.gson.JsonObject
 import com.kkc.sheettracker.data.cnc.CncMachine
+import com.kkc.sheettracker.data.cnc.MixServiceStatus
+import com.kkc.sheettracker.data.cnc.machineAccess
+import com.kkc.sheettracker.data.cnc.parseMixServiceStatus
 import com.kkc.sheettracker.data.mixservice.MixOperationClientException
 import com.kkc.sheettracker.data.mixservice.MixServiceOperation
 import com.google.gson.Gson
@@ -71,15 +74,18 @@ class MixFilesClient(
             completion?.let { add("completion", MixFilesJson.completion(it)) }
         })
 
-    override suspend fun features(): Set<String> = withContext(Dispatchers.IO) {
+    override suspend fun features(): Set<String> = serviceStatus()?.features.orEmpty()
+
+    /** `/status`, or null when unreachable or unreadable. Identity fields are absent on old services. */
+    suspend fun serviceStatus(): MixServiceStatus? = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(root().addPathSegment("status").build()).get().build()
         try {
             http.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) emptySet()
-                else response.body?.string()?.let(MixFilesJson::parseFeatures).orEmpty()
+                if (!response.isSuccessful) null
+                else response.body?.string()?.let(::parseMixServiceStatus)
             }
         } catch (_: IOException) {
-            emptySet()
+            null
         }
     }
 
@@ -89,7 +95,11 @@ class MixFilesClient(
     }
 
     suspend fun submitPgmEditRevertRows(job: String, material: String, requestId: String, pgms: List<com.kkc.sheettracker.data.mixservice.PgmRevertRow>): MixServiceOperation {
-        val supported = features()
+        val status = serviceStatus()
+        val access = machineAccess(machine, status, requireStatus = true)
+        access.reason?.let { throw MixOperationClientException(it) }
+        if (!access.secondPass) throw MixOperationClientException("Second-pass editing isn't available on ${machine.displayName}")
+        val supported = status?.features.orEmpty()
         if ("pgm-edits-revert" !in supported) throw MixOperationClientException("Second-pass revert is not supported by this CNC")
         if (pgms.any { it.expectedSha256 != null } && "pgm-edit-revisions" !in supported) throw MixOperationClientException("Revision checks need a CNC editor update")
         val body = JsonObject().apply {
@@ -106,7 +116,8 @@ class MixFilesClient(
         return withContext(Dispatchers.IO) {
             val request = Request.Builder().url(endpoint).post(MixFilesJson.stringify(body).toRequestBody(JSON_MEDIA_TYPE)).build()
             // Do not automatically repeat an uncertain write, including on a stale pooled socket.
-            http.newBuilder().retryOnConnectionFailure(false).build().newCall(request).execute().use { response ->
+            // The /status preflight just used a pooled read connection; never put this write on it.
+            mutationHttp.newCall(request).execute().use { response ->
                 val envelope = Gson().fromJson(response.body?.string().orEmpty(), RevertEnvelope::class.java)
                 if (response.code != 202 || envelope?.ok != true || envelope.operation == null || envelope.operation.id.isBlank()) {
                     throw MixOperationClientException("Second-pass revert submission failed")

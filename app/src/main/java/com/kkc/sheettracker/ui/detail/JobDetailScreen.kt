@@ -48,6 +48,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import com.kkc.sheettracker.data.cnc.CncMachine
 import com.kkc.sheettracker.data.cnc.CncMachines
 import com.kkc.sheettracker.data.mixfiles.*
 import com.kkc.sheettracker.ui.components.rememberForegroundMixFiles
@@ -198,6 +199,8 @@ fun JobDetailScreen(
     archiveClientFactory: suspend () -> ArchiveLifecycleClient?,
     onArchiveCompleted: () -> Unit,
     loadMixCatalog: Boolean = true,
+    /** Mix catalogs are read from this machine; callers without machine context keep Red. */
+    cncMachine: CncMachine = CncMachines.scm,
     clockInState: ClockInState? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
@@ -235,9 +238,9 @@ fun JobDetailScreen(
     }
     val job = jobLoadResult.job
     val jobLoadState = jobDetailLoadState(jobLoadResult.hasResolved, job != null)
-    val stores = remember(job?.materials?.map { it.materialName }, jobFolderName, loadMixCatalog) {
+    val stores = remember(job?.materials?.map { it.materialName }, jobFolderName, loadMixCatalog, cncMachine) {
         if (loadMixCatalog) job?.materials.orEmpty().associate { material ->
-            material.materialName to app.mixFilesStores.store(CncMachines.scm, jobFolderName, material.materialName)
+            material.materialName to app.mixFilesStores.store(cncMachine, jobFolderName, material.materialName)
         } else emptyMap() // Archived snapshots never query the live machine.
     }
     val catalogStates = rememberForegroundMixFiles(jobFolderName, stores)

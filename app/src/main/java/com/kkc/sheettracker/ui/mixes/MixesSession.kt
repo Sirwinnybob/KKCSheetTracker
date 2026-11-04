@@ -1,14 +1,25 @@
 package com.kkc.sheettracker.ui.mixes
 
 import androidx.compose.runtime.*
+import com.kkc.sheettracker.data.cnc.CncMachine
 import com.kkc.sheettracker.data.mixfiles.*
 import com.kkc.sheettracker.data.mixservice.PgmEditHistoryView
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 import java.util.Locale
 
-/** Material-scoped editing/transaction boundary. Each save freezes only the draft it submits. */
-internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
+/** Selection/session identity: identical job and material names on two machines never share a session. */
+internal fun mixesSessionKey(machine: CncMachine, job: String, material: String?): MaterialKey =
+    MaterialKey(machine.id, job, material.orEmpty())
+
+/**
+ * Material-scoped editing/transaction boundary. Each save freezes only the draft it submits.
+ * [key] names the machine the session's drafts and in-flight submissions belong to; a selection
+ * change creates a new session rather than retargeting this one.
+ */
+internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: MaterialKey? = null,
+    /** Machines that always remove PUNLOAD never offer keeping it. */
+    private val punloadFixed: Boolean = false) {
     var catalog by mutableStateOf(gate.appliedCatalog); private set
     var selectedTab by mutableStateOf<String?>(null)
     var draft by mutableStateOf<MixDraft?>(null); private set
@@ -83,6 +94,27 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
         draft = MixDrafts.startNew(file, pages, other).copy(completedPgms = locked.map(::key).toSet())
         draftFolderRevision = catalog?.folderRevision; selectedTab = draft?.groupKey
         conflict = false; applyResult = null
+    }
+    /**
+     * Blue SCM pause: stage a NEW mix of the unlocked entries in their current order, keeping each entry's
+     * parameters and count for the operator to review before Apply. Completion comes from tablet status only;
+     * the source mix is left unchanged as history and no sheet status is written.
+     */
+    fun startRemaining(group: MixGroup, locked: List<String>): Boolean {
+        if (applying || draft != null || group.frz != null) return false
+        val mix = group.mix ?: return false
+        val locks = locked.map(::key).toSet()
+        val keep = mix.entries.filterNot { key(it.pgm) in locks }
+        if (keep.isEmpty() || keep.size == mix.entries.size) return false
+        val taken = catalog?.files.orEmpty().filter { it.kind != MixFileKind.REVISION }.map { it.file.substringBeforeLast('.').lowercase(Locale.ROOT) }.toSet()
+        val base = group.title.removeSuffix("Mix").trim().ifBlank { group.title } + "Remaining"
+        val stem = generateSequence(1) { it + 1 }.map { if (it == 1) base else "$base $it" }.first { key(it) !in taken }
+        val file = "$stem.mix"
+        val entries = keep.mapIndexed { index, entry -> DraftEntry(index + 1L, entry, null, entry.quantity, null, LinkedHashMap(entry.parameters)) }
+        draft = MixDraft(key(file), null, null, entries, file, emptyList(), 1, completedPgms = locks, baselineEntries = emptyList())
+        draftFolderRevision = catalog?.folderRevision; selectedTab = draft?.groupKey
+        conflict = false; applyResult = null; savedInterrupted = false; mixSaveBlockedReason = null
+        return true
     }
     suspend fun saveMix(locked: () -> List<String> = { draft?.completedPgms.orEmpty().toList() },
         submit: suspend (MixDraft) -> MixFilesResult<MixFilesCatalog>): MixFilesResult<MixFilesCatalog>? {
@@ -176,7 +208,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
             if (secondHistoryConfirmed && history != null) {
                 this.history = history
                 pendingHistoryVerification = emptySet()
-                secondPass = mergeWanted(SecondPassDrafts.from(history, pgms), secondPass)
+                secondPass = mergeWanted(SecondPassDrafts.from(history, pgms, punloadFixed), secondPass)
                 secondMessage = historyMessage(if (!history.records(pgms)) NO_RECORDED_STATE else null)
             } else secondMessage = historyMessage(HISTORY_FAILURE)
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -210,7 +242,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
             if (secondHistoryConfirmed && history != null) {
                 this.history = history
                 pendingHistoryVerification = emptySet()
-                val fresh = SecondPassDrafts.from(history, submitted.wanted.keys.toList())
+                val fresh = SecondPassDrafts.from(history, submitted.wanted.keys.toList(), punloadFixed)
                 secondPass = if (outcome == SecondPassOutcome.Done) fresh else mergeWanted(fresh, submitted)
             }
             secondMessage = when (outcome) {
@@ -239,10 +271,11 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate()) {
 
 /** Stable per-job destination: surviving collectors keep writing the map rendered after membership changes. */
 @Composable
-internal fun rememberMixCatalogStates(job: String, sources: Map<String, StateFlow<CatalogState>>): Map<String, CatalogState> {
-    val states = remember(job) { mutableStateMapOf<String, CatalogState>() }
-    LaunchedEffect(job, sources.keys.toSet()) { states.keys.toList().filterNot { it in sources }.forEach(states::remove) }
-    sources.forEach { (name, source) -> key(job, name) {
+internal fun rememberMixCatalogStates(machineId: String, job: String, sources: Map<String, StateFlow<CatalogState>>): Map<String, CatalogState> {
+    // Keyed by machine too: a machine switch must never render the other machine's state for a same-named material.
+    val states = remember(machineId, job) { mutableStateMapOf<String, CatalogState>() }
+    LaunchedEffect(states, sources.keys.toSet()) { states.keys.toList().filterNot { it in sources }.forEach(states::remove) }
+    sources.forEach { (name, source) -> key(machineId, job, name) {
         LaunchedEffect(source, states) { source.collect { states[name] = it } }
     } }
     return states

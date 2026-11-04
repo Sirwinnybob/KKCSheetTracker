@@ -35,6 +35,15 @@ class KKCApplication : Application() {
         )
     }
 
+    /** Durable material-move journal in app-private storage (never a synced root). */
+    val materialTransfers: com.kkc.sheettracker.data.cnc.MaterialTransferStore by lazy {
+        com.kkc.sheettracker.data.cnc.MaterialTransferStore(java.io.File(filesDir, "state/material_transfers.json"))
+    }
+
+    /** The live-status store of an explicit machine; unknown machines fall back to Red. */
+    fun statusStoreFor(machine: com.kkc.sheettracker.data.cnc.CncMachine): com.kkc.sheettracker.data.cnc.MachineStatusStore =
+        if (machine.id == com.kkc.sheettracker.data.cnc.CncMachines.scmNew.id) newMachineStatusStore else machineStatusStore
+
     override fun onCreate() {
         super.onCreate()
         CrashReporter.install(this)

@@ -21,6 +21,17 @@ class MachineStatusStoreTest {
         assertEquals(MachineStatus.Unavailable, blueStore.status.value)
         redLease.close(); blueLease.close()
     }
+    @Test fun redOfflineDoesNotHideBlueWithIdenticalProgramNames() = runTest {
+        var red = Result.success(loaded)
+        val redStore = MachineStatusStore(MachineStateSource { red }, backgroundScope, { testScheduler.currentTime }, offlineGraceMs = 15_000L)
+        val blueStore = MachineStatusStore(MachineStateSource { Result.success(loaded) }, backgroundScope, { testScheduler.currentTime }, offlineGraceMs = 15_000L)
+        val leases = listOf(redStore.acquire(), blueStore.acquire()); runCurrent()
+        red = failure
+        advanceTimeBy(15_000); runCurrent()
+        assertEquals(MachineStatus.Unavailable, redStore.status.value)
+        assertEquals("R82010BN", (blueStore.status.value as MachineStatus.Live).loaded?.name)
+        leases.forEach { it.close() }
+    }
     @Test fun blueFeedExpiresIndependentlyAfterFifteenSeconds() = runTest {
         var response = Result.success(loaded)
         val store = MachineStatusStore(MachineStateSource { response }, backgroundScope, { testScheduler.currentTime }, offlineGraceMs = 15_000L)

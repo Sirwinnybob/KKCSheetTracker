@@ -201,6 +201,68 @@ class MixesSessionTest {
         assertEquals(1, session.secondPass!!.changeCount)
         assertEquals(MixesSession.NO_RECORDED_STATE, session.secondMessage)
     }
+    @Test fun sessionKeysIncludeMachineForIdenticalNames() {
+        val red = mixesSessionKey(com.kkc.sheettracker.data.cnc.CncMachines.scm, "J", "M")
+        val blue = mixesSessionKey(com.kkc.sheettracker.data.cnc.CncMachines.scmNew, "J", "M")
+        assertEquals(MaterialKey("scm", "J", "M"), red)
+        assertEquals(MaterialKey("scm-new", "J", "M"), blue)
+        assertEquals(blue, MixesSession(key = blue).key)
+    }
+    @Test fun blueSessionLoadsSecondPassWithFixedPunloadRemoval() = runTest {
+        val blue = MixesSession(key = MaterialKey("scm-new", "J", "M"), punloadFixed = true)
+        blue.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
+        assertTrue(blue.secondPass!!.punloadFixed)
+        assertTrue(blue.secondPass!!.wanted.getValue("a.pgm").removePUnload)
+        assertEquals(0, blue.secondPass!!.changeCount)
+        blue.updateSecond(listOf("a.pgm"), SecondPassField.PUNLOAD, false, emptyList())
+        assertEquals(0, blue.secondPass!!.changeCount)
+        val red = MixesSession(key = MaterialKey("scm", "J", "M"))
+        red.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
+        assertFalse(red.secondPass!!.wanted.getValue("a.pgm").removePUnload)
+    }
+    @Test fun createRemainingMixStagesReviewedNewMixFromUnlockedEntriesOnly() = runTest {
+        val session = MixesSession(key = MaterialKey("scm-new", "J", "M"), punloadFixed = true)
+        val template = catalog("base").files.single()
+        val entries = listOf("a.pgm", "b.pgm", "c.pgm").mapIndexed { i, pgm ->
+            template.entries.single().copy(pgm = pgm, path = "C:\\\\NEW CNC\\\\$pgm", quantity = i + 1, parameters = linkedMapOf("R" to "${i + 1}", "V" to "010.0"))
+        }
+        val c = catalog("base").copy(files = listOf(template.copy(entries = entries)))
+        session.onCatalog(c)
+        assertTrue(session.startRemaining(group(c), listOf("A.PGM")))
+        val draft = session.draft!!
+        assertEquals("mapleremaining.mix", draft.groupKey)
+        assertEquals("MapleRemaining.mix", draft.newFile)
+        assertEquals(listOf("b.pgm", "c.pgm"), draft.entries.map { it.source!!.pgm })
+        assertEquals(listOf(2, 3), draft.entries.map { it.quantity })
+        assertEquals(listOf("010.0", "010.0"), draft.entries.map { it.parameters!!["V"] })
+        assertFalse(draft.isInterrupted)
+        val write = buildWrite(draft, null, draft.completedPgms.toList(), emptyMap()) as MixWrite.Write
+        assertNull(write.completion) // An ordinary new MIX, never an FRZ resume.
+        assertEquals("MapleRemaining.mix", write.file)
+        // Nothing left to cut, or an open draft: nothing is staged.
+        assertFalse(MixesSession().also { it.onCatalog(c) }.startRemaining(group(c), listOf("a.pgm", "b.pgm", "c.pgm")))
+        assertFalse(session.startRemaining(group(c), emptyList()))
+    }
+    @Test fun inFlightSaveStaysWithItsMachineSessionAfterSelectionChanges() = runTest {
+        val red = MixesSession(key = MaterialKey("scm", "J", "M")).also { it.onCatalog(catalog("base")) }
+        val blue = MixesSession(key = MaterialKey("scm-new", "J", "M")).also { it.onCatalog(catalog("blue-base")) }
+        red.edit(group(catalog("base")), emptyList()) { MixDrafts.remove(it, it.entries.single().id) }
+        val gate = CompletableDeferred<MixFilesResult<MixFilesCatalog>>()
+        val submittedTo = mutableListOf<String>()
+        val pending = launch { red.saveMix { submittedTo += red.key!!.machineId; gate.await() } }
+        runCurrent()
+        // The user switches to Blue and starts editing the identically named material.
+        blue.edit(group(catalog("blue-base")), emptyList()) { MixDrafts.remove(it, it.entries.single().id) }
+        gate.complete(MixFilesResult.Offline) // Uncertain: never resubmitted, never moved to Blue.
+        pending.join()
+        assertEquals(listOf("scm"), submittedTo)
+        assertEquals(MixFilesResult.Offline, red.applyResult)
+        assertNull(blue.applyResult)
+        assertNotNull(blue.draft)
+        assertEquals("blue-base", blue.catalog!!.folderRevision)
+        runCurrent()
+        assertEquals(1, submittedTo.size)
+    }
     private fun session() = MixesSession().also { it.onCatalog(catalog("base")) }
     private fun group(c: MixFilesCatalog) = groupMixFiles(c).single()
     private fun catalog(revision: String, pgm: String = "a.pgm") = MixFilesCatalog("J", "M", revision, listOf(

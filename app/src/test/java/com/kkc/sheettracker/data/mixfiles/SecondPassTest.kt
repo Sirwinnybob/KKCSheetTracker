@@ -33,6 +33,26 @@ class SecondPassTest {
         assertEquals(none, d.wanted["new.pgm"])
     }
 
+    @Test fun blueFixedPunloadRemovalIsAlwaysOnAndAlwaysSent() {
+        assertTrue(CncMachines.scmNew.forcesPUnloadRemoval)
+        assertFalse(CncMachines.scm.forcesPUnloadRemoval)
+        val history = PgmEditHistoryView(mapOf("edited.pgm" to
+            PgmEditFileHistory(PgmEditCurrentState("standard", true), stateSource = "ledger")), ok = true, stateSource = "ledger")
+        val d = SecondPassDrafts.from(history, listOf("edited.pgm", "new.pgm"), punloadFixed = true)
+        assertTrue(d.punloadFixed)
+        assertTrue(d.current.values.all { it.removePUnload } && d.wanted.values.all { it.removePUnload })
+        assertEquals(0, d.changeCount) // Fixed removal never shows as a pending change.
+        assertEquals(d, SecondPassDrafts.setAll(d, listOf("new.pgm"), SecondPassField.PUNLOAD, false))
+        assertEquals(d, SecondPassDrafts.set(d, "new.pgm", none))
+        assertEquals(TriState.ON, SecondPassDrafts.tri(d, listOf("edited.pgm", "new.pgm"), SecondPassField.PUNLOAD))
+        val on = SecondPassDrafts.setAll(d, listOf("new.pgm"), SecondPassField.SECOND, true)
+        assertEquals(listOf(SecondPassStep.Edit(listOf(PgmEditRow("new.pgm", "standard", true)))), planSecondPass(on))
+        val off = SecondPassDrafts.setAll(d, listOf("edited.pgm"), SecondPassField.SECOND, false)
+        assertEquals(listOf(SecondPassStep.Revert(listOf("edited.pgm")), SecondPassStep.Edit(listOf(PgmEditRow("edited.pgm", "none", true)))), planSecondPass(off))
+        // Red keeps the optional checkbox.
+        assertFalse(SecondPassDrafts.from(history, listOf("new.pgm")).current.getValue("new.pgm").removePUnload)
+    }
+
     @Test fun addOnlyPlansSingleEdit() {
         val d = SecondPassDraft(
             linkedMapOf("new.pgm" to standard, "upgrade.pgm" to superState, "pun.pgm" to standard.copy(removePUnload = true)),
@@ -155,11 +175,28 @@ class SecondPassTest {
         } finally { server.shutdown() }
     }
 
+    @Test fun revertRefusesMismatchedOrReadOnlyBlueServiceBeforePosting() = runTest {
+        val server = MockWebServer(); server.start()
+        try {
+            val api = MixFilesClient(CncMachines.scmNew.copy(baseUrl = server.url("/").toString()))
+            listOf(
+                """{"ok":true,"features":["pgm-edits-revert"],"machineId":"scm","machineName":"Red SCM","readOnly":false}""",
+                """{"ok":true,"features":["pgm-edits-revert"],"machineId":"scm-new","machineName":"Blue SCM","readOnly":true}""",
+            ).forEach { body ->
+                server.enqueue(MockResponse().setBody(body))
+                try { api.submitPgmEditRevert("J", "M", "r", listOf("a.pgm")); fail("Refused service received a revert") }
+                catch (refused: MixOperationClientException) { assertTrue(refused.message!!.contains("Blue SCM")) }
+                assertEquals("/status", server.takeRequest().path)
+            }
+            assertEquals(2, server.requestCount)
+        } finally { server.shutdown() }
+    }
+
     @Test fun realHistoryDecoderPopulatesTypedEventsAndBeforeFinalStates() = runTest {
         val server = MockWebServer(); server.start()
         try {
             server.enqueue(MockResponse().setBody("""{"ok":true,"stateSource":"ledger","error":null,"files":{"opaque +.pgm":{"stateSource":"ledger","current":{"mode":"standard","punloadRemoved":true},"history":[{"eventId":"r:1","requestId":"r","at":"2026-10-30T08:00:00","actor":"cnc","action":"edit_reverted","requestedMode":"standard","punloadRequested":true,"before":{"mode":"super","punloadRemoved":true},"final":{"mode":"standard","punloadRemoved":true},"result":{"mode":"standard","punloadRemoved":true},"backup":"BACKUP_new/opaque +.pgm","restoredFrom":"BACKUP_first/opaque +.pgm","mixFiles":["opaque +.mix"]}]}}}"""))
-            val view = MixServiceClient(server.url("/").toString()).listPgmEdits("J", "M")!!
+            val view = MixServiceClient(com.kkc.sheettracker.data.cnc.CncMachines.scm.copy(baseUrl = server.url("/").toString())).listPgmEdits("J", "M")!!
             val event: PgmEditHistoryEvent = view.files.getValue("opaque +.pgm").history.single()
             assertEquals("r:1", event.eventId); assertEquals("r", event.requestId)
             assertEquals("edit_reverted", event.action); assertEquals("cnc", event.actor)
@@ -176,14 +213,15 @@ class SecondPassTest {
     @Test fun editClientDoesNotReplaySubmissionAfterLostResponse() = runTest {
         val server = MockWebServer(); server.start()
         try {
-            val client = MixServiceClient(CncMachines.scm.copy(baseUrl = server.url("/").toString()).baseUrl)
+            val client = MixServiceClient(CncMachines.scm.copy(baseUrl = server.url("/").toString()))
             server.enqueue(MockResponse().setBody("""{"ok":true,"operation":{"id":"old","state":"completed"}}"""))
             client.getOperation("old") // Establish a pooled connection before its next response disappears.
+            server.enqueue(MockResponse().setBody("""{"ok":true,"features":[]}""")) // Identity preflight.
             server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
             server.enqueue(MockResponse().setResponseCode(202).setBody("""{"ok":true,"operation":{"id":"duplicate"}}"""))
             try { client.submitPgmEdits("J", "M", "tablet-test-42", listOf(PgmEditRow("p.pgm", "standard", false))); fail("Uncertain submission was replayed") }
             catch (_: MixOperationClientException) { }
-            assertEquals(2, server.requestCount)
+            assertEquals(3, server.requestCount)
         } finally { server.shutdown() }
     }
 

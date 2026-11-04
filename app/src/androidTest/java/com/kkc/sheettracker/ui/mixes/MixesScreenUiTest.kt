@@ -27,7 +27,7 @@ class MixesScreenUiTest {
         val b = MutableStateFlow<CatalogState>(CatalogState.Loading)
         var sources by mutableStateOf(mapOf("A" to a))
         compose.setContent {
-            val states = rememberMixCatalogStates("J", sources)
+            val states = rememberMixCatalogStates("scm", "J", sources)
             Text("${states["A"].catalogSnapshot()?.folderRevision}:${states.keys.sorted().joinToString()}")
         }
         compose.onNodeWithText("old:A").assertExists()
@@ -128,5 +128,37 @@ class MixesScreenUiTest {
         compose.onNodeWithText("Discard 2nd pass").assertIsNotEnabled()
         compose.onNodeWithTag("mixes-sheet-list").performScrollToNode(hasContentDescription("2ND · b.pgm"))
         compose.onNodeWithContentDescription("2ND · b.pgm").assertIsNotEnabled()
+    }
+
+    @Test fun machineGroupsDragAndMenuMoveWithoutSelectingOrReordering() {
+        val moves = mutableListOf<Triple<String, String, String>>()
+        val selections = mutableListOf<Pair<String, String>>()
+        val groups = listOf(
+            MachineGroupModel("scm", "Red SCM", com.kkc.sheettracker.data.cnc.MachineStatus.Unavailable,
+                listOf(MaterialNavItem("Oak", "scm", MaterialChip.Left(3, false), true))),
+            MachineGroupModel("scm-new", "Blue SCM", com.kkc.sheettracker.data.cnc.MachineStatus.Unavailable, emptyList()))
+        compose.setContent { MaterialTheme {
+            MixesMaterialNav(groups, rail = true, widthDp = 1318, onSelect = { id, m -> selections += id to m },
+                onMove = { from, m, to -> moves += Triple(from, m, to) })
+        } }
+        compose.onNodeWithText("No materials on Blue SCM").assertExists() // Empty group is still a drop target.
+        compose.onNodeWithTag("mixes-material-scm-Oak").performClick()
+        assertEquals(listOf("scm" to "Oak"), selections)
+        assertTrue(moves.isEmpty())
+        val target = compose.onNodeWithTag("mixes-machine-group-scm-new").fetchSemanticsNode().boundsInRoot.center
+        val tile = compose.onNodeWithTag("mixes-material-scm-Oak").fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithTag("mixes-material-scm-Oak").performTouchInput {
+            down(center); advanceEventTime(1_000); moveBy(androidx.compose.ui.geometry.Offset(0f, target.y - tile.center.y), 400); up()
+        }
+        compose.runOnIdle { assertEquals(listOf(Triple("scm", "Oak", "scm-new")), moves) }
+        // A short drag without the long press is not a move.
+        compose.onNodeWithTag("mixes-material-scm-Oak").performTouchInput { swipeDown(durationMillis = 100) }
+        compose.runOnIdle { assertEquals(1, moves.size) }
+        // The "Move to" alternative is exposed as an accessibility action on the tile.
+        val actions = compose.onNodeWithTag("mixes-material-scm-Oak").fetchSemanticsNode()
+            .config[androidx.compose.ui.semantics.SemanticsActions.CustomActions]
+        assertEquals(listOf("Move to Blue SCM"), actions.map { it.label })
+        compose.runOnIdle { actions.single().action() }
+        assertEquals(Triple("scm", "Oak", "scm-new"), moves.last())
     }
 }

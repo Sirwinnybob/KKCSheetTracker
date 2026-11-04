@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -39,36 +40,59 @@ import java.io.File
 
 internal enum class MixCardAction { RENAME, SPLIT, DELETE, REVISIONS, COMPARE }
 
+/** One entry of the material header's overflow menu ("Move to…", move recovery). */
+internal data class MaterialMenuAction(val label: String, val enabled: Boolean, val onClick: () -> Unit)
+
+private data class PendingMove(val plan: MovePlan.Prepare, val material: String, val sourceRevision: String, val preview: TransferPreview)
+
 @Composable
 fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, jobFolderName: String,
-    initialMaterial: String?, onBack: () -> Unit) {
+    initialMaterial: String?, onBack: () -> Unit, initialMachineId: String? = null) {
     val context = LocalContext.current
     val app = context.applicationContext as KKCApplication
     val scan by scanCoordinator.state.collectAsState()
     val progressVersion by progressStore.progressVersion.collectAsState()
-    val machine = CncMachines.scm
-    val service = remember(machine) { MixServiceClient(machine.baseUrl) }
-    val api = remember(machine) { MixFilesClient(machine) }
+    // Saved like other selection state; unknown or non-mix machines (restored or deep-linked) fall back to Red.
+    var selectedMachineId by rememberSaveable(jobFolderName) { mutableStateOf(CncMachines.mixMachine(initialMachineId).id) }
+    val machine = CncMachines.mixMachine(selectedMachineId)
+    val service = remember(machine) { MixServiceClient(machine) }
+    val client = remember(machine) { MixFilesClient(machine) }
+    // Every mix mutation re-reads this machine's /status and refuses a mismatched, read-only or FRZ-less target.
+    val api: MixFilesApi = remember(client) { MachineGuardedMixFilesApi(machine, client, client::serviceStatus) }
     val scope = rememberCoroutineScope()
     val engine = remember(scan.snapshot.basePath) { UnifiedMetadataEngineRegistry.getOrCreate(File(scan.snapshot.basePath), com.kkc.sheettracker.BuildConfig.DEBUG) }
     val job by produceState<com.kkc.sheettracker.data.models.Job?>(null, engine, jobFolderName, scan.snapshot.generation) {
         value = withContext(Dispatchers.IO) { engine.getCncSnapshot(jobFolderName)?.job }
     }
     val materials = job?.materials.orEmpty()
-    val stores = remember(materials.map { it.materialName }, jobFolderName, machine) {
-        materials.associate { it.materialName to app.mixFilesStores.store(machine, jobFolderName, it.materialName) }
+    val machines = CncMachines.mixMachines
+    // Both machines' catalogs are observed so each group shows the materials whose folder it holds.
+    val storesByMachine = remember(materials.map { it.materialName }, jobFolderName) {
+        machines.associate { m -> m.id to materials.associate { it.materialName to app.mixFilesStores.store(m, jobFolderName, it.materialName) } }
     }
-    ForegroundMixLeases(stores.values.toList(), listOf(app.machineStatusStore, app.newMachineStatusStore))
-    val machineStatus by app.machineStatusStore.status.collectAsState()
-    val newMachineStatus by app.newMachineStatusStore.status.collectAsState()
-    val catalogStates = rememberMixCatalogStates(jobFolderName, stores.mapValues { it.value.state })
-    var selectedMaterial by remember(jobFolderName) { mutableStateOf(initialMaterial) }
+    val stores = storesByMachine.getValue(machine.id)
+    val statusStores = machines.map(app::statusStoreFor)
+    ForegroundMixLeases(storesByMachine.values.flatMap { it.values }, statusStores)
+    val machineStatuses = machines.zip(statusStores).associate { (m, store) -> m.id to store.status.collectAsState().value }
+    val machineStatus = machineStatuses[machine.id] ?: MachineStatus.Unavailable
+    val catalogStatesByMachine = machines.associate { m ->
+        m.id to rememberMixCatalogStates(m.id, jobFolderName, storesByMachine.getValue(m.id).mapValues { it.value.state })
+    }
+    val catalogStates = catalogStatesByMachine.getValue(machine.id)
+    val transferStore = app.materialTransfers
+    val transfers by transferStore.records.collectAsState()
+    var selectedMaterial by rememberSaveable(jobFolderName) { mutableStateOf(initialMaterial) }
     LaunchedEffect(materials) { selectedMaterial = selectAvailableMaterial(selectedMaterial, materials.map { it.materialName }) }
     val material = materials.firstOrNull { it.materialName == selectedMaterial }
-    val session = remember(jobFolderName, selectedMaterial) { MixesSession() }
-    var inventory by remember(selectedMaterial) { mutableStateOf<List<String>>(emptyList()) }
+    // Drafts, history, previews and in-flight saves belong to one machine/job/material session.
+    val session = remember(machine.id, jobFolderName, selectedMaterial) {
+        MixesSession(key = mixesSessionKey(machine, jobFolderName, selectedMaterial), punloadFixed = machine.forcesPUnloadRemoval)
+    }
+    var inventory by remember(machine.id, selectedMaterial) { mutableStateOf<List<String>>(emptyList()) }
     var revertSupported by remember(machine) { mutableStateOf(false) }
     var editorFeatures by remember(machine) { mutableStateOf<Set<String>?>(null) }
+    var serviceStatus by remember(machine) { mutableStateOf<MixServiceStatus?>(null) }
+    var statusRefresh by remember(machine) { mutableIntStateOf(0) }
     val revisionSupported = editorFeatures?.contains("pgm-edit-revisions") == true
     val previewSupported = revisionSupported && editorFeatures?.contains("pgm-edit-preview") == true
     val revisionState = remember(session) { PgmRevisionState() }
@@ -124,8 +148,10 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     BackHandler { leave(onBack) }
     val latest = catalogStates[selectedMaterial].catalogSnapshot()
     LaunchedEffect(session, latest) { latest?.let(session::onCatalog) }
-    LaunchedEffect(machine) {
-        val features = api.features()
+    LaunchedEffect(machine, statusRefresh, revisionResume) {
+        val status = client.serviceStatus()
+        serviceStatus = status
+        val features = status?.features.orEmpty()
         revertSupported = "pgm-edits-revert" in features
         editorFeatures = features
     }
@@ -148,23 +174,35 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         catch (_: Exception) { revisionState.unavailable("Can't read CNC revisions. Reconnect and refresh.") }
         retryHistory(name)
     }
-    val materialInputs = materials.map { m ->
-        val state = catalogStates[m.materialName] ?: CatalogState.Loading
-        val visible = if (m == material && session.catalog != null) state.withCatalog(session.catalog!!) else state
-        @Suppress("UNUSED_VARIABLE") val version = progressVersion
-        MaterialMixesInput(machine, m, visible, statusByPage = m.metadata?.pages.orEmpty().associate {
-            it.pageNumber to progressStore.getSheetStatus(jobFolderName, m.pdfFilename, it.pageNumber, m.fileFingerprint)
-        }, hasPgms = sheetPages(m.metadata?.pages.orEmpty()).isNotEmpty() || (m == material && inventory.isNotEmpty()))
+    fun statusesOf(m: com.kkc.sheettracker.data.models.Material) = m.metadata?.pages.orEmpty().associate {
+        it.pageNumber to progressStore.getSheetStatus(jobFolderName, m.pdfFilename, it.pageNumber, m.fileFingerprint)
     }
-    val selected = materialInputs.firstOrNull { it.material == material }
-    val presentation = buildMixesUi(MixesUiInput(materialInputs, selectedMaterial, selectedTab = session.selectedTab, draft = session.draft,
+    @Suppress("UNUSED_VARIABLE") val version = progressVersion
+    val statusByMaterial = materials.associate { it.materialName to statusesOf(it) }
+    val materialInputs = machines.flatMap { owner -> materials.map { m ->
+        val state = catalogStatesByMachine.getValue(owner.id)[m.materialName] ?: CatalogState.Loading
+        val current = owner.id == machine.id && m == material
+        val visible = if (current && session.catalog != null) state.withCatalog(session.catalog!!) else state
+        MaterialMixesInput(owner, m, visible, statusByPage = statusByMaterial[m.materialName].orEmpty(),
+            hasPgms = sheetPages(m.metadata?.pages.orEmpty()).isNotEmpty() || (current && inventory.isNotEmpty()))
+    } }
+    val selected = materialInputs.firstOrNull { it.material == material && it.machine.id == machine.id }
+    val presentation = buildMixesUi(MixesUiInput(materialInputs, selectedMaterial, selectedMachineId = machine.id, serviceStatus = serviceStatus,
+        machines = machines, machineStatuses = machineStatuses, job = jobFolderName, transfers = transfers,
+        selectedTab = session.selectedTab, draft = session.draft,
         secondPassDraft = session.secondPass, draftFolderRevision = session.draftFolderRevision, conflict = session.conflict,
         applyResult = session.applyResult, savedInterrupted = session.savedInterrupted, applying = session.applying,
         secondPassApplying = session.secondApplying, machineStatus = machineStatus))
     val ui = presentation.copy(secondPassApplyEnabled = presentation.secondPassApplyEnabled && session.secondHistoryConfirmed && !session.historyLoading &&
         (!revisionSupported || revisionState.canApply(session.secondPass)))
     val group = session.catalog?.let(::groupMixFiles)?.firstOrNull { it.key == ui.selectedTab }
-    val catalogWritable = catalogStates[selectedMaterial] is CatalogState.Live && session.applyResult !is MixFilesResult.ServiceOutdated
+    val catalogLive = catalogStates[selectedMaterial] is CatalogState.Live && session.applyResult !is MixFilesResult.ServiceOutdated
+    val access = ui.access
+    // FRZ groups stay view-only on machines without FRZ support; the guarded api refuses them as well.
+    // While this material is being moved, both copies stay read-only on the tablet; the services also reserve it.
+    val activeMove = transfers.firstOrNull { it.active && it.job == jobFolderName && it.material == selectedMaterial }
+    val catalogWritable = catalogLive && activeMove == null && access?.mixFiles != false && (access?.frz != false || group?.isInterrupted != true)
+    val secondWritable = catalogLive && activeMove == null && access?.secondPass != false
     // Read ProgressStore at the action boundary, rather than a status map from the last composition.
     fun locks(): List<String> = material?.let { m -> sheetPages(m.metadata?.pages.orEmpty()).filter {
         isLockedStatus(progressStore.getSheetStatus(jobFolderName, m.pdfFilename, it.pageNumber, m.fileFingerprint))
@@ -208,7 +246,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         val hash = revisionState.hashes.pgmValue(pgm) ?: return
         val request = previewRequest(draft, pgm, hash, "preview-${System.nanoTime()}")
         val row = request.files.single()
-        val key = PgmPreviewKey(machine.baseUrl, jobFolderName, name, pgm, hash, draft.wanted.pgmValue(pgm)!!, row.restoreOriginal)
+        val key = PgmPreviewKey(machine.id, jobFolderName, name, pgm, hash, draft.wanted.pgmValue(pgm)!!, row.restoreOriginal)
         historyPgm = null; showPgmPreview = true; pgmPreview.start(key)
         scope.launch {
             try {
@@ -224,13 +262,103 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
             catch (failure: Exception) { pgmPreview.fail(key, failure.message ?: "Unable to preview. Refresh CNC revisions.") }
         }
     }
+    var pendingPunload by remember { mutableStateOf<Pair<MovePlan.AskPunload, String>?>(null) }
+    var pendingMove by remember { mutableStateOf<PendingMove?>(null) }
+    var preparingMove by remember { mutableStateOf<String?>(null) }
+    fun prepareMove(plan: MovePlan.Prepare, materialName: String) {
+        val m = materials.firstOrNull { it.materialName == materialName } ?: return
+        val catalog = (catalogStatesByMachine[plan.source.id]?.get(materialName) as? CatalogState.Live)?.catalog
+        if (catalog == null) { scope.launch { snackbar.showSnackbar("Connect to ${plan.source.displayName} and refresh before moving.") }; return }
+        if (preparingMove != null) return
+        preparingMove = materialName
+        scope.launch {
+            try {
+                snackbar.showSnackbar(plan.notice)
+                // Read progress at the action boundary; the snapshot is a copy and nothing here writes a status.
+                val input = MaterialMixesInput(plan.source, m, CatalogState.Live(catalog), statusByPage = statusesOf(m))
+                val worklist = groupMixFiles(catalog).firstOrNull { it.mix != null && (materialName != selectedMaterial || it.key == ui.selectedTab) }?.mix?.file
+                    ?: groupMixFiles(catalog).firstOrNull { it.mix != null }?.mix?.file
+                val request = TransferPreviewRequest(plan.source, plan.destination, jobFolderName, materialName, catalog.folderRevision,
+                    transferProgressSnapshot(jobFolderName, input, System.currentTimeMillis()), worklist, plan.policy)
+                when (val result = MaterialTransferClient(plan.destination.baseUrl).preview(request)) {
+                    is TransferResult.Ok -> pendingMove = PendingMove(plan, materialName, catalog.folderRevision, result.value)
+                    is TransferResult.Rejected -> snackbar.showSnackbar(result.message.ifBlank { "${plan.destination.displayName} refused the move." })
+                    TransferResult.Unsupported -> snackbar.showSnackbar("Moving materials needs a CNC service update. Nothing was changed.")
+                    TransferResult.Offline -> snackbar.showSnackbar("Couldn't reach ${plan.destination.displayName} to prepare the move. Nothing was changed.")
+                }
+            } finally { preparingMove = null }
+        }
+    }
+    fun requestMove(fromId: String, materialName: String, toId: String) {
+        if (session.saving || preparingMove != null) return
+        val source = CncMachines.mixMachine(fromId)
+        val destination = CncMachines.mixMachine(toId)
+        scope.launch {
+            // Fresh identity/capability reads at the moment of the gesture, for both endpoints.
+            val sourceStatus = MixFilesClient(source).serviceStatus()
+            val destinationStatus = MixFilesClient(destination).serviceStatus()
+            val destinationState = catalogStatesByMachine[destination.id]?.get(materialName)
+            val plan = planMaterialMove(MoveContext(source, destination, materialName, sourceStatus, destinationStatus,
+                dirty = fromId == machine.id && materialName == selectedMaterial && session.dirty,
+                activeTransfer = transferStore.activeFor(jobFolderName, materialName) != null,
+                sourceCatalogLive = catalogStatesByMachine[source.id]?.get(materialName) is CatalogState.Live,
+                destinationHasMaterial = destinationState != null && ownsMaterial(destinationState)))
+            when (plan) {
+                is MovePlan.Blocked -> snackbar.showSnackbar(plan.reason)
+                is MovePlan.AskPunload -> pendingPunload = plan to materialName
+                is MovePlan.Prepare -> prepareMove(plan, materialName)
+            }
+        }
+    }
+    // Poll submitted moves on their bound endpoints while this screen is open; never re-POST.
+    val pollingMoves = transfers.any { it.state == TransferState.SUBMITTED && it.job == jobFolderName }
+    LaunchedEffect(pollingMoves) {
+        while (pollingMoves) { transferStore.refreshActive(); delay(2_000) }
+    }
+    LaunchedEffect(transfers) {
+        transfers.filter { it.job == jobFolderName && it.state == TransferState.COMPLETED }.forEach { record ->
+            storesByMachine[record.sourceMachineId]?.get(record.material)?.refreshNow()
+            storesByMachine[record.destinationMachineId]?.get(record.material)?.refreshNow()
+            // Select the destination only after the move is verified, and never under an in-flight save.
+            if (record.material == selectedMaterial && record.sourceMachineId == machine.id && !session.saving) selectedMachineId = record.destinationMachineId
+            transferStore.dismiss(record.requestId)
+            snackbar.showSnackbar("Moved ${record.material} to ${CncMachines.mixMachine(record.destinationMachineId).displayName}")
+        }
+    }
+    val selectedRecord = transfers.firstOrNull { it.job == jobFolderName && it.material == selectedMaterial && it.state != TransferState.COMPLETED }
+    val materialMenu = buildList {
+        machines.filter { it.id != machine.id }.forEach { target ->
+            add(MaterialMenuAction("Move to ${target.displayName}\u2026", selectedRecord == null && !session.saving && preparingMove == null) {
+                selectedMaterial?.let { requestMove(machine.id, it, target.id) }
+            })
+        }
+        selectedRecord?.let { record ->
+            if (record.state == TransferState.SUBMITTED) add(MaterialMenuAction("Check move status", true) { scope.launch { transferStore.refreshActive() } })
+            if (record.state == TransferState.UNCERTAIN) add(MaterialMenuAction("Resend the same move request", true) {
+                scope.launch { transferStore.resendUncertain(record.requestId) }
+            })
+            if (record.state == TransferState.UNCERTAIN || record.state == TransferState.FAILED) add(MaterialMenuAction("Dismiss move notice", true) {
+                scope.launch {
+                    transferStore.dismiss(record.requestId)
+                    storesByMachine.values.forEach { it[record.material]?.refreshNow() }
+                }
+            })
+        }
+    }
     MixesWorkspace(job?.let { "${it.jobNumber} · ${it.jobName}" } ?: jobFolderName, selectedMaterial, selected?.pages?.size ?: 0,
         ui, session.secondPass, revertSupported, inventory, material?.let { File(File(scan.snapshot.basePath, "$jobFolderName/CNC"), it.pdfFilename) },
-        newMachineStatus = newMachineStatus, onBack = { leave(onBack) }, onMaterial = { name -> leave { selectedMaterial = name } },
+        machineName = machine.displayName,
+        // Selecting another machine's tile abandons this session like a material switch; it never retargets drafts or saves.
+        onSelectMaterial = { id, name -> if (id != machine.id || name != selectedMaterial) leave { selectedMachineId = id; selectedMaterial = name } },
+        onMoveMaterial = { from, name, to -> requestMove(from, name, to) },
+        materialMenu = materialMenu,
+        onCreateRemaining = { leaveMix { group?.let { session.startRemaining(it, locks()) } } },
+        onBack = { leave(onBack) }, onMaterial = { name -> leave { selectedMaterial = name } },
         onTab = { key -> leaveMix { session.selectedTab = key } },
         onNew = { leaveMix { session.startNew(selectedMaterial ?: "Material", selected?.pages.orEmpty(), locks()) } },
         onDiscard = { session.discardMix(latestCatalog()) },
         onApply = { applyMix() }, onRefresh = { selectedMaterial?.let { name -> scope.launch {
+            statusRefresh++
             stores[name]?.refreshNow()
             session.acknowledgeRefresh(stores[name]?.state?.value is CatalogState.Live)
             retryHistory(name)
@@ -250,9 +378,9 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
                     val revisions = if (revisionSupported) SecondPassRevisionSupport(
                         SecondPassRevisionSnapshot(revisionState.hashes, pgmPreview.previews),
                         refresh = { service.listPgms(jobFolderName, name, withSha256 = true).filter { validPgmHash(it.sha256) }.associate { it.name to it.sha256!! } },
-                        revert = api::submitPgmEditRevertRows) else null
+                        revert = client::submitPgmEditRevertRows) else null
                     pgmPreview.invalidate()
-                    val runner = SecondPassRunner(service, api::submitPgmEditRevert, secondPassRequestIds(deviceId),
+                    val runner = SecondPassRunner(service, client::submitPgmEditRevert, secondPassRequestIds(deviceId),
                         revisions = revisions, onNotices = { notices += it })
                     runner.apply(jobFolderName, name, planSecondPass(submitted)) { session.secondMessage = it }.also { outcome ->
                         if (outcome is SecondPassOutcome.Failed && outcome.code in setOf("pgm_changed", "preview_changed"))
@@ -266,7 +394,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         recoveryEnabled = session.gate.deferredCatalog != null,
         reapplyEnabled = session.reapplyEnabled,
         mixMessage = session.recoveryMessage ?: RESTORE_PREVIEW_MESSAGE.takeIf { session.draft?.rawRestore != null },
-        mixEditingEnabled = !session.applying, secondEditingEnabled = catalogWritable && !session.secondApplying && session.secondHistoryConfirmed && !session.historyLoading,
+        mixEditingEnabled = !session.applying && activeMove == null, secondEditingEnabled = secondWritable && !session.secondApplying && session.secondHistoryConfirmed && !session.historyLoading,
         secondDiscardEnabled = !session.secondApplying, navigationEnabled = !session.saving,
         historyRetryVisible = !session.secondHistoryConfirmed, historyLoading = session.historyLoading,
         onHistoryRetry = { selectedMaterial?.let { name -> scope.launch { retryHistory(name) } } },
@@ -334,7 +462,8 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
             if (fresh != null && session.stageRevision(fresh, revision, locks())) revisionsKey = null
         } }, onDeleteRevision = { revision -> leaveMix { deleteRevision = revision } },
             onDismiss = { revisionsKey = null }, rail = useRail(maxWidth.value.toInt()), compare = compareFiles,
-            mutationsEnabled = catalogWritable && !session.applying) }
+            mutationsEnabled = catalogLive && !session.applying && access?.mixFiles != false &&
+                (access?.frz != false || (revisions.frz == null && revisions.frzRevisions.isEmpty()))) }
     } }
     deleteRevision?.let { revision -> DeleteConfirm(revision.file, onConfirm = {
         deleteRevision = null; mutate { name -> api.deleteRevision(jobFolderName, name, revision.file, revision.revision) }
@@ -362,6 +491,40 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         text = { Text(pendingLeaveText) }, confirmButton = {
             TextButton(onClick = { pendingLeave = null; action() }) { Text("Discard") }
         }, dismissButton = { TextButton(onClick = { pendingLeave = null }) { Text("Keep editing") } }) }
+    pendingPunload?.let { (ask, materialName) ->
+        fun choose(choice: PunloadChoice) { pendingPunload = null; ask.choose(choice)?.let { prepareMove(it, materialName) } }
+        AlertDialog(onDismissRequest = { choose(PunloadChoice.CANCEL) }, title = { Text(ask.question) },
+            text = { Text("$materialName moves back to ${ask.destination.displayName}. Restore its PUNLOAD lines, or keep them removed. Cancel changes nothing.") },
+            confirmButton = { TextButton(onClick = { choose(PunloadChoice.RESTORE) }) { Text("Restore PUNLOAD") } },
+            dismissButton = { Row {
+                TextButton(onClick = { choose(PunloadChoice.KEEP_REMOVED) }) { Text("Keep removed") }
+                TextButton(onClick = { choose(PunloadChoice.CANCEL) }) { Text("Cancel") }
+            } })
+    }
+    pendingMove?.let { move ->
+        val preview = move.preview
+        val startable = preview.canStart && preview.conflicts.isEmpty()
+        AlertDialog(onDismissRequest = { pendingMove = null },
+            title = { Text("Move ${move.material} to ${move.plan.destination.displayName}?") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(move.plan.notice)
+                Text("${preview.completed.size} completed sheets move with their status unchanged and are not cut again. " +
+                    "${preview.remaining.size} remaining sheets go into the active mix.")
+                preview.conflicts.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
+                preview.warnings.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+            } },
+            confirmButton = { Button(enabled = startable, onClick = {
+                pendingMove = null // One tap starts at most one request; the journal refuses duplicates as well.
+                scope.launch {
+                    when (val started = transferStore.start(move.plan.source, move.plan.destination, jobFolderName, move.material,
+                        preview, move.sourceRevision, move.plan.policy)) {
+                        is TransferStart.AlreadyActive -> snackbar.showSnackbar("This material is already moving. Checking move status.")
+                        is TransferStart.Started -> started.record.message?.takeIf { started.record.state == TransferState.FAILED }?.let { snackbar.showSnackbar(it) }
+                    }
+                }
+            }) { Text("Start move") } },
+            dismissButton = { TextButton(onClick = { pendingMove = null }) { Text("Cancel") } })
+    }
 }
 /** STARTED leases also release on backgrounding, even when the composition remains retained. */
 @Composable
@@ -419,37 +582,47 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
     onSplitConfirm: () -> Unit = {}, onSplitCancel: () -> Unit = {}, companionMismatch: Boolean = false,
     revisionGroups: List<MixGroup> = emptyList(), onMaterialRevisions: (String) -> Unit = {},
     catalogActionsEnabled: Boolean = !ui.readOnly && mixEditingEnabled, newMix: Boolean = false,
-    newMachineStatus: MachineStatus = MachineStatus.Unavailable) {
+    machineName: String? = null, onSelectMaterial: ((machineId: String, material: String) -> Unit)? = null,
+    onMoveMaterial: ((fromMachineId: String, material: String, toMachineId: String) -> Unit)? = null,
+    materialMenu: List<MaterialMenuAction> = emptyList(), onCreateRemaining: (() -> Unit)? = null) {
     val status = LocalKKCStatusColors.current
     Scaffold(snackbarHost = { snackbar?.let { SnackbarHost(it) } }, topBar = {
-        TopAppBar(title = { Column { Text(title, style = MaterialTheme.typography.titleMedium); Text("Mixes", style = MaterialTheme.typography.labelMedium) } },
+        TopAppBar(title = { Column { Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(listOfNotNull("Mixes", machineName?.let { "$it \u00b7 ${machineStatusText(ui.machineStatus)}" }).joinToString(" \u00b7 "),
+                    style = MaterialTheme.typography.labelMedium) } },
             navigationIcon = { IconButton(onClick = onBack, enabled = navigationEnabled) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-            actions = {
-                Column(Modifier.padding(horizontal = 12.dp)) {
-                    Text(machineStatusLabel("Red SCM", ui.machineStatus), style = MaterialTheme.typography.labelMedium)
-                    Text(machineStatusLabel("Blue SCM", newMachineStatus), style = MaterialTheme.typography.labelMedium)
-                }
-            })
+            actions = {})
     }) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding)) {
             val widthDp = maxWidth.value.toInt()
             val rail = useRail(widthDp)
             Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                if (rail) MixesMaterialNav(ui.nav, true, widthDp, onMaterial, Modifier.width(220.dp).padding(top = 8.dp, bottom = 160.dp))
+                val groups = ui.machineGroups.ifEmpty { listOf(MachineGroupModel(ui.nav.firstOrNull()?.machineId ?: "scm", machineName ?: "SCM CNC", ui.machineStatus, ui.nav)) }
+                val select: (String, String) -> Unit = { id, name -> if (navigationEnabled) onSelectMaterial?.invoke(id, name) ?: onMaterial(name) }
+                val move = onMoveMaterial.takeIf { navigationEnabled }
+                if (rail) MixesMaterialNav(groups, true, widthDp, select, Modifier.width(220.dp).padding(top = 8.dp, bottom = 160.dp), move)
                 Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (!rail) MixesMaterialNav(ui.nav, false, widthDp, onMaterial, Modifier.padding(top = 8.dp))
+                    if (!rail) MixesMaterialNav(groups, false, widthDp, select, Modifier.padding(top = 8.dp), move)
                     if (material == null) {
                         Text("No job materials available. Refresh the job and try again.", Modifier.padding(16.dp))
                     } else {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Column(Modifier.weight(1f)) {
                                 Text(material, style = MaterialTheme.typography.titleLarge)
+                                machineName?.let { Text("On $it", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                 Text("$sheetCount sheets · ${ui.tabs.size} ${if (ui.tabs.size == 1) "mix" else "mixes"}", style = MaterialTheme.typography.bodySmall)
                             }
                             val pgms = secondPass?.wanted?.keys?.toList() ?: inventory
                             SecondPassMenu(secondPass, pgms, secondEditingEnabled, revertSupported, { field, on -> onSecondPass(pgms, field, on) })
                             var revisionsMenu by remember { mutableStateOf(false) }
                             val withRevisions = revisionGroups.filter { it.mixRevisions.isNotEmpty() || it.frzRevisions.isNotEmpty() }
+                            if (materialMenu.isNotEmpty()) Box {
+                                var open by remember { mutableStateOf(false) }
+                                TextButton(onClick = { open = true }, modifier = Modifier.testTag("mixes-material-menu")) { Text("\u22ef") }
+                                DropdownMenu(open, { open = false }) { materialMenu.forEach { action ->
+                                    DropdownMenuItem(text = { Text(action.label) }, enabled = action.enabled, onClick = { open = false; action.onClick() })
+                                } }
+                            }
                             if (withRevisions.isNotEmpty()) Box {
                                 TextButton(onClick = { revisionsMenu = true }) { Text("Revisions / Deleted mixes") }
                                 DropdownMenu(revisionsMenu, { revisionsMenu = false }) { withRevisions.forEach { revisions ->
@@ -513,6 +686,11 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
                                                 }
                                             }
                                         }
+                                        if (ui.remainingMixAvailable && onCreateRemaining != null) {
+                                            // Blue SCM pause: a fresh MIX of the remaining sheets for review. Not an FRZ resume.
+                                            TextButton(onClick = onCreateRemaining, enabled = mixEditingEnabled && navigationEnabled,
+                                                modifier = Modifier.testTag("mixes-create-remaining")) { Text("Create remaining MIX") }
+                                        }
                                         if (card.applyVisible) {
                                             TextButton(onClick = onDiscard, enabled = mixEditingEnabled) { Text("Discard") }
                                             Button(onClick = onApply, enabled = card.applyEnabled, modifier = Modifier.testTag("mixes-apply")) { Text(card.applyLabel) }
@@ -554,7 +732,10 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
     }
 }
 
-internal fun machineStatusLabel(name: String, status: MachineStatus): String {
+internal fun machineStatusLabel(name: String, status: MachineStatus): String =
+    listOf(name, machineStatusText(status)).joinToString(" \u00b7 ")
+
+internal fun machineStatusText(status: MachineStatus): String {
     val value = when (status) {
         MachineStatus.Unavailable -> "unavailable"
         is MachineStatus.Live -> when (status.producing) {
@@ -564,5 +745,5 @@ internal fun machineStatusLabel(name: String, status: MachineStatus): String {
         }
     }
     val program = (status as? MachineStatus.Live)?.loaded?.name?.takeIf { it.isNotBlank() }
-    return listOfNotNull(name, value, program).joinToString(" \u00b7 ")
+    return listOfNotNull(value, program).joinToString(" \u00b7 ")
 }

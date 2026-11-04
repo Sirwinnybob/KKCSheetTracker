@@ -109,6 +109,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.mixfiles.*
+import com.kkc.sheettracker.data.cnc.CncMachine
 import com.kkc.sheettracker.data.cnc.CncMachines
 import com.kkc.sheettracker.ui.components.rememberForegroundMixFiles
 import com.kkc.sheettracker.BuildConfig
@@ -316,6 +317,8 @@ fun SheetViewerScreen(
     selectedMixName: String? = null,
     selectedMixFile: String? = null,
     loadMixCatalog: Boolean = true,
+    /** Mix order is read from this machine; callers without machine context keep Red. */
+    cncMachine: CncMachine = CncMachines.scm,
     isDarkTheme: Boolean,
     useStandardSheets: Boolean,
     isClockedInHere: Boolean = false,
@@ -864,11 +867,11 @@ fun SheetViewerScreen(
         previousMaterialIdentity = nextIdentity
     }
 
-    val mixStores = remember(currentMaterial?.materialName, jobFolderName, loadMixCatalog) {
+    val mixStores = remember(currentMaterial?.materialName, jobFolderName, loadMixCatalog, cncMachine) {
         val material = currentMaterial
         if (loadMixCatalog && material != null) mapOf(material.materialName to
             (context.applicationContext as com.kkc.sheettracker.KKCApplication).mixFilesStores.store(
-                CncMachines.scm, jobFolderName, material.materialName)) else emptyMap()
+                cncMachine, jobFolderName, material.materialName)) else emptyMap()
     }
     val mixStates = rememberForegroundMixFiles(jobFolderName, mixStores)
     val mixState = mixStates[currentMaterial?.materialName]

@@ -264,6 +264,99 @@ class MixFilesStoreTest {
         assertTrue(files.all { it.readText().contains("\"folderRevision\"") })
     }
 
+    @Test fun identicalNamesOnTwoMachinesUseSeparateStoresAndCaches() = runTest(StandardTestDispatcher()) {
+        val redCatalog = first.copy(folderRevision = "red")
+        val blueCatalog = first.copy(folderRevision = "blue")
+        val apis = mapOf(CncMachines.scm.id to FakeApi(redCatalog), CncMachines.scmNew.id to FakeApi(blueCatalog))
+        val registry = MixFilesStoreRegistry({ apis.getValue(it.id) }, cache(), backgroundScope)
+        val red = registry.store(CncMachines.scm, key.job, key.material)
+        val blue = registry.store(CncMachines.scmNew, key.job, key.material)
+        assertNotSame(red, blue)
+        val leases = listOf(red.acquire(), blue.acquire()); runCurrent()
+        assertEquals(CatalogState.Live(redCatalog), red.state.value)
+        assertEquals(CatalogState.Live(blueCatalog), blue.state.value)
+        runCurrent()
+        assertEquals(redCatalog, cache().read(MaterialKey("scm", key.job, key.material)))
+        assertEquals(blueCatalog, cache().read(MaterialKey("scm-new", key.job, key.material)))
+        // One machine going offline never changes the other's live state.
+        apis.getValue("scm-new").revisionResult = MixFilesResult.Offline
+        apis.getValue("scm-new").catalogResult = MixFilesResult.Offline
+        repeat(3) { advanceTimeBy(3_000); runCurrent() }
+        assertEquals(CatalogState.Offline(blueCatalog), blue.state.value)
+        assertEquals(CatalogState.Live(redCatalog), red.state.value)
+        leases.forEach { it.close() }
+    }
+
+    @Test fun redCacheFileNameIsUnchangedSoPersistedCatalogsStayValid() {
+        cache().write(key, first)
+        assertEquals("9072c0a9d52a4d3cd3ed16f8432366d553ac6694.json", temp.root.listFiles()!!.single().name)
+    }
+
+    private class RecordingApi : MixFilesApi {
+        val calls = mutableListOf<String>()
+        private val ok = MixFilesResult.Ok(MixFilesCatalog("J", "M", "r", emptyList()))
+        override suspend fun catalog(job: String, material: String) = ok.also { calls += "catalog" }
+        override suspend fun folderRevision(job: String, material: String) = MixFilesResult.Ok("r").also { calls += "revision" }
+        override suspend fun write(job: String, material: String, file: String, expectedRevision: String?, entries: List<EntrySpec>, completion: Completion?) = ok.also { calls += "write" }
+        override suspend fun frz(job: String, material: String, file: String, expectedRevision: String, completion: Completion, pending: List<EntrySpec>) = ok.also { calls += "frz" }
+        override suspend fun rename(job: String, material: String, file: String, newFile: String, expectedRevision: String) = ok.also { calls += "rename" }
+        override suspend fun delete(job: String, material: String, file: String, expectedRevision: String) = ok.also { calls += "delete" }
+        override suspend fun deleteRevision(job: String, material: String, file: String, expectedRevision: String) = ok.also { calls += "deleteRevision" }
+        override suspend fun restore(job: String, material: String, revisionFile: String, targetFile: String, expectedTargetRevision: String?, completion: Completion?) = ok.also { calls += "restore" }
+        override suspend fun split(job: String, material: String, file: String, expectedRevision: String, entries: List<EntrySpec>, newMixes: List<NewMix>, completion: Completion?) = ok.also { calls += "split" }
+        override suspend fun features() = emptySet<String>()
+    }
+    private fun guarded(machine: com.kkc.sheettracker.data.cnc.CncMachine, status: com.kkc.sheettracker.data.cnc.MixServiceStatus?, api: RecordingApi) =
+        MachineGuardedMixFilesApi(machine, api) { status }
+    private fun blueStatus(id: String? = "scm-new", readOnly: Boolean = false) =
+        com.kkc.sheettracker.data.cnc.MixServiceStatus(emptySet(), id, "SCM $id", setOf("MIX_FILES", "FRZ_EDITING", "SECOND_PASS"), readOnly)
+    private fun MixFilesResult<*>.code() = (this as MixFilesResult.Rejected).error.code
+
+    @Test fun guardRefusesMutationsForMismatchedReadOnlyOrUnverifiedService() = runTest {
+        listOf(blueStatus("scm") to "machine_mismatch", blueStatus(readOnly = true) to "machine_read_only",
+            null to "machine_unverified", blueStatus(id = null) to "machine_unverified").forEach { (status, code) ->
+            val api = RecordingApi()
+            val guard = guarded(CncMachines.scmNew, status, api)
+            assertEquals(code, guard.write("J", "M", "A.mix", "r", emptyList(), null).code())
+            assertEquals(code, guard.rename("J", "M", "A.mix", "B.mix", "r").code())
+            assertEquals(code, guard.delete("J", "M", "A.mix", "r").code())
+            assertTrue((guard.write("J", "M", "A.mix", "r", emptyList(), null) as MixFilesResult.Rejected).error.message.isNotBlank())
+            assertTrue(guard.catalog("J", "M") is MixFilesResult.Ok) // Reads are never blocked.
+            assertEquals(listOf("catalog"), api.calls)
+        }
+    }
+
+    @Test fun guardPassesVerifiedMutationsAndOldRedServices() = runTest {
+        val blueApi = RecordingApi()
+        val blue = guarded(CncMachines.scmNew, blueStatus(), blueApi)
+        assertTrue(blue.write("J", "M", "A.mix", "r", emptyList(), null) is MixFilesResult.Ok)
+        assertTrue(blue.split("J", "M", "A.mix", "r", emptyList(), emptyList(), null) is MixFilesResult.Ok)
+        assertEquals(listOf("write", "split"), blueApi.calls)
+        val redApi = RecordingApi()
+        val red = guarded(CncMachines.scm, com.kkc.sheettracker.data.cnc.MixServiceStatus(setOf("pgm-edits-revert")), redApi)
+        assertTrue(red.frz("J", "M", "A.frz", "r", Completion(emptyList(), emptyMap(), null), emptyList()) is MixFilesResult.Ok)
+        assertEquals(listOf("frz"), redApi.calls)
+    }
+
+    @Test fun guardRefusesEveryFrzActionOnBlueWithoutNetwork() = runTest {
+        val api = RecordingApi()
+        var statusReads = 0
+        val guard = MachineGuardedMixFilesApi(CncMachines.scmNew, api) { statusReads++; blueStatus() }
+        val completion = Completion(emptyList(), emptyMap(), null)
+        listOf(
+            guard.frz("J", "M", "A.frz", "r", completion, emptyList()),
+            guard.write("J", "M", "A.mix", "r", emptyList(), completion),
+            guard.split("J", "M", "A.mix", "r", emptyList(), emptyList(), completion),
+            guard.restore("J", "M", "OLD1_A.frz", "A.frz", null, null),
+            guard.restore("J", "M", "OLD1_A.mix", "A.mix", null, completion),
+            guard.rename("J", "M", "A.FRZ", "B.frz", "r"),
+            guard.delete("J", "M", "A.frz", "r"),
+            guard.deleteRevision("J", "M", "OLD2_A.frz", "r"),
+        ).forEach { assertEquals("frz_unsupported", it.code()) }
+        assertTrue(api.calls.isEmpty())
+        assertEquals(0, statusReads)
+    }
+
     @Test fun corruptCacheIsIgnoredAndReplacementLeavesNoTemporaryFiles() {
         val cache = cache()
         assertNull(cache.read(key))

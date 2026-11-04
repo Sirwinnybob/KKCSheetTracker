@@ -19,7 +19,9 @@ fun pgmIdentity(name: String): String = name.lowercase(Locale.ROOT)
 fun canonicalPgms(names: Collection<String>): List<String> = names.distinctBy(::pgmIdentity)
 fun <T> Map<String, T>.pgmValue(name: String): T? = entries.firstOrNull { it.key.equals(name, true) }?.value
 
-data class SecondPassDraft(val wanted: Map<String, SecondPassState>, val current: Map<String, SecondPassState>) {
+/** [punloadFixed]: the machine always removes PUNLOAD, so every state carries removal and it is never a change. */
+data class SecondPassDraft(val wanted: Map<String, SecondPassState>, val current: Map<String, SecondPassState>,
+    val punloadFixed: Boolean = false) {
     val changeCount: Int get() = wanted.entries.distinctBy { pgmIdentity(it.key) }.count { (pgm, state) -> state.normalized() != current.pgmValue(pgm)?.normalized() }
 }
 
@@ -35,18 +37,19 @@ private val NO_EDITS = SecondPassState(false, false, false)
 private fun SecondPassState.normalized() = if (superPass) copy(secondPass = true) else this
 
 object SecondPassDrafts {
-    fun from(history: PgmEditHistoryView?, pgms: List<String>): SecondPassDraft {
+    fun from(history: PgmEditHistoryView?, pgms: List<String>, punloadFixed: Boolean = false): SecondPassDraft {
         require(history?.canEdit == true) { "Second-pass history is uncertain" }
         val current = canonicalPgms(pgms).associateWith { pgm ->
             val state = history.file(pgm)?.current
-            SecondPassState(state?.mode in setOf("standard", "super"), state?.mode == "super", state?.punloadRemoved == true)
+            SecondPassState(state?.mode in setOf("standard", "super"), state?.mode == "super", punloadFixed || state?.punloadRemoved == true)
         }
-        return SecondPassDraft(current.toMap(), current)
+        return SecondPassDraft(current.toMap(), current, punloadFixed)
     }
 
     fun set(d: SecondPassDraft, pgm: String, state: SecondPassState): SecondPassDraft {
         val canonical = d.wanted.keys.firstOrNull { it.equals(pgm, true) } ?: return d
-        return d.copy(wanted = d.wanted + (canonical to state.normalized()))
+        val next = if (d.punloadFixed) state.copy(removePUnload = true) else state
+        return d.copy(wanted = d.wanted + (canonical to next.normalized()))
     }
 
     /** The caller supplies only unlocked PGMs; no other row is changed. */

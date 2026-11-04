@@ -26,7 +26,9 @@ class MixServiceClientTest {
         server.shutdown()
     }
 
-    private fun client() = MixServiceClient(server.url("/").toString())
+    private fun client(machine: com.kkc.sheettracker.data.cnc.CncMachine = com.kkc.sheettracker.data.cnc.CncMachines.scm) =
+        MixServiceClient(machine.copy(baseUrl = server.url("/").toString()))
+    private fun status(body: String = """{"ok":true,"features":["pgm-edits-revert"]}""") = server.enqueue(MockResponse().setBody(body))
 
     @Test
     fun `listPgms parses inventory items from the pgms envelope`() = runBlocking {
@@ -70,6 +72,7 @@ class MixServiceClientTest {
 
     @Test
     fun `submitPgmEdits unwraps a 202 operation and preserves request body`() = runBlocking {
+        status()
         server.enqueue(
             MockResponse().setResponseCode(202).setBody(
                 """{"ok":true,"operation":{"id":"op2","kind":"pgm_edit","job":"648","material":"M","state":"queued","stage":"queued","completedPrograms":0,"totalPrograms":1}}"""
@@ -81,6 +84,7 @@ class MixServiceClientTest {
         )
         assertEquals("op2", result.id)
         assertEquals("queued", result.state)
+        assertEquals("/status", server.takeRequest().path)
         val recorded = server.takeRequest()
         assertEquals("POST", recorded.method)
         val sentBody = org.json.JSONObject(recorded.body.readUtf8())
@@ -100,12 +104,39 @@ class MixServiceClientTest {
             MockResponse().setResponseCode(202).setBody("""{"ok":true,"operation":{}}"""),
         )
         responses.forEach { response ->
+            status()
             server.enqueue(response)
             assertThrows(MixOperationClientException::class.java) {
                 runBlocking { client().submitPgmEdits("J", "M", "r", listOf(PgmEditRow("R1.pgm", "standard", false))) }
             }
         }
+        assertEquals(6, server.requestCount)
+    }
+
+    @Test
+    fun `submitPgmEdits refuses a mismatched or read-only service before posting`() {
+        val blue = com.kkc.sheettracker.data.cnc.CncMachines.scmNew
+        listOf(
+            """{"ok":true,"features":[],"machineId":"scm","machineName":"Red SCM","capabilities":["MIX_FILES","SECOND_PASS"],"readOnly":false}""",
+            """{"ok":true,"features":[],"machineId":"scm-new","machineName":"Blue SCM","capabilities":["MIX_FILES","SECOND_PASS"],"readOnly":true}""",
+            """{"ok":true,"features":[]}""",
+        ).forEach { body ->
+            status(body)
+            val failure = assertThrows(MixOperationClientException::class.java) {
+                runBlocking { client(blue).submitPgmEdits("J", "M", "r", listOf(PgmEditRow("R1.pgm", "standard", true))) }
+            }
+            assertTrue(failure.message!!.contains("Blue SCM"))
+            assertEquals("/status", server.takeRequest().path)
+        }
         assertEquals(3, server.requestCount)
+    }
+
+    @Test
+    fun `submitPgmEdits posts to a verified Blue service`() = runBlocking {
+        status("""{"ok":true,"features":["pgm-edits-revert"],"machineId":"scm-new","machineName":"Blue SCM","capabilities":["MIX_FILES","SECOND_PASS"],"readOnly":false}""")
+        server.enqueue(MockResponse().setResponseCode(202).setBody("""{"ok":true,"operation":{"id":"blue-op","state":"queued"}}"""))
+        assertEquals("blue-op", client(com.kkc.sheettracker.data.cnc.CncMachines.scmNew).submitPgmEdits("J", "M", "r", listOf(PgmEditRow("R1.pgm", "standard", true))).id)
+        assertEquals(2, server.requestCount)
     }
 
     @Test
