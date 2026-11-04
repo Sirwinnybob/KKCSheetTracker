@@ -11,13 +11,22 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -29,11 +38,20 @@ import com.kkc.sheettracker.data.cnc.*
 import com.kkc.sheettracker.data.mixfiles.*
 import com.kkc.sheettracker.data.mixservice.*
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
-import com.kkc.sheettracker.ui.components.kkcCardDepth
+import com.kkc.sheettracker.data.models.SheetStatus
+import com.kkc.sheettracker.ui.components.CountStatusChip
+import com.kkc.sheettracker.ui.components.KKCPillAccent
+import com.kkc.sheettracker.ui.components.KKCPillOption
+import com.kkc.sheettracker.ui.components.KKCSlidingPillRow
+import com.kkc.sheettracker.ui.components.KKCTopAppBar
+import com.kkc.sheettracker.ui.components.PageStatusBar
+import com.kkc.sheettracker.ui.components.StatusBorderedCard
 import com.kkc.sheettracker.ui.settings.GroupCard
 import com.kkc.sheettracker.ui.theme.LocalKKCStatusColors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -295,15 +313,19 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     var pendingPunload by remember { mutableStateOf<Pair<MovePlan.AskPunload, String>?>(null) }
     var pendingMove by remember { mutableStateOf<PendingMove?>(null) }
     var preparingMove by remember { mutableStateOf<String?>(null) }
+    // The drop's checks and preview take network round trips; until the review (or a refusal) appears, the nav
+    // shows the material as on its way to the target so the drop doesn't look like it snapped back.
+    var moveChecking by remember { mutableStateOf<MoveInFlight?>(null) }
     fun prepareMove(plan: MovePlan.Prepare, materialName: String) {
         val m = materials.firstOrNull { it.materialName == materialName } ?: return
         val catalog = (catalogStatesByMachine[plan.source.id]?.get(materialName) as? CatalogState.Live)?.catalog
         if (catalog == null) { scope.launch { snackbar.showSnackbar("Connect to ${plan.source.displayName} and refresh before moving.") }; return }
         if (preparingMove != null) return
         preparingMove = materialName
+        moveChecking = MoveInFlight(materialName, plan.source.id, plan.destination.id)
         scope.launch {
             try {
-                snackbar.showSnackbar(plan.notice)
+                // The plan's notice is the review's first line; awaiting a snackbar here held the preview back until it timed out.
                 // Read progress at the action boundary; the snapshot is a copy and nothing here writes a status.
                 val input = MaterialMixesInput(plan.source, m, CatalogState.Live(catalog), statusByPage = statusesOf(m))
                 val worklist = groupMixFiles(catalog).firstOrNull { it.mix != null && (materialName != selectedMaterial || it.key == ui.selectedTab) }?.mix?.file
@@ -316,17 +338,22 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
                     TransferResult.Unsupported -> snackbar.showSnackbar("Moving materials needs a CNC service update. Nothing was changed.")
                     TransferResult.Offline -> snackbar.showSnackbar("Couldn't reach ${plan.destination.displayName} to prepare the move. Nothing was changed.")
                 }
-            } finally { preparingMove = null }
+            } finally { preparingMove = null; moveChecking = null }
         }
     }
     fun requestMove(fromId: String, materialName: String, toId: String) {
-        if (session.saving || preparingMove != null) return
+        if (session.saving || preparingMove != null || moveChecking != null) return
         val source = CncMachines.mixMachine(fromId)
         val destination = CncMachines.mixMachine(toId)
+        moveChecking = MoveInFlight(materialName, fromId, toId)
         scope.launch {
-            // Fresh identity/capability reads at the moment of the gesture, for both endpoints.
-            val sourceStatus = MixFilesClient(source).serviceStatus()
-            val destinationStatus = MixFilesClient(destination).serviceStatus()
+            try {
+            // Fresh identity/capability reads at the moment of the gesture, for both endpoints, in parallel.
+            val (sourceStatus, destinationStatus) = coroutineScope {
+                val s = async { MixFilesClient(source).serviceStatus() }
+                val d = async { MixFilesClient(destination).serviceStatus() }
+                s.await() to d.await()
+            }
             val destinationState = catalogStatesByMachine[destination.id]?.get(materialName)
             val plan = planMaterialMove(MoveContext(source, destination, materialName, sourceStatus, destinationStatus,
                 dirty = fromId == machine.id && materialName == selectedMaterial && session.dirty,
@@ -334,11 +361,13 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
                 needsAttention = transferStore.needsAttentionFor(jobFolderName, materialName) != null,
                 sourceCatalogLive = catalogStatesByMachine[source.id]?.get(materialName) is CatalogState.Live,
                 destinationHasMaterial = destinationState != null && ownsMaterial(destinationState)))
+            moveChecking = null
             when (plan) {
                 is MovePlan.Blocked -> snackbar.showSnackbar(plan.reason)
                 is MovePlan.AskPunload -> pendingPunload = plan to materialName
                 is MovePlan.Prepare -> prepareMove(plan, materialName)
             }
+            } finally { if (preparingMove == null) moveChecking = null }
         }
     }
     // The app watcher polls submitted moves, refreshes both machines and shows the outcome app-wide;
@@ -382,7 +411,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         machineName = machine.displayName,
         // Selecting another machine's tile abandons this session like a material switch; it never retargets drafts or saves.
         onSelectMaterial = { id, name -> if (id != machine.id || name != selectedMaterial) leave { selectedMachineId = id; selectedMaterial = name } },
-        onMoveMaterial = { from, name, to -> requestMove(from, name, to) },
+        onMoveMaterial = { from, name, to -> requestMove(from, name, to) }, moveInFlight = moveChecking,
         materialMenu = materialMenu,
         onCreateRemaining = { leaveMix { group?.let { session.startRemaining(it, locks()) } } },
         onBack = { leaveScreen() }, onMaterial = { name -> leave { selectedMaterial = name } },
@@ -622,10 +651,11 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
     catalogActionsEnabled: Boolean = !ui.readOnly && mixEditingEnabled, newMix: Boolean = false,
     machineName: String? = null, onSelectMaterial: ((machineId: String, material: String) -> Unit)? = null,
     onMoveMaterial: ((fromMachineId: String, material: String, toMachineId: String) -> Unit)? = null,
-    materialMenu: List<MaterialMenuAction> = emptyList(), onCreateRemaining: (() -> Unit)? = null) {
+    materialMenu: List<MaterialMenuAction> = emptyList(), onCreateRemaining: (() -> Unit)? = null,
+    moveInFlight: MoveInFlight? = null) {
     val status = LocalKKCStatusColors.current
     Scaffold(snackbarHost = { snackbar?.let { SnackbarHost(it) } }, topBar = {
-        TopAppBar(title = { Column { Text(title, style = MaterialTheme.typography.titleMedium)
+        KKCTopAppBar(title = { Column { Text(title, style = MaterialTheme.typography.titleMedium)
                 Text(listOfNotNull("Mixes", machineName?.let { "$it \u00b7 ${machineStatusText(ui.machineStatus)}" }).joinToString(" \u00b7 "),
                     style = MaterialTheme.typography.labelMedium) } },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
@@ -638,42 +668,138 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
                 val groups = ui.machineGroups.ifEmpty { listOf(MachineGroupModel(ui.nav.firstOrNull()?.machineId ?: "scm", machineName ?: "SCM CNC", ui.machineStatus, ui.nav)) }
                 val select: (String, String) -> Unit = { id, name -> if (navigationEnabled) onSelectMaterial?.invoke(id, name) ?: onMaterial(name) }
                 val move = onMoveMaterial.takeIf { navigationEnabled }
-                if (rail) MixesMaterialNav(groups, true, widthDp, select, Modifier.width(220.dp).padding(top = 8.dp, bottom = 160.dp), move)
+                if (rail) MixesMaterialNav(groups, true, widthDp, select, Modifier.width(220.dp).padding(top = 8.dp, bottom = 160.dp), move, moveInFlight)
                 Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (!rail) MixesMaterialNav(groups, false, widthDp, select, Modifier.padding(top = 8.dp), move)
+                    if (!rail) MixesMaterialNav(groups, false, widthDp, select, Modifier.padding(top = 8.dp), move, moveInFlight)
                     if (material == null) {
                         Text("No job materials available. Refresh the job and try again.", Modifier.padding(16.dp))
                     } else {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // Hero card: the selected material, its mixes, progress, and every pending-change action.
+                        // Same card vocabulary as the job detail material cards: status edge + wash, done/left count
+                        // chips, a per-sheet status bar, and the theme's sliding-pill controls.
+                        val scheme = MaterialTheme.colorScheme
+                        val selectedTab = ui.tabs.firstOrNull { it.key == ui.selectedTab }
+                        val heroStatus = ui.card?.let { card -> when {
+                            selectedTab?.error == true -> SheetStatus.HAS_BAD_PARTS
+                            selectedTab?.interrupted == true -> SheetStatus.SKIPPED
+                            card.total > 0 && card.cut >= card.total -> SheetStatus.COMPLETE
+                            card.cut > 0 -> SheetStatus.IN_PROGRESS
+                            else -> SheetStatus.NOT_STARTED
+                        } } ?: SheetStatus.NOT_STARTED
+                        StatusBorderedCard(heroStatus, Modifier.fillMaxWidth()) {
+                        Column(Modifier.fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Column(Modifier.weight(1f)) {
-                                Text(material, style = MaterialTheme.typography.titleLarge)
-                                machineName?.let { Text("On $it", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                Text("$sheetCount sheets · ${ui.tabs.size} ${if (ui.tabs.size == 1) "mix" else "mixes"}", style = MaterialTheme.typography.bodySmall)
+                                Text(material, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                                Text(listOfNotNull(machineName, "$sheetCount sheets", "${ui.tabs.size} ${if (ui.tabs.size == 1) "mix" else "mixes"}").joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
                             }
+                            ui.card?.let { card ->
+                                CountStatusChip("Done", card.cut, status.completeBorder, forceFilled = card.total > 0 && card.cut >= card.total)
+                                if (card.total > card.cut) CountStatusChip("Left", card.total - card.cut,
+                                    if (selectedTab?.interrupted == true) status.skipBorder else status.inProgress, forceFilled = true)
+                            }
+                        }
+                        ui.groups?.let { g ->
+                            val bar = remember(g) {
+                                g.completed.map { SheetStatus.COMPLETE } + g.remaining.map { row -> row.tabletStatus?.takeIf { it != SheetStatus.COMPLETE } ?: SheetStatus.NOT_STARTED }
+                            }
+                            if (bar.isNotEmpty()) PageStatusBar(bar.size, { bar[(it - 1).coerceIn(0, bar.lastIndex)] },
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).height(10.dp))
+                        }
+                        // Mix tabs and the material/mix actions, wrapping on narrow screens.
+                        FlowRow(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
+                            itemVerticalAlignment = Alignment.CenterVertically) {
+                            if (ui.tabs.isNotEmpty()) KKCSlidingPillRow(ui.tabs.map { tab ->
+                                KKCPillOption(tab.title + when { tab.error -> " · Error"; tab.interrupted -> " · Interrupted"; else -> "" } + if (tab.companionMismatch) " · Files differ" else "",
+                                    tab.key == ui.selectedTab, { onTab(tab.key) }, enabled = navigationEnabled,
+                                    icon = when { tab.error -> Icons.Default.ErrorOutline; tab.interrupted -> Icons.Default.Pause; else -> null })
+                            }, accent = if (selectedTab?.interrupted == true || selectedTab?.error == true) KKCPillAccent.ATTENTION else KKCPillAccent.PRIMARY,
+                                persistKey = "mixes-tabs")
+                            MixesPillTrack { Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            MixesPillButton("New mix", onNew, icon = Icons.Default.Add, enabled = !ui.readOnly && navigationEnabled)
                             val pgms = secondPass?.wanted?.keys?.toList() ?: inventory
                             SecondPassMenu(secondPass, pgms, secondEditingEnabled, revertSupported, { field, on -> onSecondPass(pgms, field, on) })
                             var revisionsMenu by remember { mutableStateOf(false) }
                             val withRevisions = revisionGroups.filter { it.mixRevisions.isNotEmpty() || it.frzRevisions.isNotEmpty() }
                             if (materialMenu.isNotEmpty()) Box {
                                 var open by remember { mutableStateOf(false) }
-                                TextButton(onClick = { open = true }, modifier = Modifier.testTag("mixes-material-menu")) { Text("\u22ef") }
+                                MixesPillButton("Material", { open = true }, modifier = Modifier.testTag("mixes-material-menu"), trailingIcon = Icons.Default.ArrowDropDown)
                                 DropdownMenu(open, { open = false }) { materialMenu.forEach { action ->
                                     DropdownMenuItem(text = { Text(action.label) }, enabled = action.enabled, onClick = { open = false; action.onClick() })
                                 } }
                             }
                             if (withRevisions.isNotEmpty()) Box {
-                                TextButton(onClick = { revisionsMenu = true }) { Text("Revisions / Deleted mixes") }
+                                MixesPillButton("Revisions", { revisionsMenu = true }, icon = Icons.Default.History, trailingIcon = Icons.Default.ArrowDropDown)
                                 DropdownMenu(revisionsMenu, { revisionsMenu = false }) { withRevisions.forEach { revisions ->
                                     DropdownMenuItem(text = { Text(revisions.title + if (revisions.mix == null && revisions.frz == null) " · Deleted" else "") },
                                         onClick = { revisionsMenu = false; onMaterialRevisions(revisions.key) })
                                 } }
                             }
+                        ui.card?.let { card ->
+                                    if (rail) {
+                                        MixesPillButton("Rename", { onCardAction?.invoke(MixCardAction.RENAME) }, enabled = onCardAction != null && (catalogActionsEnabled || newMix && mixEditingEnabled && !ui.readOnly))
+                                        MixesPillButton("Split", { onCardAction?.invoke(MixCardAction.SPLIT) }, enabled = onCardAction != null && mixEditingEnabled && card.splitEnabled)
+                                        MixesPillButton("Delete", { onCardAction?.invoke(MixCardAction.DELETE) }, enabled = onCardAction != null && catalogActionsEnabled)
+                                        MixesPillButton("Mix revisions", { onCardAction?.invoke(MixCardAction.REVISIONS) }, enabled = onCardAction != null && !newMix)
+                                    } else Box {
+                                        var menu by remember { mutableStateOf(false) }
+                                        MixesPillButton("Mix actions", { menu = true }, enabled = onCardAction != null, trailingIcon = Icons.Default.ArrowDropDown)
+                                        DropdownMenu(menu, { menu = false }) {
+                                            listOf(MixCardAction.RENAME to "Rename", MixCardAction.SPLIT to "Split", MixCardAction.DELETE to "Delete", MixCardAction.REVISIONS to "Revisions").forEach { (action, label) ->
+                                                DropdownMenuItem(text = { Text(label) }, enabled = when (action) {
+                                                    MixCardAction.REVISIONS -> !newMix
+                                                    MixCardAction.SPLIT -> mixEditingEnabled && card.splitEnabled
+                                                    MixCardAction.RENAME -> catalogActionsEnabled || newMix && mixEditingEnabled && !ui.readOnly
+                                                    else -> catalogActionsEnabled
+                                                }, onClick = { menu = false; onCardAction?.invoke(action) })
+                                            }
+                                        }
+                                    }
+                                    if (ui.remainingMixAvailable && onCreateRemaining != null) {
+                                        // Blue SCM pause: a fresh MIX of the remaining sheets for review. Not an FRZ resume.
+                                        MixesPillButton("Create remaining MIX", onCreateRemaining, enabled = mixEditingEnabled && navigationEnabled,
+                                            modifier = Modifier.testTag("mixes-create-remaining"))
+                                    }
                         }
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            ui.tabs.forEach { tab -> FilterChip(selected = tab.key == ui.selectedTab, enabled = navigationEnabled, onClick = { onTab(tab.key) }, label = {
-                                Text(tab.title + when { tab.error -> " · Error"; tab.interrupted -> " · Interrupted"; else -> "" } + if (tab.companionMismatch) " · Files differ" else "")
-                            }) }
-                            TextButton(onClick = onNew, enabled = !ui.readOnly && navigationEnabled) { Text("+ New mix") }
+                            } }
+                        }
+                        ui.card?.let { card ->
+                            if (card.applyVisible) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = onDiscard, enabled = mixEditingEnabled) { Text("Discard") }
+                                Button(onClick = onApply, enabled = card.applyEnabled, modifier = Modifier.testTag("mixes-apply")) { Text(card.applyLabel) }
+                            }
+                            if (companionMismatch) Row(Modifier.padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("MIX and FRZ entries differ", color = status.skip)
+                                TextButton(onClick = { onCardAction?.invoke(MixCardAction.COMPARE) }, enabled = onCardAction != null) { Text("Compare") }
+                            }
+                            card.applyBlockedReason?.let { Text(it, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp), style = MaterialTheme.typography.bodySmall, color = status.skip) }
+                        }
+                        if (ui.secondPassApply != null || secondMessage != null || historyRetryVisible) {
+                            // Staged 2nd-pass edits get a primary-tinted strip with an accent edge (opaque, so the card shadow can't
+                            // bleed); an informational message alone gets a plain footer.
+                            val staged = ui.secondPassApply != null
+                            Column(Modifier.fillMaxWidth()
+                                .then(if (staged) Modifier.background(scheme.primaryContainer.copy(alpha = 0.35f).compositeOver(scheme.surface))
+                                    .drawBehind { drawRect(scheme.primary, size = androidx.compose.ui.geometry.Size(4.dp.toPx(), size.height)) }
+                                else Modifier.drawBehind { drawRect(scheme.outlineVariant, size = androidx.compose.ui.geometry.Size(size.width, 1.dp.toPx())) })
+                                .padding(start = 20.dp, end = 12.dp, top = 8.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (ui.secondPassApply != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Edit, null, tint = scheme.primary)
+                                    Text("Second-pass changes pending", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                                    TextButton(onClick = onSecondDiscard, enabled = secondDiscardEnabled) { Text("Discard 2nd pass") }
+                                    Button(onClick = onSecondApply, enabled = ui.secondPassApplyEnabled) { Text(ui.secondPassApply) }
+                                }
+                                secondMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant) }
+                                if (historyRetryVisible) TextButton(onClick = onHistoryRetry, enabled = !historyLoading && !ui.readOnly) {
+                                    Text(if (historyLoading) "Loading second-pass history" else "Retry second-pass history")
+                                }
+                            }
+                        }
+                        }
                         }
                         ui.banner?.let { banner ->
                             GroupCard {
@@ -695,57 +821,6 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
                             }
                         }
                         mixMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                        ui.card?.let { card ->
-                            GroupCard {
-                                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    LinearProgressIndicator(progress = { card.progress }, modifier = Modifier.fillMaxWidth(), color = status.complete)
-                                    Text(card.summary, style = MaterialTheme.typography.bodySmall)
-                                    if (companionMismatch) Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("MIX and FRZ entries differ", color = status.skip)
-                                        TextButton(onClick = { onCardAction?.invoke(MixCardAction.COMPARE) }, enabled = onCardAction != null) { Text("Compare") }
-                                    }
-                                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                                        if (rail) {
-                                            TextButton(onClick = { onCardAction?.invoke(MixCardAction.RENAME) }, enabled = onCardAction != null && (catalogActionsEnabled || newMix && mixEditingEnabled && !ui.readOnly)) { Text("Rename") }
-                                            TextButton(onClick = { onCardAction?.invoke(MixCardAction.SPLIT) }, enabled = onCardAction != null && mixEditingEnabled && card.splitEnabled) { Text("Split") }
-                                            TextButton(onClick = { onCardAction?.invoke(MixCardAction.DELETE) }, enabled = onCardAction != null && catalogActionsEnabled) { Text("Delete") }
-                                            TextButton(onClick = { onCardAction?.invoke(MixCardAction.REVISIONS) }, enabled = onCardAction != null && !newMix) { Text("Revisions") }
-                                        } else Box {
-                                            var menu by remember { mutableStateOf(false) }
-                                            TextButton(onClick = { menu = true }, enabled = onCardAction != null) { Text("More") }
-                                            DropdownMenu(menu, { menu = false }) {
-                                                listOf(MixCardAction.RENAME to "Rename", MixCardAction.SPLIT to "Split", MixCardAction.DELETE to "Delete", MixCardAction.REVISIONS to "Revisions").forEach { (action, label) ->
-                                                    DropdownMenuItem(text = { Text(label) }, enabled = when (action) {
-                                                        MixCardAction.REVISIONS -> !newMix
-                                                        MixCardAction.SPLIT -> mixEditingEnabled && card.splitEnabled
-                                                        MixCardAction.RENAME -> catalogActionsEnabled || newMix && mixEditingEnabled && !ui.readOnly
-                                                        else -> catalogActionsEnabled
-                                                    }, onClick = { menu = false; onCardAction?.invoke(action) })
-                                                }
-                                            }
-                                        }
-                                        if (ui.remainingMixAvailable && onCreateRemaining != null) {
-                                            // Blue SCM pause: a fresh MIX of the remaining sheets for review. Not an FRZ resume.
-                                            TextButton(onClick = onCreateRemaining, enabled = mixEditingEnabled && navigationEnabled,
-                                                modifier = Modifier.testTag("mixes-create-remaining")) { Text("Create remaining MIX") }
-                                        }
-                                        if (card.applyVisible) {
-                                            TextButton(onClick = onDiscard, enabled = mixEditingEnabled) { Text("Discard") }
-                                            Button(onClick = onApply, enabled = card.applyEnabled, modifier = Modifier.testTag("mixes-apply")) { Text(card.applyLabel) }
-                                        }
-                                    }
-                                    card.applyBlockedReason?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = status.skip) }
-                                }
-                            }
-                        }
-                        if (ui.secondPassApply != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Button(onClick = onSecondApply, enabled = ui.secondPassApplyEnabled) { Text(ui.secondPassApply) }
-                            TextButton(onClick = onSecondDiscard, enabled = secondDiscardEnabled) { Text("Discard 2nd pass") }
-                        }
-                        secondMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                        if (historyRetryVisible) TextButton(onClick = onHistoryRetry, enabled = !historyLoading && !ui.readOnly) {
-                            Text(if (historyLoading) "Loading second-pass history" else "Retry second-pass history")
-                        }
                         val groups = ui.groups
                         if (groups != null) {
                             if (splitMode) Row(verticalAlignment = Alignment.CenterVertically) {
@@ -753,12 +828,11 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
                                 TextButton(onClick = onSplitConfirm, enabled = splitIds.isNotEmpty() && mixEditingEnabled && ui.banner != Banner.ChangedOnCnc) { Text("Move to new mix…") }
                                 TextButton(onClick = onSplitCancel, enabled = mixEditingEnabled) { Text("Cancel split") }
                             }
-                            Box(Modifier.weight(1f).fillMaxWidth().kkcCardDepth(RoundedCornerShape(12.dp), elevation = 2.dp).background(MaterialTheme.colorScheme.surface)) {
-                                MixesSheetList(groups, secondPass, revertSupported, !ui.readOnly && !ui.restorePreview && mixEditingEnabled && ui.banner != Banner.ChangedOnCnc,
-                                    pdf, onDragStart, onDrop, onAdd, onSecondPass, onRowAction, Modifier.fillMaxSize(),
-                                    secondPassEnabled = secondEditingEnabled,
-                                    splitMode = splitMode, splitIds = splitIds, onSplitSelection = onSplitSelection)
-                            }
+                            // Rows are their own floating cards on the screen background; no container card.
+                            MixesSheetList(groups, secondPass, revertSupported, !ui.readOnly && !ui.restorePreview && mixEditingEnabled && ui.banner != Banner.ChangedOnCnc,
+                                pdf, onDragStart, onDrop, onAdd, onSecondPass, onRowAction, Modifier.weight(1f).fillMaxWidth(),
+                                secondPassEnabled = secondEditingEnabled,
+                                splitMode = splitMode, splitIds = splitIds, onSplitSelection = onSplitSelection)
                         } else {
                             Text(if (ui.readOnly) "Waiting for the CNC catalog. Refresh to reconnect." else "No mix yet. Create a new mix from this material's sheets.", Modifier.padding(16.dp))
                             TextButton(onClick = onRefresh) { Text("Refresh") }

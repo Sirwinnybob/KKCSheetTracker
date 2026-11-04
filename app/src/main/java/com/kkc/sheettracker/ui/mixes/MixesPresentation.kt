@@ -61,7 +61,7 @@ data class SheetGroups(
 )
 data class MixCardModel(
     val progress: Float, val summary: String, val applyEnabled: Boolean, val applyLabel: String, val applyBlockedReason: String?,
-    val applyVisible: Boolean, val splitEnabled: Boolean,
+    val applyVisible: Boolean, val splitEnabled: Boolean, val cut: Int = 0, val total: Int = 0,
 )
 sealed interface Banner {
     data object ChangedOnCnc : Banner
@@ -204,6 +204,7 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
             draft != null && count > 0 && block == null,
             if (draft?.rawRestore != null) "Apply restore" else "Apply $count ${if (count == 1) "change" else "changes"}", block,
             draft != null, it.remaining.any { row -> row.canSplit } || it.unmatched.any { row -> row.canSplit },
+            it.completed.size, total,
         )
     }
     val secondCount = input.secondPassDraft?.changeCount ?: 0

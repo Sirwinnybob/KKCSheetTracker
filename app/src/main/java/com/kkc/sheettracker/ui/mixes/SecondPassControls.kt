@@ -1,14 +1,28 @@
 package com.kkc.sheettracker.ui.mixes
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.triStateToggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.data.mixfiles.*
+import com.kkc.sheettracker.ui.components.KKCPillStyle
+import com.kkc.sheettracker.ui.components.kkcPillIndicator
+import com.kkc.sheettracker.ui.components.rememberKKCQuietPillStyle
 import com.kkc.sheettracker.data.mixservice.PgmEditHistoryEvent
 import com.kkc.sheettracker.data.mixservice.PgmEditCurrentState
 import androidx.compose.foundation.rememberScrollState
@@ -62,7 +76,11 @@ internal fun SecondPassHistorySheet(pgm: String, events: List<PgmEditHistoryEven
 @Composable
 internal fun SecondPassControls(draft: SecondPassDraft?, pgms: List<String>, enabled: Boolean, revertSupported: Boolean,
     onSet: (SecondPassField, Boolean) -> Unit, compact: Boolean = true) {
-    Row {
+    // Compact (per sheet row): one quiet pill track holding three toggles, the app's style for controls repeated down a list.
+    val quiet = rememberKKCQuietPillStyle()
+    val track: @Composable (@Composable () -> Unit) -> Unit = if (compact) { inner -> MixesPillTrack(style = quiet) { inner() } } else { inner -> inner() }
+    track {
+    Row(horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 0.dp)) {
         SecondPassField.entries.forEach { field ->
             val tri = draft?.let { SecondPassDrafts.tri(it, pgms, field) } ?: TriState.OFF
             val checked = when (tri) { TriState.ON -> ToggleableState.On; TriState.OFF -> ToggleableState.Off; is TriState.PARTIAL -> ToggleableState.Indeterminate }
@@ -74,13 +92,39 @@ internal fun SecondPassControls(draft: SecondPassDraft?, pgms: List<String>, ena
                 (field != SecondPassField.SUPER || SecondPassDrafts.tri(draft, pgms, SecondPassField.SECOND) == TriState.ON)
             val label = if (compact) when (field) { SecondPassField.PUNLOAD -> "PUN"; SecondPassField.SECOND -> "2ND"; SecondPassField.SUPER -> "SUP" }
                 else when (field) { SecondPassField.PUNLOAD -> if (fixed) "P-unload always removed" else "Remove P-unload"; SecondPassField.SECOND -> "2nd pass"; SecondPassField.SUPER -> "Super pass" }
-            Column {
+            val description = "$label · ${pgms.joinToString()}" + if (fixed) " · always removed" else ""
+            if (compact) SecondPassChip(label, checked, canChange, description, quiet) { onSet(field, tri != TriState.ON) }
+            else Column {
                 TriStateCheckbox(checked, onClick = { onSet(field, tri != TriState.ON) }, enabled = canChange,
-                    modifier = Modifier.semantics { contentDescription = "$label · ${pgms.joinToString()}" + if (fixed) " · always removed" else "" })
+                    modifier = Modifier.semantics { contentDescription = description })
                 Text(label, style = MaterialTheme.typography.labelSmall)
-                if (!compact && tri is TriState.PARTIAL) Text("${tri.count} of ${pgms.size}", style = MaterialTheme.typography.labelSmall)
+                if (tri is TriState.PARTIAL) Text("${tri.count} of ${pgms.size}", style = MaterialTheme.typography.labelSmall)
             }
         }
+    }
+    }
+}
+
+/**
+ * One toggle in the row's pill track: wears the pill while on. Keeps tri-state checkbox semantics so it reads
+ * and tests like the checkbox it replaces.
+ */
+@Composable
+private fun SecondPassChip(label: String, state: ToggleableState, enabled: Boolean, description: String, style: KKCPillStyle,
+    onClick: () -> Unit) {
+    val active = state != ToggleableState.Off
+    val text = if (active) style.selectedText else style.unselectedText
+    Row(Modifier.height(40.dp).alpha(if (enabled) 1f else 0.4f)
+        .then(if (active) Modifier.kkcPillIndicator(style) else Modifier).clip(RoundedCornerShape(6.dp))
+        .triStateToggleable(state, enabled = enabled, role = Role.Checkbox, onClick = onClick)
+        .semantics { contentDescription = description }
+        .padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        when (state) {
+            ToggleableState.On -> Icon(Icons.Default.Check, null, Modifier.size(16.dp), tint = text)
+            ToggleableState.Indeterminate -> Icon(Icons.Default.Remove, null, Modifier.size(16.dp), tint = text)
+            ToggleableState.Off -> {}
+        }
+        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal, color = text)
     }
 }
 
@@ -89,7 +133,7 @@ internal fun SecondPassMenu(draft: SecondPassDraft?, pgms: List<String>, enabled
     onSet: (SecondPassField, Boolean) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { open = true }, enabled = draft != null) { Text("Second pass") }
+        MixesPillButton("Second pass", { open = true }, enabled = draft != null, trailingIcon = Icons.Default.ArrowDropDown)
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             Text("Apply to all ${pgms.size} files", Modifier.padding(12.dp), style = MaterialTheme.typography.labelLarge)
             Box(Modifier.padding(12.dp)) { SecondPassControls(draft, pgms, enabled, revertSupported, onSet, compact = false) }

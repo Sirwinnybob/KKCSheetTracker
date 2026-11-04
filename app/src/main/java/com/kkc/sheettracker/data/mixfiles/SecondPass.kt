@@ -24,6 +24,10 @@ fun <T> Map<String, T>.pgmValue(name: String): T? = entries.firstOrNull { it.key
 data class SecondPassDraft(val wanted: Map<String, SecondPassState>, val current: Map<String, SecondPassState>,
     val punloadFixed: Boolean = false) {
     val changeCount: Int get() = wanted.entries.distinctBy { pgmIdentity(it.key) }.count { (pgm, state) -> state.normalized() != current.pgmValue(pgm)?.normalized() }
+    /** Whether any of [pgms] has a staged change not yet applied. */
+    fun pending(pgms: List<String>): Boolean = pgms.any { pgm ->
+        wanted.pgmValue(pgm)?.let { it.normalized() != current.pgmValue(pgm)?.normalized() } == true
+    }
 }
 
 enum class SecondPassField { PUNLOAD, SECOND, SUPER }
