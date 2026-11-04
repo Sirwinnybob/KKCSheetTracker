@@ -150,11 +150,20 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
         val byKey = sheets.associateBy { it.key }
         return order.mapNotNull { byKey[it]?.pgms }
     }
-    /** Re-sorts the open new-mix draft to the suggested or the Default sheet order. Renames and added entries survive; drags do not. */
+    /**
+     * Re-sorts the open new-mix draft to the suggested or the Default sheet order. Renames and added entries survive; drags do not.
+     * Completion can arrive after seeding (edit/drop refresh `completedPgms`). If any entry is now locked, reordering around it
+     * could split a double-sided sheet's A/Z, so the suggestion is dropped (`smart = null`) and the current order is left as is.
+     */
     fun setSmartMode(mode: MixOrderMode) {
         val context = smart ?: return
         val current = draft ?: return
         if (applying || current.newFile == null || mode == context.mode) return
+        // Same predicate as MixDrafts' private `locked`: the entry's PGM, lowercased, is in completedPgms.
+        if (current.entries.any { key(it.source?.pgm ?: it.newPgm ?: "") in current.completedPgms }) {
+            smart = null
+            return
+        }
         val order = if (mode == MixOrderMode.SMART) context.suggestedOrder else context.defaultOrder
         draft = MixDrafts.reorderSheets(current, orderedPgms(context.sheets, order))
         smart = context.copy(mode = mode)

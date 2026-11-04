@@ -457,6 +457,24 @@ class MixesSessionTest {
         assertNull(session.smart)
         assertEquals(listOf("R1.pgm", "R2A.pgm", "R2Z.pgm", "R3.pgm"), session.order())
     }
+    @Test fun locksAppearingAfterSeedingDropSmartInsteadOfReorderingAroundThem() {
+        // R1 is completed elsewhere after the draft opened in Smart order; the next edit refreshes completedPgms.
+        val metadata = listOf(meta(1, listOf(bigPart)), meta(2, listOf(bigPart)),
+            meta(3, listOf(smallEdgePart, smallEdgePart), files = listOf("R3A", "R3Z")))
+        val session = MixesSession()
+        session.startSmart(metadata)
+        assertEquals(listOf("R3A.pgm", "R3Z.pgm", "R1.pgm", "R2.pgm"), session.order())
+        session.edit(null, listOf("R1.pgm")) { it }
+        assertEquals(setOf("r1.pgm"), session.draft!!.completedPgms)
+        session.setSmartMode(MixOrderMode.DEFAULT)
+        assertNull(session.smart)
+        assertEquals(listOf("R3A.pgm", "R3Z.pgm", "R1.pgm", "R2.pgm"), session.order())
+        val order = session.order()
+        assertEquals(1, order.indexOf("R3Z.pgm") - order.indexOf("R3A.pgm"))
+        // With the suggestion gone there is nothing left to toggle.
+        session.setSmartMode(MixOrderMode.SMART)
+        assertEquals(listOf("R3A.pgm", "R3Z.pgm", "R1.pgm", "R2.pgm"), session.order())
+    }
     @Test fun lockedPgmNotInDraftDoesNotTurnSmartOff() {
         // R2A is in another mix, so a completed R2A is not a draft entry and cannot split anything.
         val metadata = listOf(meta(1, listOf(bigPart)), meta(2, listOf(smallEdgePart), files = listOf("R2A", "R2Z")), meta(3, listOf(bigPart)))
