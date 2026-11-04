@@ -333,7 +333,7 @@ class MixesSessionTest {
             assertEquals(listOf(record.recordId), store.readAll(base).map { it.recordId })
         } finally { folder.deleteRecursively() }
     }
-    @Test fun startNewUsesSessionWeightsAndKeepsLockedSlots() {
+    @Test fun startNewUsesSessionWeightsAndOffersNoSmartWithLockedSheet() {
         val session = MixesSession()
         // Interior-only weighting: no sheet here has interior small parts, so every score ties and Default order wins.
         val tie = MixOrderWeights(listOf(0.0, 1.0, 0.0, 0.0, 0.0))
@@ -341,10 +341,11 @@ class MixesSessionTest {
         session.startSmart()
         assertEquals(tie, session.smart!!.weights)
         assertEquals(listOf("R1.pgm", "R2.pgm", "R3.pgm"), session.order())
-        // A completed sheet keeps its slot: the locked R3 stays last while the others reorder around it.
+        // A draft holding a completed sheet gets no suggestion: Default order, no toggle.
         val locked = MixesSession()
         locked.startSmart(locked = listOf("R3.pgm"))
-        assertEquals(listOf("R2.pgm", "R1.pgm", "R3.pgm"), locked.order())
+        assertNull(locked.smart)
+        assertEquals(listOf("R1.pgm", "R2.pgm", "R3.pgm"), locked.order())
     }
     @Test fun startNewKeepsAzPairTogetherInOrder() {
         val metadata = listOf(meta(1, listOf(bigPart)), meta(2, listOf(smallEdgePart), files = listOf("R2A", "R2Z")))
@@ -429,16 +430,39 @@ class MixesSessionTest {
         assertEquals(listOf("R3.pgm", "R2.pgm", "R1.pgm", "extra.pgm"), session.order())
         assertEquals("Cherry.mix", session.draft!!.newFile)
     }
-    @Test fun setSmartModeLockedSheetsKeepSlotsAndAzStayTogether() {
+    @Test fun lockedSheetBetweenAzPairGetsNoSmartAndKeepsPairAdjacent() {
+        // Regression: R2 is completed (locked) and sits between where R3's A and Z would land after a smart reorder.
+        val metadata = listOf(meta(1, listOf(bigPart)), meta(2, listOf(bigPart)),
+            meta(3, listOf(smallEdgePart, smallEdgePart), files = listOf("R3A", "R3Z")))
+        val session = MixesSession()
+        session.startSmart(metadata, locked = listOf("R2.pgm"))
+        assertNull(session.smart)
+        assertEquals(listOf("R1.pgm", "R2.pgm", "R3A.pgm", "R3Z.pgm"), session.order())
+        val order = session.order()
+        assertEquals(1, order.indexOf("R3Z.pgm") - order.indexOf("R3A.pgm"))
+        // Without the lock the same job is smart-sorted, so the lock is what turns Smart off.
+        val open = MixesSession()
+        open.startSmart(metadata)
+        assertNotNull(open.smart)
+        assertEquals(listOf("R3A.pgm", "R3Z.pgm", "R1.pgm", "R2.pgm"), open.order())
+    }
+    @Test fun lockedSheetInLastSlotGetsNoSmart() {
         val metadata = listOf(meta(1, listOf(bigPart)), meta(2, listOf(smallEdgePart), files = listOf("R2A", "R2Z")), meta(3, listOf(bigPart)))
         val session = MixesSession()
-        // Default order is R1, R2A, R2Z, R3; the completed R3 holds the last slot in both modes.
         session.startSmart(metadata, locked = listOf("R3.pgm"))
-        assertEquals(listOf("R2A.pgm", "R2Z.pgm", "R1.pgm", "R3.pgm"), session.order())
-        session.setSmartMode(MixOrderMode.DEFAULT)
+        assertNull(session.smart)
         assertEquals(listOf("R1.pgm", "R2A.pgm", "R2Z.pgm", "R3.pgm"), session.order())
+        // No suggestion means there is nothing to toggle.
         session.setSmartMode(MixOrderMode.SMART)
-        assertEquals(listOf("R2A.pgm", "R2Z.pgm", "R1.pgm", "R3.pgm"), session.order())
+        assertNull(session.smart)
+        assertEquals(listOf("R1.pgm", "R2A.pgm", "R2Z.pgm", "R3.pgm"), session.order())
+    }
+    @Test fun lockedPgmNotInDraftDoesNotTurnSmartOff() {
+        // R2A is in another mix, so a completed R2A is not a draft entry and cannot split anything.
+        val metadata = listOf(meta(1, listOf(bigPart)), meta(2, listOf(smallEdgePart), files = listOf("R2A", "R2Z")), meta(3, listOf(bigPart)))
+        val session = MixesSession().also { it.onCatalog(catalog("base", "R2A.pgm")) }
+        session.startNew("Maple", sheetPages(metadata), listOf("R2A.pgm"), metadata)
+        assertNotNull(session.smart)
     }
     @Test fun setSmartModeIgnoredForExistingMix() {
         val session = session()
@@ -528,10 +552,11 @@ class MixesSessionTest {
         val record = buildMixOrderRecord(session.draft!!, session.smart, true, listOf("R3.pgm"), "J", "M", "t", "1", 0L)!!
         assertEquals(smart.suggestedOrder, record.finalOrder)
         assertEquals(listOf("3|R3.pgm"), record.lockedSheets)
-        // A completed sheet keeps its slot with the A missing too.
+        // A completed sheet in the draft turns Smart off, with the A missing too.
         val locked = MixesSession().also { it.onCatalog(catalog("base", "R2A.pgm")) }
         locked.startNew("Maple", sheetPages(metadata), listOf("R3.pgm"), metadata)
-        assertEquals(listOf("R2Z.pgm", "R1.pgm", "R3.pgm"), locked.order())
+        assertNull(locked.smart)
+        assertEquals(listOf("R1.pgm", "R2Z.pgm", "R3.pgm"), locked.order())
     }
     @Test fun unplacedPageWhollyInAnotherMixDoesNotDisqualifyDraft() {
         val metadata = qualifying() + meta(4, listOf(Part(width = 10.0, length = 10.0)))

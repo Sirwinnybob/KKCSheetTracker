@@ -94,6 +94,38 @@ class UnifiedMetadataEngineTest {
     }
 
     @Test
+    fun cncPartMetadata_keepsSheetPlacementThroughSanitize() {
+        val baseDir = createTempBaseDir()
+        seedJob(baseDir)
+        File(baseDir, "$jobFolder/CNC/.metadata/1234 - White Melamine.json").writeText(
+            """
+            {
+              "pdfFilename": "1234 - White Melamine.pdf",
+              "pages": [
+                {
+                  "pageNumber": 1,
+                  "parts": [
+                    { "number": 1, "width": 4.0, "length": 20.0, "sheetPlacement": { "x": 1.5, "y": 10.0, "angle": 90.0 } },
+                    { "number": 2, "width": 4.0, "length": 20.0 }
+                  ]
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+        val engine = FileBackedUnifiedMetadataEngine(
+            basePath = baseDir.absolutePath,
+            isDebugBuild = true,
+            pdfPageCounter = { UnifiedPdfPageCountResult(1) }
+        )
+
+        val parts = engine.getCncSnapshot(jobFolder)?.job?.materials?.first()?.metadata?.pages?.first()?.parts.orEmpty()
+
+        assertEquals(com.kkc.sheettracker.data.models.SheetPlacement(1.5, 10.0, 90.0), parts[0].sheetPlacement)
+        assertNull(parts[1].sheetPlacement)
+    }
+
+    @Test
     fun cncPageMetadata_carriesPartBoxesOnlyWhereSidecarHasThem() {
         val baseDir = createTempBaseDir()
         seedJob(baseDir)

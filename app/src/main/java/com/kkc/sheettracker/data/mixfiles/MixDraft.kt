@@ -84,6 +84,10 @@ object MixDrafts {
      * Lays unlocked entries out in [sheetPgmOrder] (each sheet's PGMs stay in listed order); entries matching
      * no listed PGM keep their relative order after them. Locked entries keep their slots, as in [move].
      * This is a view-order choice, so it neither counts as an edit nor changes `changeCount`.
+     *
+     * Entries are filled into unlocked slots one by one, not as sheet blocks: callers must not use this where a
+     * locked row could land between one sheet's PGMs (e.g. a double-sided sheet's A and Z). Smart mix order
+     * therefore never reorders a draft that contains a locked entry.
      */
     fun reorderSheets(d: MixDraft, sheetPgmOrder: List<List<String>>): MixDraft {
         if (d.rawRestore != null) return d

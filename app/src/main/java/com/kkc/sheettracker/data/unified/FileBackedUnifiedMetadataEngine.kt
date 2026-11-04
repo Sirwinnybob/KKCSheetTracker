@@ -1734,7 +1734,8 @@ class FileBackedUnifiedMetadataEngine(
                             room = gsonNullable(part.room) ?: "",
                             rotated = part.rotated,
                             graphicPath = part.graphicPath,
-                            banding = part.banding
+                            banding = part.banding,
+                            sheetPlacement = part.sheetPlacement
                         )
                     },
                     ocrBoxes = page.ocrBoxes?.mapValues { (_, list) ->

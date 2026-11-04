@@ -97,6 +97,8 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
      * Opens a new-mix draft in Default (page) order. When [metadataPages] place every part of every sheet in the
      * draft, and the sheets' PGMs cover the draft's PGMs (draft PGMs are a subset of the union), the draft is re-sorted by [smartWeights]
      * and [smart] records the suggestion; otherwise [smart] stays null and nothing changes from Default.
+     * A draft containing any locked (completed) entry also gets no suggestion: reordering around a locked row could
+     * split a double-sided sheet's A/Z (follow-up: block-aware reordering).
      */
     fun startNew(material: String, pages: List<SheetPage>, locked: List<String>, metadataPages: List<PageMetadata> = emptyList()) {
         if (applying) return
@@ -133,6 +135,9 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
     private fun smartContext(base: MixDraft, metadataPages: List<PageMetadata>, weights: MixOrderWeights): SmartMixContext? {
         val draftPgms = base.entries.mapNotNull { it.newPgm }.map(::key).toSet()
         if (draftPgms.isEmpty()) return null
+        // A completed (locked) entry keeps its slot, and a reorder around it could land it between one sheet's A and Z.
+        // Until reordering is block-aware, a draft holding any locked entry stays in Default order.
+        if (draftPgms.any { it in base.completedPgms }) return null
         val sheets = smartSheets(metadataPages, draftPgms)?.takeIf { it.isNotEmpty() } ?: return null
         // A continuation page with its own PGMs, or a PGM no page explains, would be ordered and logged wrongly.
         // Sheets may list PGMs startNew left out (a double-sided sheet whose A is in another mix), but every draft PGM must be explained.
