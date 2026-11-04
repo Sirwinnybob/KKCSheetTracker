@@ -117,6 +117,7 @@ import com.kkc.sheettracker.ui.specialty.CompactSpecialtySection
 import com.kkc.sheettracker.ui.specialty.SpecialtySurfaceMode
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -158,6 +159,8 @@ internal fun jobDetailLoadKey(
 
 internal fun jobDetailMachineNotice(machine: CncMachine?, notice: String): String =
     machine?.let { "${it.displayName} · $notice" } ?: notice
+
+private const val MIX_WARNING_DELAY_MS = 5_000L
 
 internal enum class JobDetailCatalogStatus {
     FRESH,
@@ -255,6 +258,12 @@ fun JobDetailScreen(
     }
     fun statesFor(materialName: String) = cncMachines.associate { it.id to catalogStatesByMachine[it.id]?.get(materialName) }
     val catalogScope = rememberCoroutineScope()
+    // Mix service is still connecting right after open; hold the warnings back so they don't flash.
+    var mixWarningsReady by remember(jobFolderName) { mutableStateOf(false) }
+    LaunchedEffect(jobFolderName) {
+        delay(MIX_WARNING_DELAY_MS)
+        mixWarningsReady = true
+    }
     val materialEntries = job?.materials.orEmpty().flatMap { material ->
         val states = statesFor(material.materialName)
         jobDetailMaterialMachines(loadMixCatalog, states).flatMap { machine ->
@@ -671,7 +680,7 @@ fun JobDetailScreen(
                             }
                         )
                     }
-                    when (catalogStatus) {
+                    when (if (mixWarningsReady) catalogStatus else JobDetailCatalogStatus.FRESH) {
                         JobDetailCatalogStatus.STALE -> {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
