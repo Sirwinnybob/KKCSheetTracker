@@ -305,6 +305,20 @@ class MixesPresentationTest {
         assertTrue(ui.groups.remaining.none { it.canEditCounts || it.canEditParameters })
     }
 
+    @Test fun smartTagOnSheetRowsOnly() {
+        val pages = listOf(page(1), page(2), page(3))
+        val tags = mapOf(1 to "2 small · 1 on edge", 3 to "0 small · 0 on edge", 7 to "unused")
+        // The extra "Stray.pgm" entry matches no page, so its row is Unmatched and never tagged.
+        val withStray = MixDrafts.add(MixDrafts.startNew("First.mix", pages, emptySet()), "Stray.pgm")
+        val ui = buildMixesUi(input(material(catalog(), pages), withStray).copy(smartTags = tags))
+        val rows = ui.groups!!.remaining
+        assertEquals(listOf("2 small · 1 on edge", null, "0 small · 0 on edge"), rows.map { it.smartTag })
+        assertEquals(listOf(null), ui.groups.unmatched.map { it.smartTag })
+        // No tags supplied (Default mode, existing mixes): nothing is tagged.
+        val none = buildMixesUi(input(material(catalog(), pages), withStray))
+        assertTrue(none.groups!!.remaining.all { it.smartTag == null })
+    }
+
     @Test fun continuationPagesAreMarkedAndDoNotOfferDuplicateAddsForMatchedHeadPgms() {
         val continuation = page(2, "P1.pgm").copy(continuation = true)
         val withHead = buildMixesUi(input(material(catalog(row()), listOf(page(1), continuation))))

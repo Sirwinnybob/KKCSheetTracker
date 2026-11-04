@@ -6,8 +6,16 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import com.kkc.sheettracker.data.mixorder.*
+import com.kkc.sheettracker.data.models.PageMetadata
+import com.kkc.sheettracker.data.models.Part
+import com.kkc.sheettracker.data.models.SheetPlacement
+import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.*
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class MixesSessionTest {
@@ -263,6 +271,279 @@ class MixesSessionTest {
         runCurrent()
         assertEquals(1, submittedTo.size)
     }
+    // ---- Smart mix order ----
+    private fun placed(width: Double, length: Double, x: Double, y: Double) = Part(width = width, length = length, sheetPlacement = SheetPlacement(x, y, 0.0))
+    private val smallEdgePart = placed(4.0, 20.0, 0.0, 10.0)
+    private val bigPart = placed(30.0, 30.0, 20.0, 10.0)
+    private fun meta(n: Int, parts: List<Part>, files: List<String> = listOf("R$n"), continuationOf: Int? = null) = PageMetadata(
+        pageNumber = n, sheetFiles = files, sheetDimensions = listOf(48.0, 96.0),
+        isPartListContinuation = continuationOf != null, continuationHeadPage = continuationOf, parts = parts)
+    // Prior scores: sheet 1 = 0, sheet 2 = 1, sheet 3 = 2 small-edge parts, so the smart order is 3, 2, 1.
+    private fun qualifying() = listOf(meta(1, listOf(bigPart)), meta(2, listOf(bigPart, smallEdgePart)), meta(3, listOf(smallEdgePart, smallEdgePart)))
+    private fun MixesSession.startSmart(metadata: List<PageMetadata> = qualifying(), locked: List<String> = emptyList()) =
+        startNew("Maple", sheetPages(metadata), locked, metadata)
+    private fun MixesSession.order() = draft!!.entries.map { it.newPgm }
+
+    @Test fun startNewQualifyingJobIsSmartSorted() {
+        val session = MixesSession()
+        session.startSmart()
+        assertEquals(listOf("R3.pgm", "R2.pgm", "R1.pgm"), session.order())
+        val smart = session.smart!!
+        assertEquals(MixOrderMode.SMART, smart.mode)
+        assertEquals(listOf("1|R1.pgm", "2|R2.pgm", "3|R3.pgm"), smart.defaultOrder)
+        assertEquals(listOf("3|R3.pgm", "2|R2.pgm", "1|R1.pgm"), smart.suggestedOrder)
+        assertEquals(PRIOR_WEIGHTS, smart.weights)
+        assertEquals(listOf("1|R1.pgm", "2|R2.pgm", "3|R3.pgm"), smart.sheets.map { it.key })
+    }
+
+    @Test fun backgroundSeedUsesWorkerDispatcherAndKeepsNewerDraft() = runTest {
+        val session = MixesSession()
+        val metadata = qualifying()
+        val worker = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)
+        val seed = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            session.startNewInBackground("Maple", sheetPages(metadata), emptyList(), metadata, worker)
+        }
+        assertNull(session.draft)
+        runCurrent()
+        seed.join()
+        assertEquals(listOf("R3.pgm", "R2.pgm", "R1.pgm"), session.order())
+        session.discardMix(null)
+        val stale = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            session.startNewInBackground("Maple", sheetPages(metadata), emptyList(), metadata, worker)
+        }
+        session.startNew("Newer", pages("new.pgm"), emptyList())
+        val newer = session.draft
+        runCurrent()
+        stale.join()
+        assertSame(newer, session.draft)
+    }
+
+    @Test fun openingMixesFlushesOfflineRecordsBeforeTraining() {
+        val folder = java.nio.file.Files.createTempDirectory("mix-open").toFile()
+        try {
+            val base = java.io.File(folder, "share").apply { mkdirs() }
+            val pending = java.io.File(folder, "pending")
+            val store = MixOrderLearningStore(pending)
+            val session = MixesSession().also { it.startSmart() }
+            val record = buildMixOrderRecord(session.draft!!, session.smart, true, emptyList(), "J", "M", "t", "1", 0L)!!
+            store.record(null, record)
+            assertEquals(1, pending.listFiles()!!.size)
+            assertEquals(PRIOR_WEIGHTS, loadSmartWeights(store, base))
+            assertTrue(pending.listFiles()!!.isEmpty())
+            assertEquals(listOf(record.recordId), store.readAll(base).map { it.recordId })
+        } finally { folder.deleteRecursively() }
+    }
+    @Test fun startNewUsesSessionWeightsAndKeepsLockedSlots() {
+        val session = MixesSession()
+        // Interior-only weighting: no sheet here has interior small parts, so every score ties and Default order wins.
+        val tie = MixOrderWeights(listOf(0.0, 1.0, 0.0, 0.0, 0.0))
+        session.smartWeights = tie
+        session.startSmart()
+        assertEquals(tie, session.smart!!.weights)
+        assertEquals(listOf("R1.pgm", "R2.pgm", "R3.pgm"), session.order())
+        // A completed sheet keeps its slot: the locked R3 stays last while the others reorder around it.
+        val locked = MixesSession()
+        locked.startSmart(locked = listOf("R3.pgm"))
+        assertEquals(listOf("R2.pgm", "R1.pgm", "R3.pgm"), locked.order())
+    }
+    @Test fun startNewKeepsAzPairTogetherInOrder() {
+        val metadata = listOf(meta(1, listOf(bigPart)), meta(2, listOf(smallEdgePart), files = listOf("R2A", "R2Z")))
+        val session = MixesSession()
+        session.startSmart(metadata)
+        assertEquals(listOf("R2A.pgm", "R2Z.pgm", "R1.pgm"), session.order())
+    }
+    @Test fun startNewNonQualifyingHasNoSmart() {
+        val metadata = qualifying() + meta(4, listOf(Part(width = 10.0, length = 10.0)))
+        val session = MixesSession()
+        session.startSmart(metadata)
+        assertNull(session.smart)
+        assertEquals(listOf("R1.pgm", "R2.pgm", "R3.pgm", "R4.pgm"), session.order())
+        // No metadata at all (the legacy call shape) is the same as today.
+        val legacy = MixesSession()
+        legacy.startNew("Maple", pages("a.pgm", "b.pgm"), emptyList())
+        assertNull(legacy.smart)
+        assertEquals(listOf("a.pgm", "b.pgm"), legacy.order())
+    }
+    @Test fun startNewCoverageMismatchHasNoSmart() {
+        // A continuation page with its own PGM is in the draft, but its sheet folds into head page 1.
+        val continuation = qualifying() + meta(4, listOf(bigPart), files = listOf("R4"), continuationOf = 1)
+        val withContinuation = MixesSession()
+        withContinuation.startSmart(continuation)
+        assertNull(withContinuation.smart)
+        assertEquals(listOf("R1.pgm", "R2.pgm", "R3.pgm", "R4.pgm"), withContinuation.order())
+        // A draft PGM that no metadata page explains.
+        val metadata = qualifying()
+        val orphan = MixesSession()
+        orphan.startNew("Maple", sheetPages(metadata) + SheetPage(9, listOf("X.pgm"), false, false, null), emptyList(), metadata)
+        assertNull(orphan.smart)
+        assertEquals(listOf("R1.pgm", "R2.pgm", "R3.pgm", "X.pgm"), orphan.order())
+    }
+    @Test fun setSmartModeDefaultRestoresPageOrder() {
+        val session = MixesSession()
+        session.startSmart()
+        val changeCount = session.draft!!.changeCount
+        session.setSmartMode(MixOrderMode.DEFAULT)
+        assertEquals(listOf("R1.pgm", "R2.pgm", "R3.pgm"), session.order())
+        assertEquals(MixOrderMode.DEFAULT, session.smart!!.mode)
+        assertEquals(changeCount, session.draft!!.changeCount)
+        session.setSmartMode(MixOrderMode.SMART)
+        assertEquals(listOf("R3.pgm", "R2.pgm", "R1.pgm"), session.order())
+        assertEquals(MixOrderMode.SMART, session.smart!!.mode)
+    }
+    @Test fun setSmartModeDiscardsDragsButSameModeKeepsThem() {
+        val session = MixesSession()
+        session.startSmart()
+        val first = session.draft!!.entries.first().id
+        session.edit(null, emptyList()) { MixDrafts.move(it, first, 2) }
+        val dragged = session.order()
+        assertEquals(listOf("R2.pgm", "R1.pgm", "R3.pgm"), dragged)
+        session.setSmartMode(MixOrderMode.SMART) // already smart: not a re-sort
+        assertEquals(dragged, session.order())
+        session.setSmartMode(MixOrderMode.DEFAULT)
+        assertEquals(listOf("R1.pgm", "R2.pgm", "R3.pgm"), session.order())
+    }
+    @Test fun setSmartModeKeepsRenameAndAddedEntries() {
+        val session = MixesSession()
+        session.startSmart()
+        session.renameNew("Cherry.mix")
+        session.edit(null, emptyList()) { MixDrafts.add(it, "extra.pgm") }
+        val changeCount = session.draft!!.changeCount
+        session.setSmartMode(MixOrderMode.DEFAULT)
+        assertEquals("Cherry.mix", session.draft!!.newFile)
+        assertEquals(listOf("R1.pgm", "R2.pgm", "R3.pgm", "extra.pgm"), session.order())
+        assertEquals(changeCount, session.draft!!.changeCount)
+        session.setSmartMode(MixOrderMode.SMART)
+        assertEquals(listOf("R3.pgm", "R2.pgm", "R1.pgm", "extra.pgm"), session.order())
+        assertEquals("Cherry.mix", session.draft!!.newFile)
+    }
+    @Test fun setSmartModeLockedSheetsKeepSlotsAndAzStayTogether() {
+        val metadata = listOf(meta(1, listOf(bigPart)), meta(2, listOf(smallEdgePart), files = listOf("R2A", "R2Z")), meta(3, listOf(bigPart)))
+        val session = MixesSession()
+        // Default order is R1, R2A, R2Z, R3; the completed R3 holds the last slot in both modes.
+        session.startSmart(metadata, locked = listOf("R3.pgm"))
+        assertEquals(listOf("R2A.pgm", "R2Z.pgm", "R1.pgm", "R3.pgm"), session.order())
+        session.setSmartMode(MixOrderMode.DEFAULT)
+        assertEquals(listOf("R1.pgm", "R2A.pgm", "R2Z.pgm", "R3.pgm"), session.order())
+        session.setSmartMode(MixOrderMode.SMART)
+        assertEquals(listOf("R2A.pgm", "R2Z.pgm", "R1.pgm", "R3.pgm"), session.order())
+    }
+    @Test fun setSmartModeIgnoredForExistingMix() {
+        val session = session()
+        session.edit(group(session.catalog!!), emptyList()) { MixDrafts.add(it, "draft.pgm") }
+        val before = session.draft
+        session.setSmartMode(MixOrderMode.DEFAULT)
+        assertNull(session.smart)
+        assertEquals(before, session.draft)
+        // A new mix that never qualified has no suggestion to toggle.
+        val plain = MixesSession()
+        plain.startNew("Maple", pages("a.pgm", "b.pgm"), emptyList())
+        val plainBefore = plain.draft
+        plain.setSmartMode(MixOrderMode.SMART)
+        assertNull(plain.smart)
+        assertEquals(plainBefore, plain.draft)
+    }
+    @Test fun setSmartModeIgnoredWhileApplying() = runTest {
+        val session = MixesSession()
+        session.startSmart()
+        val gate = CompletableDeferred<MixFilesResult<MixFilesCatalog>>()
+        val pending = launch { session.saveMix({ emptyList() }) { gate.await() } }
+        runCurrent()
+        assertTrue(session.applying)
+        session.setSmartMode(MixOrderMode.DEFAULT)
+        assertEquals(MixOrderMode.SMART, session.smart!!.mode)
+        assertEquals(listOf("R3.pgm", "R2.pgm", "R1.pgm"), session.order())
+        gate.complete(MixFilesResult.Offline)
+        pending.join()
+    }
+    @Test fun smartClearedOnDiscardAndSave() = runTest {
+        val session = MixesSession()
+        session.startSmart()
+        assertNotNull(session.smart)
+        assertTrue(session.discardMix(null))
+        assertNull(session.smart)
+        session.startSmart()
+        // A refused save keeps the draft and its suggestion.
+        session.saveMix({ emptyList() }) { MixFilesResult.Offline }
+        assertNotNull(session.smart)
+        val saved = catalog("saved")
+        assertTrue(session.saveMix({ emptyList() }) { MixFilesResult.Ok(saved) } is MixFilesResult.Ok)
+        assertNull(session.draft)
+        assertNull(session.smart)
+        session.startSmart()
+        session.mutateCatalog { MixFilesResult.Ok(saved) }
+        assertNull(session.smart)
+    }
+    @Test fun saveOkReturnsWhileRecordWriteHangs() = runTest {
+        val session = MixesSession()
+        session.startSmart()
+        val smart = session.smart
+        val submitted = session.draft
+        val release = CountDownLatch(1)
+        val entered = CountDownLatch(1)
+        val wrote = AtomicBoolean(false)
+        // The session never sees a store: Apply returns before anything is written.
+        val result = session.saveMix({ emptyList() }) { MixFilesResult.Ok(catalog("saved")) }
+        assertTrue(result is MixFilesResult.Ok)
+        val job = launchMixOrderRecordWrite(this, Dispatchers.IO,
+            record = { buildMixOrderRecord(submitted!!, smart, true, emptyList(), "J", "M", "tablet", "1.0", 0L) }) {
+            entered.countDown(); release.await(); wrote.set(true)
+        }
+        // The launcher returned with the shared-dir write still blocked on its latch.
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        assertTrue(job.isActive)
+        assertFalse(wrote.get())
+        assertNull(session.draft)
+        release.countDown()
+        job.join()
+        assertTrue(wrote.get())
+    }
+    @Test fun recordWriteErrorsAreSwallowed() = runTest {
+        val job = launchMixOrderRecordWrite(this, Dispatchers.IO, record = { error("boom") }) { }
+        job.join()
+        assertFalse(job.isCancelled)
+        val writeFails = launchMixOrderRecordWrite(this, Dispatchers.IO, record = { buildMixOrderRecord(
+            MixDrafts.startNew("A.mix", emptyList(), emptySet()), SmartMixContext(MixOrderMode.SMART, emptyList(), emptyList(), emptyList(), PRIOR_WEIGHTS),
+            true, emptyList(), "J", "M", "t", "1", 0L) }) { error("disk full") }
+        writeFails.join()
+        assertFalse(writeFails.isCancelled)
+    }
+    @Test fun successfulApplyRecordsAfterObserverLeavesButRefusalsDoNot() = runTest {
+        val session = MixesSession().also { it.startSmart() }
+        val submitted = session.draft!!
+        val context = session.smart
+        val application = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() +
+            kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))
+        try {
+            var records = 0
+            val reply = CompletableDeferred<MixFilesResult<MixFilesCatalog>>()
+            val operation = application.launch {
+                submitMixWithLearning(application,
+                    record = { buildMixOrderRecord(submitted, context, true, emptyList(), "J", "M", "t", "1", 0L) },
+                    write = { records++ }, dispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)
+                ) { reply.await() }
+            }
+            val observer = launch { operation.join() }
+            runCurrent()
+            observer.cancel()
+            reply.complete(MixFilesResult.Ok(catalog("saved")))
+            runCurrent()
+            assertEquals(1, records)
+            submitMixWithLearning(application, record = { error("failed saves must not build records") }, write = { records++ }) {
+                MixFilesResult.Offline
+            }
+            runCurrent()
+            assertEquals(1, records)
+        } finally { application.coroutineContext[kotlinx.coroutines.Job]!!.cancel() }
+    }
+    @Test fun learnedWeightsFallBackToPriorWhenNotFinite() {
+        val good = MixOrderWeights(listOf(1.0, 2.0, 3.0, 4.0, 5.0))
+        assertEquals(good, sanitizedSmartWeights(good))
+        assertEquals(PRIOR_WEIGHTS, sanitizedSmartWeights(MixOrderWeights(listOf(1.0, Double.NaN, 0.0, 0.0, 0.0))))
+        assertEquals(PRIOR_WEIGHTS, sanitizedSmartWeights(MixOrderWeights(listOf(Double.POSITIVE_INFINITY, 0.0, 0.0, 0.0, 0.0))))
+        assertEquals(PRIOR_WEIGHTS, loadSmartWeights { error("share offline") })
+        assertEquals(good, loadSmartWeights { good })
+    }
+
     private fun session() = MixesSession().also { it.onCatalog(catalog("base")) }
     private fun group(c: MixFilesCatalog) = groupMixFiles(c).single()
     private fun catalog(revision: String, pgm: String = "a.pgm") = MixFilesCatalog("J", "M", revision, listOf(

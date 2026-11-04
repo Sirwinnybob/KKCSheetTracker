@@ -53,6 +53,8 @@ data class RowModel(
     val sourceFile: String? = null,
     /** Not part of the editable FRZ draft. item.entryIndices indexes sourceFile rather than the draft. */
     val companionOnly: Boolean = false,
+    /** Smart-suggestion summary (e.g. "5 small · 3 on edge"); only sheet rows of a smart-ordered new mix. */
+    val smartTag: String? = null,
 )
 enum class RowChip { UNMATCHED, PGM_MISSING, NEEDS_REFRESH, HIDDEN_PAGE, IN_OTHER_MIX }
 data class SheetGroups(
@@ -119,6 +121,8 @@ data class MixesUiInput(
     val machineStatuses: Map<String, MachineStatus> = emptyMap(),
     val job: String? = null,
     val transfers: List<MaterialTransferRecord> = emptyList(),
+    /** Head page number to tag text. The screen supplies it only while a smart suggestion is the selected mode. */
+    val smartTags: Map<Int, String> = emptyMap(),
 )
 
 /** Split entries have left the main rows, but current tablet completion still protects every occurrence. */
@@ -178,7 +182,7 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
         else -> null
     }
     val rows = if (selected != null && (group != null || draft != null)) {
-        buildSheetGroups(selected, group, active, draft, readOnly || input.applying || draft?.rawRestore != null)
+        buildSheetGroups(selected, group, active, draft, readOnly || input.applying || draft?.rawRestore != null, input.smartTags)
     } else null
     val splitBlock = splitCompletionBlockReason(draft, selected?.let { material ->
         material.pages.filter { isLockedStatus(material.statusOf(it.pageNumber)) }.flatMap { it.pgmFiles }
@@ -268,6 +272,7 @@ private fun navChip(input: MaterialMixesInput): MaterialChip {
 
 private fun buildSheetGroups(
     material: MaterialMixesInput, group: MixGroup?, active: List<MixGroup>, draft: MixDraft?, readOnly: Boolean,
+    smartTags: Map<Int, String> = emptyMap(),
 ): SheetGroups {
     val source = group?.primary?.entries.orEmpty()
     val baseline = draft?.baselineEntries ?: source.mapIndexed { i, e -> e.asDraft(i + 1L) }
@@ -317,7 +322,7 @@ private fun buildSheetGroups(
                 locked -> "Completed sheets are locked"
                 new -> "Apply the new sheet before editing its quantity or parameters"
                 else -> null
-            }, sourceFile = group?.primary?.file)
+            }, sourceFile = group?.primary?.file, smartTag = sheet?.let { smartTags[it.page.pageNumber] })
     } + companionOnlyUnmatchedRows(group, material.pages, otherMembership.keys)
     val includedPgms = effective.map { it.pgm.key() }.toSet()
     // A continuation shares its head's PGM; it must not offer Add for the same file a second time.

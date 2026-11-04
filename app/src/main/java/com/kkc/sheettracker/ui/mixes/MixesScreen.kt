@@ -36,6 +36,12 @@ import com.kkc.sheettracker.data.ProgressStore
 import com.kkc.sheettracker.data.ScanCoordinator
 import com.kkc.sheettracker.data.cnc.*
 import com.kkc.sheettracker.data.mixfiles.*
+import com.kkc.sheettracker.data.mixorder.MixOrderLearningStore
+import com.kkc.sheettracker.data.mixorder.MixOrderMode
+import com.kkc.sheettracker.data.mixorder.MixOrderWeights
+import com.kkc.sheettracker.data.mixorder.PRIOR_WEIGHTS
+import com.kkc.sheettracker.data.mixorder.buildMixOrderRecord
+import com.kkc.sheettracker.data.mixorder.smartTag
 import com.kkc.sheettracker.data.mixservice.*
 import com.kkc.sheettracker.data.unified.UnifiedMetadataEngineRegistry
 import com.kkc.sheettracker.data.models.SheetStatus
@@ -84,6 +90,11 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         value = withContext(Dispatchers.IO) { engine.getCncSnapshot(jobFolderName)?.job }
     }
     val materials = job?.materials.orEmpty()
+    // Smart mix order: weights trained from every tablet's shared learning records; the prior until training lands.
+    val baseDir = remember(scan.snapshot.basePath) { File(scan.snapshot.basePath) }
+    val mixOrderStore = remember { MixOrderLearningStore(File(context.filesDir, "mix_order_learning/pending")) }
+    var smartWeights by remember { mutableStateOf<MixOrderWeights>(PRIOR_WEIGHTS) }
+    LaunchedEffect(baseDir) { smartWeights = withContext(Dispatchers.IO) { loadSmartWeights(mixOrderStore, baseDir) } }
     val machines = CncMachines.mixMachines
     // Both machines' catalogs are observed so each group shows the materials whose folder it holds.
     val storesByMachine = remember(materials.map { it.materialName }, jobFolderName) {
@@ -239,7 +250,8 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         selectedTab = session.selectedTab, draft = session.draft,
         secondPassDraft = session.secondPass, draftFolderRevision = session.draftFolderRevision, conflict = session.conflict,
         applyResult = session.applyResult, savedInterrupted = session.savedInterrupted, applying = session.applying,
-        secondPassApplying = session.secondApplying, machineStatus = machineStatus))
+        secondPassApplying = session.secondApplying, machineStatus = machineStatus,
+        smartTags = session.smart?.takeIf { it.mode == MixOrderMode.SMART }?.sheets?.associate { it.headPage to smartTag(it.features) }.orEmpty()))
     val ui = presentation.copy(secondPassApplyEnabled = presentation.secondPassApplyEnabled && session.secondHistoryConfirmed && !session.historyLoading &&
         (!revisionSupported || revisionState.canApply(session.secondPass)))
     val group = session.catalog?.let(::groupMixFiles)?.firstOrNull { it.key == ui.selectedTab }
@@ -268,13 +280,22 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         val name = selectedMaterial ?: return
         if (!ui.card.let { it?.applyEnabled == true } || session.applying || (pendingOperation != null && !session.saving)) return
         scope.launch {
+            // Read before saveMix clears the draft and its suggestion.
+            val smartContext = session.smart
             val result = session.saveMix(::locks) { draft ->
                 val write = buildWrite(draft, group, draft.completedPgms.toList(), resolutions)
-                operations.submitMixWrite(machine, jobFolderName, name, mixWriteLabel(write)) { api.submitMixWrite(jobFolderName, name, write) }
+                operations.submitMixWrite(machine, jobFolderName, name, mixWriteLabel(write)) {
+                    submitMixWithLearning(app.applicationScope, record = {
+                        buildMixOrderRecord(draft, smartContext, true, draft.completedPgms, jobFolderName, name,
+                            tabletDeviceId(context), com.kkc.sheettracker.BuildConfig.VERSION_NAME, System.currentTimeMillis())
+                    }, write = { mixOrderStore.record(baseDir, it) }) { api.submitMixWrite(jobFolderName, name, write) }
+                }
             }
             publish(result, name)
             if (result == null) session.mixSaveBlockedReason?.let { snackbar.showSnackbar(it) }
-            if (result is MixFilesResult.Ok) { splitMode = false; splitIds = emptySet() }
+            if (result is MixFilesResult.Ok) {
+                splitMode = false; splitIds = emptySet()
+            }
         }
     }
     fun mutate(label: String, submit: suspend (String) -> MixFilesResult<MixFilesCatalog>) {
@@ -416,7 +437,13 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         onCreateRemaining = { leaveMix { group?.let { session.startRemaining(it, locks()) } } },
         onBack = { leaveScreen() }, onMaterial = { name -> leave { selectedMaterial = name } },
         onTab = { key -> leaveMix { session.selectedTab = key } },
-        onNew = { leaveMix { session.startNew(selectedMaterial ?: "Material", selected?.pages.orEmpty(), locks()) } },
+        onNew = { leaveMix {
+            scope.launch {
+                session.smartWeights = smartWeights
+                session.startNewInBackground(selectedMaterial ?: "Material", selected?.pages.orEmpty(), locks(), material?.metadata?.pages.orEmpty())
+            }
+        } },
+        smartMode = session.smart?.mode, onSmartMode = session::setSmartMode,
         onDiscard = { session.discardMix(latestCatalog()) },
         onApply = { applyMix() }, onRefresh = { selectedMaterial?.let { name -> scope.launch {
             statusRefresh++
@@ -434,8 +461,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
             if (name != null && ui.secondPassApplyEnabled && !session.secondApplying && pendingOperation == null) scope.launch {
                 val notices = mutableListOf<PgmNotice>()
                 session.saveSecond(::locks, { submitted ->
-                    val deviceId = context.getSharedPreferences("kkc_tracker", Context.MODE_PRIVATE).getString("tablet_id", null)
-                        ?.takeIf { it.isNotBlank() } ?: Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+                    val deviceId = tabletDeviceId(context)
                     val revisions = if (revisionSupported) SecondPassRevisionSupport(
                         SecondPassRevisionSnapshot(revisionState.hashes, pgmPreview.previews),
                         refresh = { service.listPgms(jobFolderName, name, withSha256 = true).filter { validPgmHash(it.sha256) }.associate { it.name to it.sha256!! } },
@@ -624,6 +650,11 @@ internal fun moveRowBlock(draft: MixDraft, ids: List<Long>, targetIds: List<Long
     return order.foldIndexed(draft) { index, d, id -> MixDrafts.move(d, id, index) }
 }
 
+/** The tablet's configured ID, else the Android ID. Shared by second-pass request IDs and mix-order learning records. */
+internal fun tabletDeviceId(context: Context): String =
+    context.getSharedPreferences("kkc_tracker", Context.MODE_PRIVATE).getString("tablet_id", null)
+        ?.takeIf { it.isNotBlank() } ?: Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID).orEmpty()
+
 internal fun CatalogState?.catalogSnapshot(): MixFilesCatalog? = when (this) {
     is CatalogState.Live -> catalog; is CatalogState.Offline -> cached; is CatalogState.Outdated -> cached; else -> null
 }
@@ -652,7 +683,9 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
     machineName: String? = null, onSelectMaterial: ((machineId: String, material: String) -> Unit)? = null,
     onMoveMaterial: ((fromMachineId: String, material: String, toMachineId: String) -> Unit)? = null,
     materialMenu: List<MaterialMenuAction> = emptyList(), onCreateRemaining: (() -> Unit)? = null,
-    moveInFlight: MoveInFlight? = null) {
+    moveInFlight: MoveInFlight? = null,
+    /** Selected sheet-order mode of an open new-mix draft with a smart suggestion; null hides the toggle. */
+    smartMode: MixOrderMode? = null, onSmartMode: (MixOrderMode) -> Unit = {}) {
     val status = LocalKKCStatusColors.current
     Scaffold(snackbarHost = { snackbar?.let { SnackbarHost(it) } }, topBar = {
         KKCTopAppBar(title = { Column { Text(title, style = MaterialTheme.typography.titleMedium)
@@ -765,6 +798,17 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
                                     }
                         }
                             } }
+                        }
+                        smartMode?.let { mode ->
+                            // Sheet-order choice for a new mix whose job has full part placements. The shared sliding pill owns the slider theming.
+                            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("Sheet order", style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant)
+                                KKCSlidingPillRow(listOf(
+                                    KKCPillOption("Smart suggestion", mode == MixOrderMode.SMART, { onSmartMode(MixOrderMode.SMART) }, enabled = mixEditingEnabled),
+                                    KKCPillOption("Default", mode == MixOrderMode.DEFAULT, { onSmartMode(MixOrderMode.DEFAULT) }, enabled = mixEditingEnabled),
+                                ), Modifier.testTag("mixes-smart-toggle"), persistKey = "mixes-smart-mode")
+                            }
                         }
                         ui.card?.let { card ->
                             if (card.applyVisible) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 10.dp),

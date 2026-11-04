@@ -149,6 +149,7 @@ private fun MixesSheetRow(row: RowModel, secondPass: SecondPassDraft?, revertSup
                     RowChip.HIDDEN_PAGE -> "Hidden / continuation page"
                     RowChip.IN_OTHER_MIX -> "In another mix"
                 }, style = MaterialTheme.typography.labelSmall, color = if (chip == RowChip.UNMATCHED || chip == RowChip.PGM_MISSING) statuses.bad else MaterialTheme.colorScheme.onSurfaceVariant) }
+                row.smartTag?.let { Text(it, Modifier.testTag("mixes-smart-tag-${row.key}"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 if (row.companionOnly) Text(row.editBlockedReason.orEmpty(), style = MaterialTheme.typography.bodySmall)
             }
             if (page != null) SecondPassControls(secondPass, pgms, enabled && !row.locked, revertSupported, { field, on -> onSecondPass(pgms, field, on) })

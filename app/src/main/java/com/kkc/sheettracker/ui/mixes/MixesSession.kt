@@ -3,7 +3,9 @@ package com.kkc.sheettracker.ui.mixes
 import androidx.compose.runtime.*
 import com.kkc.sheettracker.data.cnc.CncMachine
 import com.kkc.sheettracker.data.mixfiles.*
+import com.kkc.sheettracker.data.mixorder.*
 import com.kkc.sheettracker.data.mixservice.PgmEditHistoryView
+import com.kkc.sheettracker.data.models.PageMetadata
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 import java.util.Locale
@@ -23,6 +25,10 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
     var catalog by mutableStateOf(gate.appliedCatalog); private set
     var selectedTab by mutableStateOf<String?>(null)
     var draft by mutableStateOf<MixDraft?>(null); private set
+    /** Suggestion behind the open new-mix draft; null for existing mixes and jobs that don't qualify. Cleared with [draft]. */
+    var smart by mutableStateOf<SmartMixContext?>(null); private set
+    /** Learned (or prior) weights for the next [startNew]; the screen sets this once training has finished. */
+    var smartWeights: MixOrderWeights = PRIOR_WEIGHTS
     var draftFolderRevision by mutableStateOf<String?>(null); private set
     var conflict by mutableStateOf(false); private set
     var dragging by mutableStateOf(false); private set
@@ -73,7 +79,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
     fun discardMix(latest: MixFilesCatalog?): Boolean {
         if (applying) return false
         (latest ?: gate.deferredCatalog ?: catalog)?.let { gate.accept(it); catalog = it }
-        draft = null; draftFolderRevision = null; conflict = false; applyResult = null; savedInterrupted = false; mixSaveBlockedReason = null
+        draft = null; smart = null; draftFolderRevision = null; conflict = false; applyResult = null; savedInterrupted = false; mixSaveBlockedReason = null
         return true
     }
     fun discardSecond(): Boolean {
@@ -87,13 +93,64 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
         discardMix(latest); discardSecond()
         return true
     }
-    fun startNew(material: String, pages: List<SheetPage>, locked: List<String>) {
+    /**
+     * Opens a new-mix draft in Default (page) order. When [metadataPages] place every part of every sheet in the
+     * draft, and the sheets account for exactly the draft's PGMs, the draft is re-sorted by [smartWeights]
+     * and [smart] records the suggestion; otherwise [smart] stays null and nothing changes from Default.
+     */
+    fun startNew(material: String, pages: List<SheetPage>, locked: List<String>, metadataPages: List<PageMetadata> = emptyList()) {
         if (applying) return
+        installNew(newMixSeed(material, pages, locked, metadataPages, catalog, smartWeights))
+    }
+    /** Geometry and scoring run on a worker; a late result never replaces a newer draft or catalog. */
+    suspend fun startNewInBackground(material: String, pages: List<SheetPage>, locked: List<String>,
+        metadataPages: List<PageMetadata>, dispatcher: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Default) {
+        if (applying) return
+        val sourceCatalog = catalog
+        val previousDraft = draft
+        val weights = smartWeights
+        val seed = kotlinx.coroutines.withContext(dispatcher) {
+            newMixSeed(material, pages, locked, metadataPages, sourceCatalog, weights)
+        }
+        if (!applying && catalog === sourceCatalog && draft === previousDraft) installNew(seed)
+    }
+    private fun newMixSeed(material: String, pages: List<SheetPage>, locked: List<String>, metadataPages: List<PageMetadata>,
+        catalog: MixFilesCatalog?, weights: MixOrderWeights): Pair<MixDraft, SmartMixContext?> {
         val file = nextMixName(material, catalog?.files.orEmpty().filter { it.kind != MixFileKind.REVISION }.map { it.file }) + ".mix"
         val other = catalog?.let(::groupMixFiles).orEmpty().filter { it.mix != null || it.frz != null }.flatMap { it.primary.entries }.map { it.pgm }.toSet()
-        draft = MixDrafts.startNew(file, pages, other).copy(completedPgms = locked.map(::key).toSet())
+        val base = MixDrafts.startNew(file, pages, other).copy(completedPgms = locked.map(::key).toSet())
+        val context = smartContext(base, metadataPages, weights)
+        return (context?.let { MixDrafts.reorderSheets(base, orderedPgms(it.sheets, it.suggestedOrder)) } ?: base) to context
+    }
+    private fun installNew(seed: Pair<MixDraft, SmartMixContext?>) {
+        val (seededDraft, context) = seed
+        draft = seededDraft
+        smart = context
         draftFolderRevision = catalog?.folderRevision; selectedTab = draft?.groupKey
         conflict = false; applyResult = null
+    }
+    private fun smartContext(base: MixDraft, metadataPages: List<PageMetadata>, weights: MixOrderWeights): SmartMixContext? {
+        val draftPgms = base.entries.mapNotNull { it.newPgm }.map(::key).toSet()
+        if (draftPgms.isEmpty()) return null
+        val sheets = smartSheets(metadataPages, draftPgms)?.takeIf { it.isNotEmpty() } ?: return null
+        // A continuation page with its own PGMs, or a PGM no page explains, would be ordered and logged wrongly.
+        if (sheets.flatMap { it.pgms }.map(::key).toSet() != draftPgms) return null
+        val validWeights = sanitizedSmartWeights(weights)
+        val suggested = smartOrder(sheets, validWeights).map { it.key }
+        return SmartMixContext(MixOrderMode.SMART, sheets, sheets.map { it.key }, suggested, validWeights)
+    }
+    private fun orderedPgms(sheets: List<SmartSheet>, order: List<String>): List<List<String>> {
+        val byKey = sheets.associateBy { it.key }
+        return order.mapNotNull { byKey[it]?.pgms }
+    }
+    /** Re-sorts the open new-mix draft to the suggested or the Default sheet order. Renames and added entries survive; drags do not. */
+    fun setSmartMode(mode: MixOrderMode) {
+        val context = smart ?: return
+        val current = draft ?: return
+        if (applying || current.newFile == null || mode == context.mode) return
+        val order = if (mode == MixOrderMode.SMART) context.suggestedOrder else context.defaultOrder
+        draft = MixDrafts.reorderSheets(current, orderedPgms(context.sheets, order))
+        smart = context.copy(mode = mode)
     }
     /**
      * Blue SCM pause: stage a NEW mix of the unlocked entries in their current order, keeping each entry's
@@ -112,6 +169,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
         val file = "$stem.mix"
         val entries = keep.mapIndexed { index, entry -> DraftEntry(index + 1L, entry, null, entry.quantity, null, LinkedHashMap(entry.parameters)) }
         draft = MixDraft(key(file), null, null, entries, file, emptyList(), 1, completedPgms = locks, baselineEntries = emptyList())
+        smart = null
         draftFolderRevision = catalog?.folderRevision; selectedTab = draft?.groupKey
         conflict = false; applyResult = null; savedInterrupted = false; mixSaveBlockedReason = null
         return true
@@ -138,7 +196,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
             if (result is MixFilesResult.Rejected && result.error.code == "revision_conflict") conflict = true
             if (result is MixFilesResult.Ok) {
                 gate.accept(result.value); catalog = result.value
-                savedInterrupted = submitted.isInterrupted; draft = null; draftFolderRevision = null; conflict = false
+                savedInterrupted = submitted.isInterrupted; draft = null; smart = null; draftFolderRevision = null; conflict = false
             }
             result
         } finally { applying = false }
@@ -150,7 +208,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
             rebaseMessage = failure.message ?: "Refresh and choose a readable revision."
             return false
         }
-        draft = preview
+        draft = preview; smart = null
         draftFolderRevision = catalog?.folderRevision
         selectedTab = group.key; conflict = false; applyResult = null; savedInterrupted = false
         return true
@@ -170,7 +228,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
                 applyResult = result
                 if (result is MixFilesResult.Ok) {
                     gate.accept(result.value); catalog = result.value
-                    draft = null; draftFolderRevision = null; conflict = false; savedInterrupted = false
+                    draft = null; smart = null; draftFolderRevision = null; conflict = false; savedInterrupted = false
                 }
             }
         } finally { applying = false }
