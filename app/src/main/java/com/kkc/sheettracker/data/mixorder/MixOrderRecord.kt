@@ -53,6 +53,9 @@ data class MixOrderRecord(
 data class MixOrderBundle(
     val version: Int = 1,
     val kind: String = "bundle",
+    /** When and by whom the bundle was written; informational, readers ignore both. */
+    val createdAt: String = "",
+    val source: String = "",
     val records: List<MixOrderRecord> = emptyList()
 )
 

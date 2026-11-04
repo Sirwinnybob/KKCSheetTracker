@@ -9,7 +9,70 @@ import java.util.concurrent.ConcurrentHashMap
 /** Under the Ready Jobs base folder. Holds single record files, `bundles/` and `bad/`. */
 const val LEARNING_DIR = ".metadata/mix_order_learning"
 
-private const val BUNDLES_DIR = "bundles"
+internal const val BUNDLES_DIR = "bundles"
+
+private val timestampFormat = ThreadLocal.withInitial {
+    SimpleDateFormat("yyyy-MM-dd'T'HH-mm-ss-SSS", Locale.US)
+}
+
+/** File-name timestamp shared by record and bundle files, so names sort chronologically. */
+internal fun mixOrderTimestamp(timestampMs: Long): String = timestampFormat.get()!!.format(Date(timestampMs))
+
+internal fun sanitizeFilePart(value: String?): String {
+    val sanitized = value
+        .orEmpty()
+        .trim()
+        .replace(Regex("[^A-Za-z0-9._-]+"), "-")
+        .trim('-', '.', '_')
+    return sanitized.ifBlank { "unknown-tablet" }
+}
+
+internal fun File.isJson(): Boolean = name.endsWith(".json", ignoreCase = true)
+
+/** [fileName] in [dir], or the first free `-1`, `-2`, ... variant, so nothing is ever overwritten. */
+internal fun uniqueFile(dir: File, fileName: String): File {
+    val base = fileName.substringBeforeLast('.', fileName)
+    val extension = fileName.substringAfterLast('.', "")
+    var candidate = File(dir, fileName)
+    var suffix = 1
+    while (candidate.exists()) {
+        val suffixedName = if (extension.isBlank()) "$base-$suffix" else "$base-$suffix.$extension"
+        candidate = File(dir, suffixedName)
+        suffix++
+    }
+    return candidate
+}
+
+/**
+ * Writes [text] to a unique file in [dir] via a `.tmp` sibling and a rename, so a reader never sees a
+ * half-written file. A failed write removes its temp file. [write] is a test seam.
+ */
+internal fun writeFileAtomically(
+    dir: File,
+    fileName: String,
+    text: String,
+    write: (File, String) -> Unit = { file, content -> file.writeText(content) }
+): File {
+    dir.mkdirs()
+    val target = uniqueFile(dir, fileName)
+    val tmp = File(dir, "${target.name}.tmp")
+    try {
+        write(tmp, text)
+        if (!tmp.renameTo(target)) {
+            try {
+                tmp.copyTo(target, overwrite = true)
+            } catch (t: Throwable) {
+                target.delete()
+                throw t
+            }
+            tmp.delete()
+        }
+    } catch (t: Throwable) {
+        tmp.delete()
+        throw t
+    }
+    return target
+}
 
 /**
  * Shared, Syncthing-friendly store for mix-order learning records. Every record is its own file so
@@ -24,9 +87,6 @@ class MixOrderLearningStore(
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     private val gson = MixOrderJson.gson
-    private val timestampFormat = ThreadLocal.withInitial {
-        SimpleDateFormat("yyyy-MM-dd'T'HH-mm-ss-SSS", Locale.US)
-    }
     private val lock = Any()
 
     /** Writes to the shared folder (flushing anything pending first), else to [pendingDir]. Never throws. */
@@ -35,7 +95,8 @@ class MixOrderLearningStore(
             synchronized(lock) {
                 val fileName = recordFileName(clock(), record.tabletId)
                 val json = gson.toJson(record)
-                if (baseDir != null) {
+                // An unmounted share is a missing directory; mkdirs would silently recreate it on local storage.
+                if (baseDir != null && baseDir.isDirectory) {
                     val sharedDir = File(baseDir, LEARNING_DIR)
                     val wrote = runCatching {
                         runCatching { flushPending(baseDir) }
@@ -51,6 +112,7 @@ class MixOrderLearningStore(
 
     /** Moves pending record files into the shared folder. Returns how many arrived; failures stay pending. */
     fun flushPending(baseDir: File): Int {
+        if (!baseDir.isDirectory) return 0
         val files = pendingDir.listFiles().orEmpty()
             .filter { it.isFile && it.isJson() }
             .sortedBy { it.name }
@@ -114,44 +176,11 @@ class MixOrderLearningStore(
     }
 
     private fun writeFile(dir: File, fileName: String, json: String) {
-        dir.mkdirs()
-        val target = uniqueFile(dir, fileName)
-        val tmp = File(dir, "${target.name}.tmp")
-        tmp.writeText(json)
-        if (!tmp.renameTo(target)) {
-            tmp.copyTo(target, overwrite = true)
-            tmp.delete()
-        }
+        writeFileAtomically(dir, fileName, json)
     }
 
-    private fun uniqueFile(dir: File, fileName: String): File {
-        val base = fileName.substringBeforeLast('.', fileName)
-        val extension = fileName.substringAfterLast('.', "")
-        var candidate = File(dir, fileName)
-        var suffix = 1
-        while (candidate.exists()) {
-            val suffixedName = if (extension.isBlank()) "$base-$suffix" else "$base-$suffix.$extension"
-            candidate = File(dir, suffixedName)
-            suffix++
-        }
-        return candidate
-    }
-
-    private fun recordFileName(timestampMs: Long, tabletId: String?): String {
-        val timestamp = timestampFormat.get()!!.format(Date(timestampMs))
-        return "${timestamp}_${sanitizeFilePart(tabletId)}_mixorder.json"
-    }
-
-    private fun sanitizeFilePart(value: String?): String {
-        val sanitized = value
-            .orEmpty()
-            .trim()
-            .replace(Regex("[^A-Za-z0-9._-]+"), "-")
-            .trim('-', '.', '_')
-        return sanitized.ifBlank { "unknown-tablet" }
-    }
-
-    private fun File.isJson(): Boolean = name.endsWith(".json", ignoreCase = true)
+    private fun recordFileName(timestampMs: Long, tabletId: String?): String =
+        "${mixOrderTimestamp(timestampMs)}_${sanitizeFilePart(tabletId)}_mixorder.json"
 
     private class CachedParse(val lastModified: Long, val length: Long, val records: List<MixOrderRecord>)
 

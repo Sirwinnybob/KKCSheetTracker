@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.kkc.sheettracker.BuildConfig
 import com.kkc.sheettracker.data.AdminModeController
@@ -37,6 +38,8 @@ import com.kkc.sheettracker.data.EmployeeDirectory
 import com.kkc.sheettracker.data.IdlePowerSaveStore
 import com.kkc.sheettracker.data.TimecardServerConfig
 import com.kkc.sheettracker.data.UiPreferencesStore
+import com.kkc.sheettracker.data.mixorder.MixOrderLearningStore
+import com.kkc.sheettracker.data.mixorder.consolidateMixOrderLearning
 import com.kkc.sheettracker.navigation.WorkMode
 import com.kkc.sheettracker.sync.SyncthingStatusUiState
 import com.kkc.sheettracker.ui.components.AdminPasswordDialog
@@ -111,6 +114,9 @@ fun SettingsScreen(
 ) {
     val adminMode by AdminModeController.enabled.collectAsState()
     var showAdminDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    // Same pending folder the New mix Apply logging uses, so offline records are flushed before consolidating.
+    val mixLearningStore = remember { MixOrderLearningStore(File(context.filesDir, "mix_order_learning/pending")) }
 
     // Apps not on this tablet are offers ("Available apps"), not updates: they never count toward the
     // chip, the rail badge, or the jump to Updates.
@@ -270,7 +276,12 @@ fun SettingsScreen(
                         )
                         SettingsSection.ADMIN -> AdminPane(
                             adminMode = adminMode,
-                            onUnlockRequested = { showAdminDialog = true }
+                            onUnlockRequested = { showAdminDialog = true },
+                            onConsolidateMixLearning = {
+                                // Unmounted or unset share: report unavailable rather than creating folders locally.
+                                val baseDir = File(basePath).takeIf { basePath.isNotBlank() && it.isDirectory }
+                                baseDir?.let { consolidateMixOrderLearning(it, tabletId, mixLearningStore) }
+                            }
                         )
                     }
                 }

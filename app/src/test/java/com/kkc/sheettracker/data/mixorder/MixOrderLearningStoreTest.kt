@@ -94,6 +94,33 @@ class MixOrderLearningStoreTest {
     }
 
     @Test
+    fun unmountedShareIsNotRecreatedLocally() {
+        // A share that is not mounted looks like a missing directory; mkdirs would silently create it on local storage.
+        val missing = File(tmp.root, "unmounted-share")
+        val (store, pending) = newStore()
+        store.record(missing, rec("r1"))
+
+        assertEquals(1, pending.listFiles()!!.size)
+        assertTrue(!missing.exists())
+        assertEquals(0, store.flushPending(missing))
+        assertTrue(!missing.exists())
+        assertEquals(1, pending.listFiles()!!.size)
+    }
+
+    @Test
+    fun failedWriteLeavesNoTempFile() {
+        val dir = tmp.newFolder()
+        val failing: (File, String) -> Unit = { file, text ->
+            file.writeText(text.take(5))
+            error("disk full")
+        }
+        val thrown = runCatching { writeFileAtomically(dir, "r.json", "{\"a\":1}", failing) }.exceptionOrNull()
+
+        assertTrue(thrown is IllegalStateException)
+        assertEquals(emptyList<String>(), dir.listFiles()!!.map { it.name })
+    }
+
+    @Test
     fun recordNeverThrows() {
         val blockedPending = tmp.newFile("pending-is-a-file")
         val store = MixOrderLearningStore(blockedPending) { clockMs++ }
