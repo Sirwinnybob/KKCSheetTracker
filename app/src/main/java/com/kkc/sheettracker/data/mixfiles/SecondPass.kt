@@ -1,6 +1,7 @@
 package com.kkc.sheettracker.data.mixfiles
 
 import com.google.gson.Gson
+import com.kkc.sheettracker.data.cnc.MixOperationKind
 import com.kkc.sheettracker.data.mixservice.MixOperationService
 import com.kkc.sheettracker.data.mixservice.MixServiceOperation
 import com.kkc.sheettracker.data.mixservice.PgmEditHistoryView
@@ -125,12 +126,25 @@ sealed interface SecondPassOutcome {
         val mutation: SecondPassMutation = SecondPassMutation.UNCERTAIN) : SecondPassOutcome
 }
 
+/**
+ * Journals and watches each second-pass operation outside any screen. With a tracker, the runner
+ * never polls: the single app-scoped watcher does, and the runner waits for its terminal snapshot.
+ */
+interface SecondPassTracker {
+    /** Records [requestId] before [post] runs, then binds the accepted operation. [post] runs at most once. */
+    suspend fun submit(kind: MixOperationKind, requestId: String, step: Int, steps: Int,
+        post: suspend () -> MixServiceOperation): MixServiceOperation
+    /** Suspends until the watcher sees a terminal state for [requestId]. */
+    suspend fun awaitTerminal(requestId: String, onProgress: (String) -> Unit): MixServiceOperation
+}
+
 class SecondPassRunner(
     private val service: MixOperationService,
     private val revert: suspend (job: String, material: String, requestId: String, pgms: List<String>) -> MixServiceOperation,
     private val requestId: () -> String,
     private val revisions: SecondPassRevisionSupport? = null,
     private val onNotices: (List<PgmNotice>) -> Unit = {},
+    private val tracker: SecondPassTracker? = null,
 ) {
     suspend fun apply(job: String, material: String, plan: List<SecondPassStep>, onProgress: (String) -> Unit): SecondPassOutcome {
         var completedStep = false
@@ -138,19 +152,23 @@ class SecondPassRunner(
         var activeHashes = revisions?.snapshot?.hashes.orEmpty()
         try {
             revisions?.preflight(plan)
-            for (step in plan) {
+            for ((index, step) in plan.withIndex()) {
                 currentCoroutineContext().ensureActive()
                 val editRows = (step as? SecondPassStep.Edit)?.let { revisions?.editRows(it.rows, activeHashes) ?: it.rows }
                 val revertRows = (step as? SecondPassStep.Revert)?.let { revisions?.revertRows(it.pgms, activeHashes) }
                 val id = requestId()
                 submitted = true // A transport failure after this point leaves the CNC outcome uncertain.
-                var operation = when (step) {
+                val post: suspend () -> MixServiceOperation = { when (step) {
                     is SecondPassStep.Edit -> service.submitPgmEdits(job, material, id, editRows!!)
                     is SecondPassStep.Revert -> if (revisions != null) revisions.revert(job, material, id, revertRows!!) else revert(job, material, id, step.pgms)
-                }
+                } }
+                val kind = if (step is SecondPassStep.Revert) MixOperationKind.SECOND_PASS_REVERT else MixOperationKind.SECOND_PASS_EDIT
+                var operation = tracker?.submit(kind, id, index + 1, plan.size, post) ?: post()
                 onProgress(operation.stage)
-                while (!operation.isTerminal) {
-                    if (operation.id.isBlank()) return SecondPassOutcome.Failed(null, "The CNC returned no operation ID", true)
+                if (!operation.isTerminal && operation.id.isBlank()) return SecondPassOutcome.Failed(null, "The CNC returned no operation ID", true)
+                if (tracker != null) {
+                    if (!operation.isTerminal) operation = tracker.awaitTerminal(id, onProgress)
+                } else while (!operation.isTerminal) {
                     delay(1_000)
                     operation = service.getOperation(operation.id)
                     onProgress(operation.stage)
@@ -190,7 +208,11 @@ class SecondPassRunner(
         }
     }
 
-    private fun successfulFiles(result: Any?): Boolean = try {
+    private fun successfulFiles(result: Any?): Boolean = secondPassFilesSucceeded(result)
+}
+
+/** Every file of a completed second-pass operation succeeded (or was skipped). */
+internal fun secondPassFilesSucceeded(result: Any?): Boolean = try {
         val json = Gson().toJsonTree(result).asJsonObject
         val ok = json["ok"]?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }?.asBoolean == true
         val files = json["files"]?.takeIf { it.isJsonArray }?.asJsonArray
@@ -199,7 +221,6 @@ class SecondPassRunner(
             status != null && status.isJsonPrimitive && status.asJsonPrimitive.isString && status.asString in setOf("succeeded", "skipped")
         }
     } catch (_: Exception) { false }
-}
 
 private fun secondPassNotices(result: Any?): List<PgmNotice> = runCatching {
     val root = Gson().toJsonTree(result).asJsonObject

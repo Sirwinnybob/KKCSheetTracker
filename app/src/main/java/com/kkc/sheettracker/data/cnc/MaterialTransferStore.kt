@@ -53,6 +53,8 @@ data class MaterialTransferRecord(
     val message: String?,
     val createdAtMs: Long,
     val updatedAtMs: Long,
+    /** The operator dismissed the app-level notice; the record itself (and any material block) stays. */
+    val noticeAcknowledged: Boolean = false,
 ) {
     val active: Boolean get() = state == TransferState.SUBMITTING || state == TransferState.SUBMITTED || state == TransferState.UNCERTAIN
     /** Active, or stopped where only the office can resolve it: no edits or new moves of this material. */
@@ -102,7 +104,7 @@ class MaterialTransferStore(
     suspend fun resendUncertain(requestId: String): MaterialTransferRecord? {
         val record = mutex.withLock {
             val current = records.value.firstOrNull { it.requestId == requestId && it.state == TransferState.UNCERTAIN } ?: return null
-            current.copy(state = TransferState.SUBMITTING, updatedAtMs = now()).also { put(it) }
+            current.copy(state = TransferState.SUBMITTING, noticeAcknowledged = false, updatedAtMs = now()).also { put(it) }
         }
         return submit(record)
     }
@@ -123,17 +125,36 @@ class MaterialTransferStore(
 
     /** Polls every submitted move once, on its own bound endpoint. Never re-POSTs. */
     suspend fun refreshActive() {
-        records.value.filter { it.state == TransferState.SUBMITTED && it.operationId != null }.forEach { record ->
-            val result = try { clientFor(record.destinationEndpoint).operation(record.operationId!!) }
-            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-            catch (_: Exception) { TransferResult.Offline }
-            val next = when (result) {
-                is TransferResult.Ok -> record.withOperation(result.value)
-                // A timeout or refusal to report is not an outcome: keep checking the same operation.
-                else -> record.copy(message = "Checking move status")
-            }.copy(updatedAtMs = now())
-            mutex.withLock { if (records.value.any { it.requestId == record.requestId && it.state == TransferState.SUBMITTED }) put(next) }
+        records.value.filter { it.state == TransferState.SUBMITTED && it.operationId != null }.forEach { pollOnce(it.requestId) }
+    }
+
+    /**
+     * One status read of a submitted move on its bound destination endpoint. Returns the stored record
+     * afterwards, or null when the record is gone. A record that isn't SUBMITTED is returned unread.
+     */
+    suspend fun pollOnce(requestId: String): MaterialTransferRecord? {
+        val record = records.value.firstOrNull { it.requestId == requestId } ?: return null
+        if (record.state != TransferState.SUBMITTED || record.operationId == null) return record
+        val result = try { clientFor(record.destinationEndpoint).operation(record.operationId) }
+        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) { TransferResult.Offline }
+        val next = when (result) {
+            is TransferResult.Ok -> record.withOperation(result.value)
+            // A timeout or refusal to report is not an outcome: keep checking the same operation.
+            else -> record.copy(message = "Checking move status")
+        }.copy(updatedAtMs = now())
+        return mutex.withLock {
+            if (records.value.any { it.requestId == record.requestId && it.state == TransferState.SUBMITTED }) put(next)
+            records.value.firstOrNull { it.requestId == requestId }
         }
+    }
+
+    /** Hides the app-level notice of a stopped move without dismissing the record or unblocking the material. */
+    suspend fun acknowledgeNotice(requestId: String): Boolean = mutex.withLock {
+        val record = records.value.firstOrNull { it.requestId == requestId } ?: return false
+        if (record.active && record.state != TransferState.UNCERTAIN) return false
+        put(record.copy(noticeAcknowledged = true, updatedAtMs = now()))
+        true
     }
 
     /** Removes a finished (or operator-reviewed uncertain) record. Active submitted moves stay. */

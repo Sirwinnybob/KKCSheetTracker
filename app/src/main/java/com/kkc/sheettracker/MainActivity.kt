@@ -531,6 +531,9 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                    // Outcomes of CNC moves and mix changes, on whatever screen is open.
+                    com.kkc.sheettracker.ui.components.CncOperationNoticeHost((application as KKCApplication).cncOperations)
+
                     if (showSyncthingSetupPrompt && syncthingApiKey.isBlank()) {
                         val dismissSyncthingPrompt = {
                             prefs.edit().putLong("last_syncthing_prompt_at_ms", System.currentTimeMillis()).apply()

@@ -81,7 +81,10 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     }
     val catalogStates = catalogStatesByMachine.getValue(machine.id)
     val transferStore = app.materialTransfers
+    // App-scoped: moves, mix saves and second-pass changes keep being watched after this screen closes.
+    val operations = app.cncOperations
     val transfers by transferStore.records.collectAsState()
+    val mixOperations by operations.mixOperations.records.collectAsState()
     var selectedMaterial by rememberSaveable(jobFolderName) { mutableStateOf(initialMaterial) }
     LaunchedEffect(materials) { selectedMaterial = selectAvailableMaterial(selectedMaterial, materials.map { it.materialName }) }
     val material = materials.firstOrNull { it.materialName == selectedMaterial }
@@ -99,6 +102,11 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         if (!materialOwnershipSettled(initialStates, machines)) return@LaunchedEffect
         (resolveMaterialOwnership(initialStates, machines = machines) as? MaterialOwnership.Single)?.let { selectedMachineId = it.machine.id }
         ownerResolved = true
+    }
+    // Outcomes this screen shows inline aren't repeated as app-level notices while it is open.
+    DisposableEffect(operations, machine.id, jobFolderName, selectedMaterial) {
+        val lease = selectedMaterial?.let { operations.viewing(machine.id, jobFolderName, it) }
+        onDispose { lease?.close() }
     }
     var inventory by remember(machine.id, selectedMaterial) { mutableStateOf<List<String>>(emptyList()) }
     var revertSupported by remember(machine) { mutableStateOf(false) }
@@ -157,7 +165,14 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         pendingLeaveText = "Mix changes haven't been applied. Second-pass changes stay with this material."
         if (session.draft != null) pendingLeave = abandon else abandon()
     }
-    BackHandler { leave(onBack) }
+    // Saves in flight belong to the app watcher, so leaving Mixes never abandons them; the outcome shows app-wide.
+    fun leaveScreen() {
+        if (!session.saving) return leave(onBack)
+        if (session.applying || session.draft == null) return onBack()
+        pendingLeaveText = "Mix changes haven't been applied. Second-pass changes keep applying after you leave."
+        pendingLeave = onBack
+    }
+    BackHandler { leaveScreen() }
     val latest = catalogStates[selectedMaterial].catalogSnapshot()
     LaunchedEffect(session, latest) { latest?.let(session::onCatalog) }
     LaunchedEffect(machine, statusRefresh, revisionResume) {
@@ -169,7 +184,9 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     }
     fun historyPgms() = canonicalPgms(inventory + material?.let { sheetPages(it.metadata?.pages.orEmpty()).flatMap { page -> page.pgmFiles } }.orEmpty())
     suspend fun retryHistory(name: String) { session.reloadHistory(historyPgms()) { service.listPgmEdits(jobFolderName, name) } }
-    LaunchedEffect(session, material?.materialName, editorFeatures, revisionResume, manualRevisionRefresh, session.secondApplying) {
+    // A change submitted earlier (possibly from a closed screen) that the app watcher is still confirming.
+    val pendingOperation = mixOperations.firstOrNull { !it.terminal && it.machineId == machine.id && it.job == jobFolderName && it.material == selectedMaterial }
+    LaunchedEffect(session, material?.materialName, editorFeatures, revisionResume, manualRevisionRefresh, session.secondApplying, pendingOperation == null) {
         val name = material?.materialName ?: return@LaunchedEffect
         if (editorFeatures == null || session.secondApplying) return@LaunchedEffect
         try {
@@ -213,8 +230,8 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     // FRZ groups stay view-only on machines without FRZ support; the guarded api refuses them as well.
     // While this material is being moved, both copies stay read-only on the tablet; the services also reserve it.
     val activeMove = transfers.firstOrNull { it.blocksMaterial && it.job == jobFolderName && it.material == selectedMaterial }
-    val catalogWritable = catalogLive && activeMove == null && access?.mixFiles != false && (access?.frz != false || group?.isInterrupted != true)
-    val secondWritable = catalogLive && activeMove == null && access?.secondPass != false
+    val catalogWritable = catalogLive && activeMove == null && pendingOperation == null && access?.mixFiles != false && (access?.frz != false || group?.isInterrupted != true)
+    val secondWritable = catalogLive && activeMove == null && pendingOperation == null && access?.secondPass != false
     // Read ProgressStore at the action boundary, rather than a status map from the last composition.
     fun locks(): List<String> = material?.let { m -> sheetPages(m.metadata?.pages.orEmpty()).filter {
         isLockedStatus(progressStore.getSheetStatus(jobFolderName, m.pdfFilename, it.pageNumber, m.fileFingerprint))
@@ -231,20 +248,21 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     }
     fun applyMix(resolutions: Map<String, String> = emptyMap()) {
         val name = selectedMaterial ?: return
-        if (!ui.card.let { it?.applyEnabled == true } || session.applying) return
+        if (!ui.card.let { it?.applyEnabled == true } || session.applying || (pendingOperation != null && !session.saving)) return
         scope.launch {
             val result = session.saveMix(::locks) { draft ->
-                api.submitMixWrite(jobFolderName, name, buildWrite(draft, group, draft.completedPgms.toList(), resolutions))
+                val write = buildWrite(draft, group, draft.completedPgms.toList(), resolutions)
+                operations.submitMixWrite(machine, jobFolderName, name, mixWriteLabel(write)) { api.submitMixWrite(jobFolderName, name, write) }
             }
             publish(result, name)
             if (result == null) session.mixSaveBlockedReason?.let { snackbar.showSnackbar(it) }
             if (result is MixFilesResult.Ok) { splitMode = false; splitIds = emptySet() }
         }
     }
-    fun mutate(submit: suspend (String) -> MixFilesResult<MixFilesCatalog>) {
+    fun mutate(label: String, submit: suspend (String) -> MixFilesResult<MixFilesCatalog>) {
         val name = selectedMaterial ?: return
         if (session.applying || !catalogWritable) return
-        scope.launch { publish(session.mutateCatalog { submit(name) }, name) }
+        scope.launch { publish(session.mutateCatalog { operations.submitMixWrite(machine, jobFolderName, name, label) { submit(name) } }, name) }
     }
     fun openRevisions(key: String, compare: Boolean = false) { revisionsKey = key; compareFiles = compare }
     val takenNames = session.catalog?.files.orEmpty().filter { it.kind != MixFileKind.REVISION }.map { it.file } + session.draft?.splitOff.orEmpty().map { it.file }
@@ -323,19 +341,13 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
             }
         }
     }
-    // Poll submitted moves on their bound endpoints while this screen is open; never re-POST.
-    val pollingMoves = transfers.any { it.state == TransferState.SUBMITTED && it.job == jobFolderName }
-    LaunchedEffect(pollingMoves) {
-        while (pollingMoves) { transferStore.refreshActive(); delay(2_000) }
-    }
+    // The app watcher polls submitted moves, refreshes both machines and shows the outcome app-wide;
+    // this screen only follows a verified move once, and never under an in-flight save.
+    val followedMoves = remember(jobFolderName) { mutableSetOf<String>() }
     LaunchedEffect(transfers) {
-        transfers.filter { it.job == jobFolderName && it.state == TransferState.COMPLETED }.forEach { record ->
-            storesByMachine[record.sourceMachineId]?.get(record.material)?.refreshNow()
-            storesByMachine[record.destinationMachineId]?.get(record.material)?.refreshNow()
-            // Select the destination only after the move is verified, and never under an in-flight save.
+        transfers.filter { it.job == jobFolderName && it.state == TransferState.COMPLETED && it.requestId !in followedMoves }.forEach { record ->
+            followedMoves += record.requestId
             if (record.material == selectedMaterial && record.sourceMachineId == machine.id && !session.saving) selectedMachineId = record.destinationMachineId
-            transferStore.dismiss(record.requestId)
-            snackbar.showSnackbar("Moved ${record.material} to ${CncMachines.mixMachine(record.destinationMachineId).displayName}")
         }
     }
     val selectedRecord = transfers.firstOrNull { it.job == jobFolderName && it.material == selectedMaterial && it.state != TransferState.COMPLETED }
@@ -346,9 +358,9 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
             })
         }
         selectedRecord?.let { record ->
-            if (record.state == TransferState.SUBMITTED) add(MaterialMenuAction("Check move status", true) { scope.launch { transferStore.refreshActive() } })
+            if (record.state == TransferState.SUBMITTED) add(MaterialMenuAction("Check move status", true) { operations.checkNow(record.requestId) })
             if (record.state == TransferState.UNCERTAIN) add(MaterialMenuAction("Resend the same move request", true) {
-                scope.launch { transferStore.resendUncertain(record.requestId) }
+                scope.launch { operations.resendMove(record.requestId) }
             })
             // Needs attention is terminal: no retry or resend. Its notice clears only once the office has resolved it.
             if (record.state == TransferState.NEEDS_ATTENTION) add(MaterialMenuAction("Office resolved \u2014 dismiss notice", true) {
@@ -373,7 +385,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         onMoveMaterial = { from, name, to -> requestMove(from, name, to) },
         materialMenu = materialMenu,
         onCreateRemaining = { leaveMix { group?.let { session.startRemaining(it, locks()) } } },
-        onBack = { leave(onBack) }, onMaterial = { name -> leave { selectedMaterial = name } },
+        onBack = { leaveScreen() }, onMaterial = { name -> leave { selectedMaterial = name } },
         onTab = { key -> leaveMix { session.selectedTab = key } },
         onNew = { leaveMix { session.startNew(selectedMaterial ?: "Material", selected?.pages.orEmpty(), locks()) } },
         onDiscard = { session.discardMix(latestCatalog()) },
@@ -390,7 +402,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
         onSecondDiscard = { pgmPreview.invalidate(); session.discardSecond() },
         onSecondApply = {
             val name = selectedMaterial
-            if (name != null && ui.secondPassApplyEnabled && !session.secondApplying) scope.launch {
+            if (name != null && ui.secondPassApplyEnabled && !session.secondApplying && pendingOperation == null) scope.launch {
                 val notices = mutableListOf<PgmNotice>()
                 session.saveSecond(::locks, { submitted ->
                     val deviceId = context.getSharedPreferences("kkc_tracker", Context.MODE_PRIVATE).getString("tablet_id", null)
@@ -400,22 +412,27 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
                         refresh = { service.listPgms(jobFolderName, name, withSha256 = true).filter { validPgmHash(it.sha256) }.associate { it.name to it.sha256!! } },
                         revert = client::submitPgmEditRevertRows) else null
                     pgmPreview.invalidate()
-                    val runner = SecondPassRunner(service, client::submitPgmEditRevert, secondPassRequestIds(deviceId),
-                        revisions = revisions, onNotices = { notices += it })
-                    runner.apply(jobFolderName, name, planSecondPass(submitted)) { session.secondMessage = it }.also { outcome ->
+                    val steps = planSecondPass(submitted)
+                    // The plan runs and is watched in the app scope, so leaving Mixes never abandons it.
+                    operations.runSecondPass(machine, jobFolderName, name) { tracker ->
+                        SecondPassRunner(service, client::submitPgmEditRevert, secondPassRequestIds(deviceId),
+                            revisions = revisions, onNotices = { synchronized(notices) { notices += it } }, tracker = tracker)
+                            .apply(jobFolderName, name, steps) { session.secondMessage = it }
+                    }.also { outcome ->
                         if (outcome is SecondPassOutcome.Failed && outcome.code in setOf("pgm_changed", "preview_changed"))
                             revisionState.requireReview("CNC files or the preview changed. Refresh revisions and review your draft.")
                     }
                 }, { service.listPgmEdits(jobFolderName, name) })
-                if (notices.isNotEmpty()) session.secondMessage = listOfNotNull(session.secondMessage,
+                if (synchronized(notices) { notices.isNotEmpty() }) session.secondMessage = listOfNotNull(session.secondMessage,
                     notices.distinctBy { it.code to it.message }.joinToString(" ") { it.message }).joinToString(" ")
             }
         }, secondMessage = listOfNotNull(session.secondMessage, revisionState.message.takeIf { revisionSupported }).distinct().takeIf { it.isNotEmpty() }?.joinToString(" "),
         recoveryEnabled = session.gate.deferredCatalog != null,
         reapplyEnabled = session.reapplyEnabled,
         mixMessage = listOfNotNull(selectedRecord?.let(::transferNotice),
+            pendingOperation?.takeIf { !session.saving }?.let { "${it.label} is still being confirmed on ${machine.displayName}. Editing resumes when it finishes." },
             session.recoveryMessage ?: RESTORE_PREVIEW_MESSAGE.takeIf { session.draft?.rawRestore != null }).joinToString("\n").ifEmpty { null },
-        mixEditingEnabled = !session.applying && activeMove == null, secondEditingEnabled = secondWritable && !session.secondApplying && session.secondHistoryConfirmed && !session.historyLoading,
+        mixEditingEnabled = !session.applying && activeMove == null && (pendingOperation == null || session.saving), secondEditingEnabled = secondWritable && !session.secondApplying && session.secondHistoryConfirmed && !session.historyLoading,
         secondDiscardEnabled = !session.secondApplying, navigationEnabled = !session.saving,
         historyRetryVisible = !session.secondHistoryConfirmed, historyLoading = session.historyLoading,
         onHistoryRetry = { selectedMaterial?.let { name -> scope.launch { retryHistory(name) } } },
@@ -470,10 +487,10 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     actionTarget?.let { target -> when (cardDialog) {
         MixCardAction.RENAME -> RenameDialog(target.file, onConfirm = { file ->
             cardDialog = null
-            mutate { name -> api.rename(jobFolderName, name, target.file, file, target.revision) }
+            mutate("Rename ${target.file} to $file") { name -> api.rename(jobFolderName, name, target.file, file, target.revision) }
         }, onDismiss = { cardDialog = null }, extension = target.file.substringAfterLast('.'), taken = takenNames, enabled = !session.applying)
         MixCardAction.DELETE -> DeleteConfirm(target.file, onConfirm = {
-            cardDialog = null; mutate { name -> api.delete(jobFolderName, name, target.file, target.revision) }
+            cardDialog = null; mutate("Delete ${target.file}") { name -> api.delete(jobFolderName, name, target.file, target.revision) }
         }, onDismiss = { cardDialog = null }, enabled = !session.applying)
         else -> Unit
     } }
@@ -487,7 +504,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
                 (access?.frz != false || (revisions.frz == null && revisions.frzRevisions.isEmpty()))) }
     } }
     deleteRevision?.let { revision -> DeleteConfirm(revision.file, onConfirm = {
-        deleteRevision = null; mutate { name -> api.deleteRevision(jobFolderName, name, revision.file, revision.revision) }
+        deleteRevision = null; mutate("Delete revision ${revision.file}") { name -> api.deleteRevision(jobFolderName, name, revision.file, revision.revision) }
     }, onDismiss = { deleteRevision = null }, permanent = true, enabled = !session.applying) }
     historyPgm?.let { pgm ->
         val record = session.history?.files?.entries?.firstOrNull { it.key.equals(pgm, true) }?.value
@@ -536,7 +553,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
             confirmButton = { if (review.startable) Button(modifier = Modifier.testTag("move-start"), onClick = {
                 pendingMove = null // One tap starts at most one request; the journal refuses duplicates as well.
                 scope.launch {
-                    when (val started = transferStore.start(move.plan.source, move.plan.destination, jobFolderName, move.material,
+                    when (val started = operations.startMove(move.plan.source, move.plan.destination, jobFolderName, move.material,
                         preview, move.sourceRevision, move.plan.policy)) {
                         is TransferStart.AlreadyActive -> snackbar.showSnackbar(
                             if (started.record.state == TransferState.NEEDS_ATTENTION) MOVE_NEEDS_ATTENTION else "This material is already moving. Checking move status.")
@@ -611,7 +628,7 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
         TopAppBar(title = { Column { Text(title, style = MaterialTheme.typography.titleMedium)
                 Text(listOfNotNull("Mixes", machineName?.let { "$it \u00b7 ${machineStatusText(ui.machineStatus)}" }).joinToString(" \u00b7 "),
                     style = MaterialTheme.typography.labelMedium) } },
-            navigationIcon = { IconButton(onClick = onBack, enabled = navigationEnabled) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = {})
     }) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding)) {
@@ -767,4 +784,12 @@ internal fun machineStatusText(status: MachineStatus): String {
     }
     val program = (status as? MachineStatus.Live)?.loaded?.name?.takeIf { it.isNotBlank() }
     return listOfNotNull(value, program).joinToString(" \u00b7 ")
+}
+
+/** Operator-facing subject of a mix-files save, for the app-level notice. */
+internal fun mixWriteLabel(write: MixWrite): String = when (write) {
+    is MixWrite.Write -> "Save ${write.file}"
+    is MixWrite.Frz -> "Save ${write.file}"
+    is MixWrite.Split -> "Split ${write.file}"
+    is MixWrite.Restore -> "Restore ${write.intent.targetFile}"
 }
