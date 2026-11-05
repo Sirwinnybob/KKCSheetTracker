@@ -88,6 +88,25 @@ class MixesPresentationTest {
         assertTrue(groups.completed.none { it.canRemove })
     }
 
+    @Test fun frzCompletionDisagreementAloneOffersApply() {
+        // Tablet COMPLETE but FRZ still counts it: locked rows can't be edited, so the disagreement itself is the change.
+        val c = catalog(row("Run.FRZ", listOf(entry("P1.pgm", left = 0), entry("P2.pgm", left = 1), entry("P3.pgm", left = 1))))
+        val m = material(c, (1..3).map { page(it) }, mapOf(1 to SheetStatus.COMPLETE, 2 to SheetStatus.COMPLETE))
+        for (draft in listOf(null, MixDrafts.start(group(c), listOf("P1.pgm", "P2.pgm")))) {
+            val card = buildMixesUi(input(m, draft)).card!!
+            assertTrue(card.applyVisible)
+            assertTrue(card.applyEnabled)
+            assertEquals("Apply 1 change", card.applyLabel)
+        }
+        val agreed = material(c, (1..3).map { page(it) }, mapOf(1 to SheetStatus.COMPLETE))
+        assertFalse(buildMixesUi(input(agreed)).card!!.applyVisible)
+        assertFalse(buildMixesUi(input(agreed)).card!!.applyEnabled)
+        // FRZ done but tablet not yet marked: marking the sheet fixes it; Apply here could only restore a re-cut.
+        val frzAhead = material(c, (1..3).map { page(it) })
+        assertTrue(buildMixesUi(input(frzAhead)).groups!!.remaining.first().disagreement)
+        assertFalse(buildMixesUi(input(frzAhead)).card!!.applyVisible)
+    }
+
     @Test fun unmatchedBlocksApplyOnInterruptedOnly() {
         for (file in listOf("Run.mix", "Run.FRZ")) {
             val c = catalog(row(file, listOf(entry("Unknown.pgm"))))
