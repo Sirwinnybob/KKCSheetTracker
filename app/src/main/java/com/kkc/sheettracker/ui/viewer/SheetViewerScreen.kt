@@ -348,7 +348,7 @@ fun SheetViewerScreen(
     val progressVersion by progressStore.progressVersion.collectAsState()
     val appSheetStatusSnapshots by appStateStore.sheetStatusSnapshots.collectAsState()
     val appUiState by appStateStore.uiState.collectAsState()
-    val cncMarks = rememberCncSheetMarks(appStateStore)
+    val cncMarks = rememberCncMachineMarks(appStateStore)
     val appProgressVersion by appStateStore.lastProgressVersion.collectAsState()
     val appFlags = remember(appStateFlags) { appStateFlags.snapshot() }
     val useAppStateStatus = appFlags.viewerStatusEnabled
@@ -399,7 +399,7 @@ fun SheetViewerScreen(
         resolvePageMetadata(currentMaterial, currentPage)
     }
     val cncHeaderPill = cncPillForSheet(cncMarks, CncSheetRef(jobFolderName, pdfFilename,
-        currentMaterial?.resolveHeadPage(currentPage) ?: currentPage), CncPillMachine.RED)
+        currentMaterial?.resolveHeadPage(currentPage) ?: currentPage))
     val parts = remember(currentPageMetadata) {
         currentPageMetadata?.parts ?: emptyList()
     }
@@ -2126,7 +2126,7 @@ fun SheetViewerScreen(
                 showSheetToc = false
             },
             onDismiss = { showSheetToc = false },
-            cncPillsByPage = cncPillsForMaterial(cncMarks, jobFolderName, currentMaterial, effectiveVisiblePages, CncPillMachine.RED),
+            cncPillsByPage = cncPillsForMaterial(cncMarks, jobFolderName, currentMaterial, effectiveVisiblePages),
             unmatchedPgms = unmatchedPgms,
             orderNotice = mixOrderNotice,
         )

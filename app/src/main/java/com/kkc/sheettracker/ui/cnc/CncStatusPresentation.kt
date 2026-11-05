@@ -50,6 +50,25 @@ internal fun cncPillsForMaterial(
     }.toMap()
 }
 
+/** One sheet across every machine: a machine with it loaded wins over one that last finished it. */
+internal fun cncPillForSheet(machines: List<Pair<String, CncSheetMarks>>, sheet: CncSheetRef): CncPill? {
+    val pills = machines.mapNotNull { (name, marks) -> cncPillForSheet(marks, sheet, cncPillMachineFor(name)) }
+    return pills.firstOrNull { it.kind != CncPillKind.FINISHED } ?: pills.firstOrNull()
+}
+
+internal fun cncPillsForMaterial(
+    machines: List<Pair<String, CncSheetMarks>>,
+    jobFolderName: String,
+    material: Material?,
+    visiblePages: List<Int>,
+): Map<Int, CncPill> {
+    if (material == null) return emptyMap()
+    return visiblePages.mapNotNull { page ->
+        cncPillForSheet(machines, CncSheetRef(jobFolderName, material.pdfFilename, material.resolveHeadPage(page)))
+            ?.let { page to it }
+    }.toMap()
+}
+
 sealed interface CncDashboardRow {
     data class Material(val item: DashboardRecentMaterialItem, val openPage: Int, val pill: CncPill?) : CncDashboardRow
     data class Unknown(val name: String, val running: Boolean, val machine: String? = null) : CncDashboardRow
