@@ -76,8 +76,8 @@ class MixesSessionTest {
     }
     @Test fun tabAndNewDiscardOnlyMixAndKeepMaterialSecondPassDraft() = runTest {
         val session = session()
-        session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
-        session.updateSecond(listOf("a.pgm"), SecondPassField.SECOND, true, emptyList())
+        session.reloadHistory(listOf("partN.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
+        session.updateSecond(listOf("partN.pgm"), SecondPassField.SECOND, true, emptyList())
         session.edit(group(session.catalog!!), emptyList()) { MixDrafts.add(it, "draft.pgm") }
         val wanted = session.secondPass
         val latest = catalog("new", "other.pgm")
@@ -97,8 +97,8 @@ class MixesSessionTest {
     }
     @Test fun namingNewDraftKeepsEntriesAndSecondPassAndDoesNotNeedRemoteRename() = runTest {
         val session = session()
-        session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
-        session.updateSecond(listOf("a.pgm"), SecondPassField.SECOND, true, emptyList())
+        session.reloadHistory(listOf("partN.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
+        session.updateSecond(listOf("partN.pgm"), SecondPassField.SECOND, true, emptyList())
         session.startNew("Maple", pages("new.pgm"), emptyList())
         val before = session.draft!!
         session.renameNew("Custom Mix.mix")
@@ -196,15 +196,15 @@ class MixesSessionTest {
     }
     @Test fun failedHistoryRetryKeepsWantedEditsAndOnlyConfirmedRecoveryAllowsApply() = runTest {
         val session = session()
-        session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
-        session.updateSecond(listOf("a.pgm"), SecondPassField.SECOND, true, emptyList())
-        session.reloadHistory(listOf("a.pgm")) { null }
+        session.reloadHistory(listOf("partN.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
+        session.updateSecond(listOf("partN.pgm"), SecondPassField.SECOND, true, emptyList())
+        session.reloadHistory(listOf("partN.pgm")) { null }
         assertFalse(session.secondHistoryConfirmed)
         assertEquals(1, session.secondPass!!.changeCount)
         var attempts = 0
         session.saveSecond({ emptyList() }, { attempts++; SecondPassOutcome.Done }, { PgmEditHistoryView(ok = true, stateSource = "ledger") })
         assertEquals(0, attempts)
-        session.reloadHistory(listOf("a.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
+        session.reloadHistory(listOf("partN.pgm")) { PgmEditHistoryView(ok = true, stateSource = "ledger") }
         assertTrue(session.secondHistoryConfirmed)
         assertEquals(1, session.secondPass!!.changeCount)
         assertEquals(MixesSession.NO_RECORDED_STATE, session.secondMessage)

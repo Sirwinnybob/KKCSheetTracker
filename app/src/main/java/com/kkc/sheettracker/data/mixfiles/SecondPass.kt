@@ -18,14 +18,16 @@ data class SecondPassState(val secondPass: Boolean, val superPass: Boolean, val 
 /** PGM identity only: paths and parameter values remain opaque. First spelling wins. */
 fun pgmIdentity(name: String): String = name.lowercase(Locale.ROOT)
 fun canonicalPgms(names: Collection<String>): List<String> = names.distinctBy(::pgmIdentity)
+/** A-side stays in sheet/MIX pairs, but never participates in machining edits. */
+fun canEditPgm(name: String): Boolean = !name.endsWith("A.pgm", ignoreCase = true)
 fun <T> Map<String, T>.pgmValue(name: String): T? = entries.firstOrNull { it.key.equals(name, true) }?.value
 
 /** [punloadFixed]: the machine always removes PUNLOAD, so every state carries removal and it is never a change. */
 data class SecondPassDraft(val wanted: Map<String, SecondPassState>, val current: Map<String, SecondPassState>,
     val punloadFixed: Boolean = false) {
-    val changeCount: Int get() = wanted.entries.distinctBy { pgmIdentity(it.key) }.count { (pgm, state) -> state.normalized() != current.pgmValue(pgm)?.normalized() }
+    val changeCount: Int get() = wanted.entries.filter { canEditPgm(it.key) }.distinctBy { pgmIdentity(it.key) }.count { (pgm, state) -> state.normalized() != current.pgmValue(pgm)?.normalized() }
     /** Whether any of [pgms] has a staged change not yet applied. */
-    fun pending(pgms: List<String>): Boolean = pgms.any { pgm ->
+    fun pending(pgms: List<String>): Boolean = pgms.filter(::canEditPgm).any { pgm ->
         wanted.pgmValue(pgm)?.let { it.normalized() != current.pgmValue(pgm)?.normalized() } == true
     }
 }
@@ -52,6 +54,7 @@ object SecondPassDrafts {
     }
 
     fun set(d: SecondPassDraft, pgm: String, state: SecondPassState): SecondPassDraft {
+        if (!canEditPgm(pgm)) return d
         val canonical = d.wanted.keys.firstOrNull { it.equals(pgm, true) } ?: return d
         val next = if (d.punloadFixed) state.copy(removePUnload = true) else state
         return d.copy(wanted = d.wanted + (canonical to next.normalized()))
@@ -69,7 +72,7 @@ object SecondPassDrafts {
         }
 
     fun tri(d: SecondPassDraft, pgms: List<String>, field: SecondPassField): TriState {
-        val states = canonicalPgms(pgms).mapNotNull(d.wanted::pgmValue)
+        val states = canonicalPgms(pgms).filter(::canEditPgm).mapNotNull(d.wanted::pgmValue)
         val count = states.count { state -> when (field) {
             SecondPassField.PUNLOAD -> state.removePUnload
             SecondPassField.SECOND -> state.normalized().secondPass
@@ -92,6 +95,7 @@ fun planSecondPass(d: SecondPassDraft): List<SecondPassStep> {
     val reverts = mutableListOf<String>()
     val edits = mutableListOf<PgmEditRow>()
     d.wanted.entries.distinctBy { pgmIdentity(it.key) }.forEach { (pgm, raw) ->
+        if (!canEditPgm(pgm)) return@forEach
         val wanted = raw.normalized()
         val current = (d.current.pgmValue(pgm) ?: NO_EDITS).normalized()
         if (wanted == current) return@forEach

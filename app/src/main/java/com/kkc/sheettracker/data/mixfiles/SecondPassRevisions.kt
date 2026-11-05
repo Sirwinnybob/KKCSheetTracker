@@ -6,6 +6,7 @@ data class SecondPassRevisionSnapshot(val hashes: Map<String, String>, val previ
 internal class RevisionRefused(message: String) : IllegalStateException(message)
 
 fun previewRequest(draft: SecondPassDraft, pgm: String, hash: String, requestId: String = "preview"): PgmPreviewRequest {
+    check(canEditPgm(pgm)) { "A-side programs cannot be edited" }
     check(validPgmHash(hash)) { "Refresh CNC revisions before previewing" }
     val name = draft.wanted.keys.firstOrNull { it.equals(pgm, true) } ?: error("PGM is not in this draft")
     val wanted = draft.wanted.getValue(name)

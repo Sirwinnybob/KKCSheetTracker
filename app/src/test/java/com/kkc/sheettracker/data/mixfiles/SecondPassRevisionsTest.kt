@@ -22,6 +22,11 @@ class SecondPassRevisionsTest {
         override suspend fun getOperation(id:String)=error("already completed")
     }
 
+    @Test fun aSideCannotProduceAnEditPreviewRequest() {
+        val draft = SecondPassDraft(mapOf("R1A.pgm" to standard), mapOf("R1A.pgm" to none))
+        assertThrows(IllegalStateException::class.java) { previewRequest(draft, "r1a.PGM", old) }
+    }
+
     @Test fun previewOfSuperToStandardUsesOriginal() {
         val draft=SecondPassDraft(mapOf("P.pgm" to standard),mapOf("P.pgm" to superState))
         val row=previewRequest(draft,"p.pgm",old).files.single()

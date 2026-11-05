@@ -20,6 +20,26 @@ class SecondPassTest {
     private fun draft(current: SecondPassState, wanted: SecondPassState) =
         SecondPassDraft(mapOf("p.pgm" to wanted), mapOf("p.pgm" to current))
 
+    @Test fun pairedASideStaysVisibleButNeverEntersEditOrRevertPlans() {
+        val pair = listOf("R1a.PGM", "R1Z.pgm")
+        val history = PgmEditHistoryView(mapOf("R1a.PGM" to
+            PgmEditFileHistory(PgmEditCurrentState("none", true), stateSource = "ledger")), ok = true, stateSource = "ledger")
+        val initial = SecondPassDrafts.from(history, pair)
+        assertEquals(pair, initial.wanted.keys.toList())
+        for (field in SecondPassField.entries) {
+            val changed = SecondPassDrafts.setAll(initial, pair, field, true)
+            assertEquals(initial.current["R1a.PGM"], changed.wanted["R1a.PGM"])
+            assertEquals(TriState.ON, SecondPassDrafts.tri(changed, pair, field))
+            val rows = planSecondPass(changed).filterIsInstance<SecondPassStep.Edit>().flatMap { it.rows }
+            assertEquals(listOf("R1Z.pgm"), rows.map { it.name })
+        }
+        val stale = SecondPassDraft(mapOf("R1a.PGM" to none, "R1Z.pgm" to none),
+            mapOf("R1a.PGM" to superState.copy(removePUnload = true), "R1Z.pgm" to standard))
+        assertEquals(listOf(SecondPassStep.Revert(listOf("R1Z.pgm"))), planSecondPass(stale))
+        assertEquals(1, stale.changeCount)
+        assertFalse(stale.pending(listOf("R1a.PGM")))
+    }
+
     @Test fun draftReadsCurrentFromHistory() {
         val d = SecondPassDrafts.from(PgmEditHistoryView(mapOf("opaque +.pgm" to
             PgmEditFileHistory(PgmEditCurrentState("super", true), stateSource = "ledger")), ok = true, stateSource = "ledger"), listOf("opaque +.pgm", "new.pgm"))
