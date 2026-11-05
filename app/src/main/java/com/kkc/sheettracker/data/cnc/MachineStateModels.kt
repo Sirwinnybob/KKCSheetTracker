@@ -8,6 +8,11 @@ data class MachineState(
     val producing: Boolean? = null,
     val currentProgram: LoadedProgram? = null,
     val lastProgram: FinishedProgram? = null,
+    /**
+     * Blue SCM only: every program of the mix Maestro has loaded (it runs its own copies of them).
+     * Null when the CNC couldn't read them or the service predates the field.
+     */
+    val maestroLoadedPrograms: List<String>? = null,
 )
 
 data class LoadedProgram(
