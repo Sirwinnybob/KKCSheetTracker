@@ -87,6 +87,31 @@ class CncStatusPresentationTest {
         assertNull(cncPillForSheet(reloaded, ref.copy(pdfFilename = "OTHER.pdf")))
     }
 
+    @Test fun viewerShowsTheSheetLoadedOnBlue() {
+        val machines = listOf("Red SCM" to CncSheetMarks(), "Blue SCM" to marks())
+        val pill = cncPillForSheet(machines, ref)!!
+        assertEquals(CncPillKind.CUTTING, pill.kind)
+        assertEquals(CncPillMachine.BLUE, pill.machine)
+        assertNull(cncPillForSheet(machines, ref.copy(page = 6)))
+    }
+    @Test fun viewerPrefersAMachineCuttingTheSheetOverOneThatFinishedIt() {
+        val redCut = CncSheetMarks(lastFinished = CncFinishedMark(ref, "7:04"))
+        val pill = cncPillForSheet(listOf("Red SCM" to redCut, "Blue SCM" to marks()), ref)!!
+        assertEquals(CncPillMachine.BLUE, pill.machine)
+        assertEquals(CncPillKind.CUTTING, pill.kind)
+        assertEquals(CncPillMachine.RED, cncPillForSheet(listOf("Red SCM" to redCut, "Blue SCM" to CncSheetMarks()), ref)?.machine)
+    }
+    @Test fun viewerNavigatorMarksPagesFromEitherMachine() {
+        val material = Material(ref.pdfFilename, "m", 12, metadata = MaterialMetadata(pages = listOf(
+            PageMetadata(pageNumber = 11), PageMetadata(pageNumber = 3))))
+        val machines = listOf("Red SCM" to CncSheetMarks(lastFinished = CncFinishedMark(ref.copy(page = 3), "7:04")),
+            "Blue SCM" to marks())
+        val pills = cncPillsForMaterial(machines, ref.jobFolderName, material, listOf(11, 3, 6))
+        assertEquals(setOf(11, 3), pills.keys)
+        assertEquals(CncPillMachine.BLUE, pills.getValue(11).machine)
+        assertEquals(CncPillMachine.RED, pills.getValue(3).machine)
+    }
+
     @Test fun mixReorderingAndContinuationUsePhysicalHeadPage() {
         val material = Material(ref.pdfFilename, "m", 12, metadata = MaterialMetadata(pages = listOf(
             PageMetadata(pageNumber = 11), PageMetadata(pageNumber = 12, isPartListContinuation = true, continuationHeadPage = 11))))

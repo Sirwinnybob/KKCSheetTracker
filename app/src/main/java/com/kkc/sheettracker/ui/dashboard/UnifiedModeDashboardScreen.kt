@@ -198,7 +198,7 @@ private fun CncDashboardContent(
     val scanState by scanCoordinator.state.collectAsState()
     val dashboard by appStateStore.dashboardUiModel.collectAsState()
     val cncProjection by appStateStore.cncProjection.collectAsState()
-    val cncMarks = rememberCncDashboardMarks(appStateStore)
+    val cncMarks = rememberCncMachineMarks(appStateStore)
     val appUiState by appStateStore.uiState.collectAsState()
     val appFlags = appStateFlags.snapshot()
     val lowEnd = LocalLowEndMode.current

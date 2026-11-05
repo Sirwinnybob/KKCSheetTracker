@@ -40,9 +40,9 @@ internal fun rememberCncSheetMarks(
 }
 
 
-/** Observe each controller independently while the CNC dashboard is visible. */
+/** Observe each controller independently while the CNC dashboard or sheet viewer is resumed. */
 @Composable
-internal fun rememberCncDashboardMarks(appStateStore: AppStateStore): List<Pair<String, CncSheetMarks>> {
+internal fun rememberCncMachineMarks(appStateStore: AppStateStore): List<Pair<String, CncSheetMarks>> {
     val owner = LocalLifecycleOwner.current
     val app = LocalContext.current.applicationContext as KKCApplication
     val red = app.machineStatusStore
