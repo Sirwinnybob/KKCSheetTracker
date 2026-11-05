@@ -12,7 +12,7 @@
 - [x] Implement remaining draft source snapshot and split request; avoid redundant original write; deduplicate physical sheets and block empty saves.
 - [x] Run focused tests, Python service suite, Android unit tests and release build; review changed code.
 - [x] Deploy the verified Blue package with backup/config preservation; validate against disposable CNC fixtures.
-- [ ] Install and publish the signed tablet update; inspect the physical-sheet list and capture the result.
+- [x] Install and publish the signed tablet update; inspect the physical-sheet list and capture the result.
 
 ## Verification ledger
 
@@ -23,3 +23,4 @@
 - Final verification: 511 service tests and 2,490 Android unit tests pass; signed release 9.1.08/90108 built and installed on R52W209W6RA. APK SHA-256 `0b622b4b8285584fc3ab46ada091f75b481f98d4ce429267a3f2e6280dda38c4`.
 - Live disposable Blue tests passed for new MIX, remaining-copy, and actual split; A/Z order, counts, metric overrides, source revisions and all PGM hashes verified. Fixture archived outside CNC root in `DeploymentChecks/blue-mix-fix-20261105/verified-fixture`.
 - After screenshot shows 8 physical sheets instead of 13 PDF pages, with one row per A/Z pair. Owner confirmed “worked great”. No production material was mutated by the verification.
+- Published 9.1.08/90108 to the stable app feed at 09:24 Pacific on 2026-11-05; published APK hash matches the installed/reviewed release above. Fix committed as `be986db5`, merged to `main` as `ac49704f`. Service fix committed as `534ba81`, merged to `master` as `eb745b7`.
