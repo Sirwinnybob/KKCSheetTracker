@@ -26,6 +26,7 @@ class CncLiveDashboardTest {
     @Test fun loadedRowOpensLoadedSheetAndClearsBackToOrdinaryRecents() {
         val marks = mutableStateOf(CncSheetMarks(CncLoadedMark.Matched(ref, "R82010BN", true)))
         var opened: CncSheetRef? = null
+        var openedMachine: String? = null
         val repository = JobRepository(File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "cnc-ui-empty"))
         compose.setContent {
             MaterialTheme {
@@ -33,7 +34,8 @@ class CncLiveDashboardTest {
                     CncRecentMaterialsSection(listOf(item), true, repository,
                         onOpenSheet = { job, pdf, page -> opened = CncSheetRef(job, pdf, page) },
                         cncProjection = projection, cncMarks = listOf("Red SCM" to marks.value),
-                        onOpenLoadedSheet = { job, pdf, page -> opened = CncSheetRef(job, pdf, page) })
+                        onOpenLoadedSheet = { job, pdf, page, machineId ->
+                            opened = CncSheetRef(job, pdf, page); openedMachine = machineId })
                 }
             }
         }
@@ -45,7 +47,7 @@ class CncLiveDashboardTest {
         val a = before.toPixelMap(); val b = after.toPixelMap()
         assertEquals(a[a.width / 2, a.height / 2], b[b.width / 2, b.height / 2])
         compose.onNodeWithText("RED SCM \u00b7 ON CNC").performClick()
-        compose.runOnIdle { assertEquals(ref, opened) }
+        compose.runOnIdle { assertEquals(ref, opened); assertEquals(CncMachines.scm.id, openedMachine) }
         compose.runOnIdle { marks.value = CncSheetMarks() }
         compose.onNodeWithText("RED SCM \u00b7 ON CNC").assertDoesNotExist()
         compose.onNodeWithText("${ref.jobFolderName} • Next sheet 6").assertExists()

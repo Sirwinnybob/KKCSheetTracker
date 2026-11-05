@@ -26,8 +26,8 @@ class CncLoadedSheetRouteTest {
         calls.forEach { assertTrue("CNC construction missing loaded callback", it.contains("onOpenLoadedSheet =")) }
         assertEquals(2, Regex("navArgument\\(\"preferStartPage\"\\)").findAll(nav).count())
         assertEquals(2, Regex("preferStartPage = backStack.arguments\\?\\.getBoolean").findAll(nav).count())
-        assertTrue(nav.contains("coordinator.openSheetInJobs(folderName, pdfFilename, page, preferStartPage = true)"))
-        assertEquals(2, Regex("openSheetLegacy\\(folderName, pdfFilename, page, preferStartPage = true\\)").findAll(nav).count())
+        assertTrue(nav.contains("coordinator.openSheetInJobs(folderName, pdfFilename, page, preferStartPage = true, machineId = machineId)"))
+        assertEquals(2, Regex("openSheetLegacy\\(folderName, pdfFilename, page, preferStartPage = true, machineId = machineId\\)").findAll(nav).count())
         val coordinator = source("NavigationCoordinator.kt")
         assertTrue(coordinator.contains("if (!preferStartPage && isCurrentViewerTarget"))
         assertTrue(coordinator.contains("launchSingleTop = !preferStartPage"))

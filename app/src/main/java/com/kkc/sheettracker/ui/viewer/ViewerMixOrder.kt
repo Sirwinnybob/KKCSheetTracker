@@ -18,6 +18,31 @@ internal fun liveViewerOrder(material: Material, catalog: MixFilesCatalog?, mixF
     return ViewerOrder.Mix(viewerPageOrder(items), items.filterIsInstance<MixItem.Unmatched>().map { it.pgm })
 }
 
+/**
+ * The mix a machine is running, found by the PGM it has loaded. Null unless exactly one mix on the machine lists
+ * that PGM, so an unknown or shared PGM falls back to natural order rather than guessing. Machines without FRZ
+ * support only ever order by the plain mix file.
+ */
+internal fun runningMixSelection(
+    catalog: MixFilesCatalog?,
+    marks: com.kkc.sheettracker.data.cnc.CncSheetMarks?,
+    frzSupported: Boolean,
+): com.kkc.sheettracker.data.mixservice.ViewerMixSelection? {
+    val loadedName = when (val loaded = marks?.loaded) {
+        is com.kkc.sheettracker.data.cnc.CncLoadedMark.Matched -> loaded.name
+        is com.kkc.sheettracker.data.cnc.CncLoadedMark.Unmatched -> loaded.name
+        null -> null
+    }
+    val stem = loadedName?.trim()?.substringBeforeLast('.', loadedName.trim())?.lowercase(java.util.Locale.ROOT)
+    if (catalog == null || stem.isNullOrEmpty()) return null
+    val matches = groupMixFiles(catalog).mapNotNull { group ->
+        val file = (if (frzSupported) group.frz ?: group.mix else group.mix) ?: return@mapNotNull null
+        val holds = file.entries.any { it.pgm.trim().substringBeforeLast('.').lowercase(java.util.Locale.ROOT) == stem }
+        if (holds) com.kkc.sheettracker.data.mixservice.ViewerMixSelection(group.title, file.file) else null
+    }
+    return matches.singleOrNull()
+}
+
 /** A removed sheet advances through the previous displayed order, never numeric PDF order. */
 internal fun retainedViewerPage(current: Int, previous: List<Int>, next: List<Int>, fallback: Int): Int {
     if (current in next) return current

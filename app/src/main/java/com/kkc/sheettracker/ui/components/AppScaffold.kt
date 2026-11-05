@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material3.*
@@ -50,6 +51,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -64,7 +67,9 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.kkc.sheettracker.data.models.SheetStatus
+import com.kkc.sheettracker.ui.cnc.cncMachineAccent
 import com.kkc.sheettracker.ui.theme.KKCSpacing
+import com.kkc.sheettracker.ui.theme.contentColorFor
 import com.kkc.sheettracker.ui.theme.KKCThemeColors
 import com.kkc.sheettracker.ui.theme.LocalKKCIsDarkTheme
 import com.kkc.sheettracker.ui.theme.LocalKKCThemeTokens
@@ -778,6 +783,34 @@ private fun MorphingNavBar(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
+                                                dec.otherCnc?.let { jump ->
+                                                    // Machine-tinted, like the CNC status pill, so the target reads at a glance.
+                                                    val jumpFill = jump.machine?.let(::cncMachineAccent) ?: MaterialTheme.colorScheme.secondary
+                                                    Button(
+                                                        onClick = jump.onClick,
+                                                        colors = ButtonDefaults.buttonColors(
+                                                            containerColor = jumpFill,
+                                                            contentColor = contentColorFor(jumpFill)
+                                                        ),
+                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                        shape = MaterialTheme.shapes.extraLarge,
+                                                        modifier = Modifier.semantics {
+                                                            contentDescription = "Go to ${jump.label}'s ${if (jump.running) "running" else "loaded"} sheet"
+                                                        }
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Default.SwapHoriz,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                        Spacer(Modifier.width(3.dp))
+                                                        Text(
+                                                            jump.label,
+                                                            style = MaterialTheme.typography.labelMedium,
+                                                            maxLines = 1
+                                                        )
+                                                    }
+                                                }
                                                 Button(
                                                     onClick = dec.onToggleRenested,
                                                     colors = ButtonDefaults.buttonColors(

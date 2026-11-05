@@ -108,9 +108,10 @@ class NavigationCoordinator(
         }
     }
 
-    fun openSheetInJobs(jobFolderName: String, pdfFilename: String, page: Int, preferStartPage: Boolean = false) {
+    fun openSheetInJobs(jobFolderName: String, pdfFilename: String, page: Int, preferStartPage: Boolean = false,
+        machineId: String? = null) {
         val targetRoute = com.kkc.sheettracker.navigation.viewerRoute(jobFolderName, pdfFilename, page,
-            preferStartPage = preferStartPage)
+            preferStartPage = preferStartPage, machineId = machineId)
         if (getSelectedTab() != TopLevelTab.JOBS) {
             setSelectedTab(TopLevelTab.JOBS)
             AppLog.d(NAV_TAG, "sheet_open_tab_switch target=jobs")
