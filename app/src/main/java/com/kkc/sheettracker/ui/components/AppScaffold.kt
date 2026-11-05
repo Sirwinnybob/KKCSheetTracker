@@ -536,6 +536,10 @@ private fun MorphingNavBar(
                 .shadow(if (lowEnd.shadowsDisabled || lowEnd.webViewBlurSuppressed) 0.dp else 3.dp, minNavShape, clip = false)
                 .clip(minNavShape)
                 .then(minHazeModifier)
+                // Swallow taps on the bar's own gaps (between/around buttons) so they never
+                // fall through to the sheet/content underneath. Child buttons still get their
+                // taps first; this only catches what they don't.
+                .clickable(interactionSource = null, indication = null, onClick = {})
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.fillMaxWidth()) {
