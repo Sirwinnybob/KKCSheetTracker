@@ -893,15 +893,23 @@ internal fun MixesWorkspace(title: String, material: String?, sheetCount: Int, u
 internal fun machineStatusLabel(name: String, status: MachineStatus): String =
     listOf(name, machineStatusText(status)).joinToString(" \u00b7 ")
 
-internal fun machineStatusText(status: MachineStatus): String {
-    val value = when (status) {
-        MachineStatus.Unavailable -> "unavailable"
-        is MachineStatus.Live -> when (status.producing) {
-            true -> "cutting"
-            false -> if (status.state == "ready") "ready" else "idle"
-            null -> "unknown"
-        }
+/** One word for the machine: unavailable (service unreachable), offline (Blue SCM
+ *  program slots unavailable), cutting, ready, idle, or unknown. */
+internal fun machineStatusWord(status: MachineStatus): String = when (status) {
+    MachineStatus.Unavailable -> "unavailable"
+    is MachineStatus.Live -> when {
+        status.state == "offline" -> "offline"
+        status.producing == true -> "cutting"
+        status.producing == false -> if (status.state == "ready") "ready" else "idle"
+        else -> "unknown"
     }
+}
+
+internal fun machineHeaderLabel(status: MachineStatus): String =
+    machineStatusWord(status).replaceFirstChar { it.uppercase() }
+
+internal fun machineStatusText(status: MachineStatus): String {
+    val value = machineStatusWord(status)
     val program = (status as? MachineStatus.Live)?.loaded?.name?.takeIf { it.isNotBlank() }
     return listOfNotNull(value, program).joinToString(" \u00b7 ")
 }

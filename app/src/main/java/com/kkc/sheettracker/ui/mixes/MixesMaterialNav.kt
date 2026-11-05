@@ -173,7 +173,7 @@ private fun InboundMaterialTile(material: String, machineName: String) {
 }
 
 private fun machineCardStatus(status: MachineStatus): SheetStatus = when {
-    status !is MachineStatus.Live -> SheetStatus.SKIPPED
+    status !is MachineStatus.Live || status.state == "offline" -> SheetStatus.SKIPPED
     status.producing == true -> SheetStatus.COMPLETE
     status.producing == false && status.state == "ready" -> SheetStatus.IN_PROGRESS
     else -> SheetStatus.NOT_STARTED
@@ -183,12 +183,12 @@ private fun machineCardStatus(status: MachineStatus): SheetStatus = when {
 private fun MachineHeader(group: MachineGroupModel) {
     val scheme = MaterialTheme.colorScheme
     val live = group.status as? MachineStatus.Live
-    val (label, accent) = when {
-        live == null -> "Unavailable" to DashboardAccent.WARNING
-        live.producing == true -> "Cutting" to DashboardAccent.SUCCESS
-        live.producing == false && live.state == "ready" -> "Ready" to DashboardAccent.INFO
-        live.producing == false -> "Idle" to DashboardAccent.NEUTRAL
-        else -> "Unknown" to DashboardAccent.NEUTRAL
+    val label = machineHeaderLabel(group.status)
+    val accent = when (machineStatusWord(group.status)) {
+        "unavailable", "offline" -> DashboardAccent.WARNING
+        "cutting" -> DashboardAccent.SUCCESS
+        "ready" -> DashboardAccent.INFO
+        else -> DashboardAccent.NEUTRAL
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         DashboardHeaderIcon(ActionMixesIcon)

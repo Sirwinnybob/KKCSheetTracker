@@ -21,6 +21,16 @@ class MachineStateClientTest {
         server.enqueue(MockResponse().setBody("""{"ok":true,"producing":null,"displayProducing":true}"""))
         assertEquals(true, runBlocking { client.fetch().getOrThrow().producing })
     }
+    @Test fun parsesBlueIdleAndOfflineStates() = withServer { server, client ->
+        // Shapes captured from Blue SCM: finished sheet, then program slots unavailable.
+        server.enqueue(MockResponse().setBody("""{"ok":true,"state":"idle","reason":null,"producing":null,"displayProducing":false,"currentProgram":null,"rawMachineStatus":"FAIL","loadedPrograms":["R260502Z"]}"""))
+        server.enqueue(MockResponse().setBody("""{"ok":true,"state":"offline","reason":"program_slots_unavailable","producing":null,"displayProducing":false,"currentProgram":null,"loadedPrograms":[]}"""))
+        val idle = runBlocking { client.fetch().getOrThrow() }
+        assertEquals("idle" to false, idle.state to idle.producing)
+        assertNull(idle.currentProgram)
+        val offline = runBlocking { client.fetch().getOrThrow() }
+        assertEquals("offline" to false, offline.state to offline.producing)
+    }
     @Test fun parsesRealLoadedProgram() = withServer { server, client ->
         val body = javaClass.getResource("/cnc/machine-state.json")!!.readText()
         server.enqueue(MockResponse().setBody(body))
