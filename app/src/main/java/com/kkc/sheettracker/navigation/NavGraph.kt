@@ -1017,8 +1017,8 @@ private fun MultiBackStackNavigation(
                         onOpenSheet = { folderName, pdfFilename, page ->
                             coordinator.openSheetInJobs(folderName, pdfFilename, page)
                         },
-                        onOpenLoadedSheet = { folderName, pdfFilename, page ->
-                            coordinator.openSheetInJobs(folderName, pdfFilename, page, preferStartPage = true)
+                        onOpenLoadedSheet = { folderName, pdfFilename, page, machineId ->
+                            coordinator.openSheetInJobs(folderName, pdfFilename, page, preferStartPage = true, machineId = machineId)
                         },
                     )
                 }
@@ -1368,7 +1368,7 @@ private fun DashboardTabHost(
     onOpenSpecialtyJobInJobs: (String) -> Unit,
     onOpenHardwoodsJobInJobs: (String) -> Unit,
     onOpenSheet: (String, String, Int) -> Unit,
-    onOpenLoadedSheet: (String, String, Int) -> Unit,
+    onOpenLoadedSheet: (String, String, Int, String?) -> Unit,
 ) {
     val specialtyProgressVersion by specialtyStateStore.progressVersion.collectAsState()
     NavHost(
@@ -1991,6 +1991,12 @@ private fun JobsTabHost(
                 },
                 onOpenMixes = { materialName, machineId ->
                     navController.navigate(manageCodeRoute(folderName, materialName, machineId)) { launchSingleTop = true }
+                },
+                onOpenCncSheet = { job, pdf, page, machineId ->
+                    // Replaces this viewer, so toggling between CNCs never piles up back-stack entries.
+                    navController.navigate(viewerRoute(job, pdf, page, preferStartPage = true, machineId = machineId)) {
+                        popUpTo(VIEWER_ROUTE_PATTERN) { inclusive = true }
+                    }
                 },
                 onBack = { navController.popBackStack() },
                 onUiVisibilityChanged = onUiVisibilityChanged
@@ -3066,8 +3072,8 @@ private fun LegacySingleStackNavigation(
                                         onOpenSheet = { folderName, pdfFilename, page ->
                                             openSheetLegacy(folderName, pdfFilename, page)
                                         },
-                                        onOpenLoadedSheet = { folderName, pdfFilename, page ->
-                                            openSheetLegacy(folderName, pdfFilename, page, preferStartPage = true)
+                                        onOpenLoadedSheet = { folderName, pdfFilename, page, machineId ->
+                                            openSheetLegacy(folderName, pdfFilename, page, preferStartPage = true, machineId = machineId)
                                         },
                                         modeSwitcher = switcher
                                     )
@@ -3091,8 +3097,8 @@ private fun LegacySingleStackNavigation(
                                             onOpenSheet = { folderName, pdfFilename, page ->
                                                 openSheetLegacy(folderName, pdfFilename, page)
                                             },
-                                            onOpenLoadedSheet = { folderName, pdfFilename, page ->
-                                                openSheetLegacy(folderName, pdfFilename, page, preferStartPage = true)
+                                            onOpenLoadedSheet = { folderName, pdfFilename, page, machineId ->
+                                                openSheetLegacy(folderName, pdfFilename, page, preferStartPage = true, machineId = machineId)
                                             },
                                         )
                                     )
@@ -3567,6 +3573,12 @@ private fun LegacySingleStackNavigation(
                         },
                         onOpenMixes = { materialName, machineId ->
                             navController.navigate(manageCodeRoute(folderName, materialName, machineId)) { launchSingleTop = true }
+                        },
+                        onOpenCncSheet = { job, pdf, page, machineId ->
+                            // Replaces this viewer, so toggling between CNCs never piles up back-stack entries.
+                            navController.navigate(viewerRoute(job, pdf, page, preferStartPage = true, machineId = machineId)) {
+                                popUpTo(VIEWER_ROUTE_PATTERN) { inclusive = true }
+                            }
                         },
                         onBack = { navController.popBackStack() },
                         onUiVisibilityChanged = { viewerUiVisible = it }

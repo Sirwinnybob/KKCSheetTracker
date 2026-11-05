@@ -19,6 +19,12 @@ import com.kkc.sheettracker.ui.theme.contrastRatio
 private val RED_SCM_ACCENT = Color(0xFFD32F2F)
 private val BLUE_SCM_ACCENT = Color(0xFF1976D2)
 
+/** The fixed machine tint shared by CNC pills and the viewer's switch-CNC button. */
+internal fun cncMachineAccent(machine: CncPillMachine): Color = when (machine) {
+    CncPillMachine.RED -> RED_SCM_ACCENT
+    CncPillMachine.BLUE -> BLUE_SCM_ACCENT
+}
+
 @Composable
 internal fun CncStatusPill(
     pill: CncPill,

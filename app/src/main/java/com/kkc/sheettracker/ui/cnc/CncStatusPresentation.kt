@@ -56,6 +56,22 @@ internal fun cncPillForSheet(machines: List<Pair<String, CncSheetMarks>>, sheet:
     return pills.firstOrNull { it.kind != CncPillKind.FINISHED } ?: pills.firstOrNull()
 }
 
+/** A sheet another CNC has loaded that the viewer can jump to. */
+data class CncJumpTarget(val machineName: String, val machine: CncPillMachine?, val sheet: CncSheetRef, val running: Boolean)
+
+/**
+ * The other CNC's loaded sheet, for toggling between machines from the viewer. A machine whose loaded sheet
+ * is the one on screen is never a target. When the screen shows neither machine's sheet and both have one,
+ * the machine other than [viewerMachineName] wins, then a cutting machine over an idle one.
+ */
+internal fun otherCncJumpTarget(machines: List<Pair<String, CncSheetMarks>>, current: CncSheetRef,
+    viewerMachineName: String? = null): CncJumpTarget? =
+    machines.mapNotNull { (name, marks) ->
+        (marks.loaded as? CncLoadedMark.Matched)?.let { CncJumpTarget(name, cncPillMachineFor(name), it.sheet, it.running) }
+    }.filterNot { it.sheet.sameSheet(current) }
+        .sortedWith(compareBy<CncJumpTarget> { it.machineName == viewerMachineName }.thenBy { !it.running })
+        .firstOrNull()
+
 internal fun cncPillsForMaterial(
     machines: List<Pair<String, CncSheetMarks>>,
     jobFolderName: String,

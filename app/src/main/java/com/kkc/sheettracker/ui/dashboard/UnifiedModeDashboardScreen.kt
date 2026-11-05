@@ -118,7 +118,9 @@ sealed interface UnifiedModeDashboardSpec {
         val appStateFlags: AppStateFeatureFlags,
         val onNavigateToJobs: () -> Unit,
         val onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit,
-        val onOpenLoadedSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit = onOpenSheet,
+        /** [machineId] is the CNC holding the card's loaded sheet, so the viewer can follow its running mix. */
+        val onOpenLoadedSheet: (jobFolderName: String, pdfFilename: String, page: Int, machineId: String?) -> Unit =
+            { job, pdf, page, _ -> onOpenSheet(job, pdf, page) },
         val modeSwitcher: (@Composable RowScope.() -> Unit)? = null
     ) : UnifiedModeDashboardSpec
 
@@ -192,7 +194,7 @@ private fun CncDashboardContent(
     appStateFlags: AppStateFeatureFlags,
     onNavigateToJobs: () -> Unit,
     onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit,
-    onOpenLoadedSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit,
+    onOpenLoadedSheet: (jobFolderName: String, pdfFilename: String, page: Int, machineId: String?) -> Unit,
     modeSwitcher: (@Composable RowScope.() -> Unit)? = null
 ) {
     val scanState by scanCoordinator.state.collectAsState()
@@ -367,7 +369,8 @@ internal fun CncRecentMaterialsSection(
     onOpenSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit,
     cncProjection: CncAppStateProjection = CncAppStateProjection(),
     cncMarks: List<Pair<String, CncSheetMarks>> = emptyList(),
-    onOpenLoadedSheet: (jobFolderName: String, pdfFilename: String, page: Int) -> Unit = onOpenSheet,
+    onOpenLoadedSheet: (jobFolderName: String, pdfFilename: String, page: Int, machineId: String?) -> Unit =
+        { job, pdf, page, _ -> onOpenSheet(job, pdf, page) },
 ) {
     val presentation = remember(items, cncProjection, cncMarks) { projectCncDashboard(items, cncProjection, cncMarks) }
     DashboardSurfaceCard {
@@ -433,8 +436,17 @@ internal fun CncRecentMaterialsSection(
                                     thumbnail = thumbnail,
                                     pill = materialRow.pill,
                                     onClick = {
-                                        val open = if (materialRow.pill != null) onOpenLoadedSheet else onOpenSheet
-                                        open(item.jobFolderName, item.pdfFilename, materialRow.openPage)
+                                        val pill = materialRow.pill
+                                        if (pill != null) {
+                                            val machineId = when (pill.machine) {
+                                                CncPillMachine.RED -> CncMachines.scm.id
+                                                CncPillMachine.BLUE -> CncMachines.scmNew.id
+                                                null -> null
+                                            }
+                                            onOpenLoadedSheet(item.jobFolderName, item.pdfFilename, materialRow.openPage, machineId)
+                                        } else {
+                                            onOpenSheet(item.jobFolderName, item.pdfFilename, materialRow.openPage)
+                                        }
                                     }
                                 )
                             }

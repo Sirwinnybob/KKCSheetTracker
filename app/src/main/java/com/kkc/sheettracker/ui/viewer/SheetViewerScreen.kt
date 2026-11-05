@@ -112,6 +112,7 @@ import com.kkc.sheettracker.data.mixfiles.*
 import com.kkc.sheettracker.data.cnc.CncCapability
 import com.kkc.sheettracker.data.cnc.CncMachine
 import com.kkc.sheettracker.data.cnc.CncMachines
+import com.kkc.sheettracker.ui.components.mixCatalogSnapshot
 import com.kkc.sheettracker.ui.components.rememberForegroundMixFiles
 import com.kkc.sheettracker.BuildConfig
 import com.tom_roush.pdfbox.cos.COSName
@@ -144,6 +145,7 @@ import com.kkc.sheettracker.ui.components.ImmersiveSystemBars
 import com.kkc.sheettracker.ui.components.LocalIdlePhase
 import com.kkc.sheettracker.ui.components.LocalNavBarDecoration
 import com.kkc.sheettracker.ui.components.NavBarCncDecoration
+import com.kkc.sheettracker.ui.components.NavBarCncJump
 import com.kkc.sheettracker.ui.components.PdfViewportState
 import com.kkc.sheettracker.ui.components.isStylusPointerType
 import com.kkc.sheettracker.ui.components.ResizeHandle
@@ -330,6 +332,8 @@ fun SheetViewerScreen(
     onOpenReferenceDocument: (ReferenceDocType, Int) -> Unit,
     onOpenThreeDTarget: (cabinet: String?, assemblyPage: Int?, plansPage: Int?, room: String?) -> Unit,
     onOpenMixes: (materialName: String, machineId: String?) -> Unit = { _, _ -> },
+    /** Opens another job/material's sheet in place of this viewer (switch-to-other-CNC). */
+    onOpenCncSheet: (jobFolderName: String, pdfFilename: String, page: Int, machineId: String?) -> Unit = { _, _, _, _ -> },
     onBack: () -> Unit,
     onMaterialUnavailable: () -> Unit = onBack,
     onUiVisibilityChanged: (Boolean) -> Unit = {},
@@ -892,10 +896,18 @@ fun SheetViewerScreen(
         explicitMachine?.id ?: chosenMixMachineId?.takeIf { id -> mixHolders.any { it.id == id } })
     val mixMachine = (mixOwnership as? MaterialOwnership.Single)?.machine
     val mixState = mixMachine?.let { mixStatesByMachine[it.id] }
+    // Opened for a specific CNC without a chosen mix (its loaded-sheet card or the switch-CNC button): follow the
+    // mix that machine is running, found by its loaded PGM.
+    val runningMix = if (selectedMixFile == null && loadMixCatalog && explicitMachine != null && mixMachine != null) {
+        runningMixSelection(mixState.mixCatalogSnapshot(),
+            cncMarks.firstOrNull { it.first == mixMachine.displayName }?.second, mixMachine.supportsFrz)
+    } else null
+    val activeMixFile = selectedMixFile ?: runningMix?.mixFile
+    val activeMixName = selectedMixName ?: runningMix?.name
     val viewerOrder = currentMaterial?.let { material ->
-        if (mixOwnership is MaterialOwnership.Ambiguous && selectedMixFile != null)
+        if (mixOwnership is MaterialOwnership.Ambiguous && activeMixFile != null)
             ViewerOrder.Natural("${machineChoiceLabel(mixOwnership.machines)} · choose a machine for mix order.")
-        else viewerOrderForState(material, mixState, selectedMixFile, frzSupported = mixMachine?.supportsFrz ?: true,
+        else viewerOrderForState(material, mixState, activeMixFile, frzSupported = mixMachine?.supportsFrz ?: true,
             machineName = mixMachine?.displayName)
     } ?: ViewerOrder.Natural(null)
     val isMixOrder = viewerOrder is ViewerOrder.Mix
@@ -907,7 +919,7 @@ fun SheetViewerScreen(
         else -> null
     }
     val mixOrderNotice = viewerMixNotice(mixNoticeDetail,
-        mixMachine.takeIf { loadMixCatalog && (selectedMixFile != null || mixMachine?.id != CncMachines.scm.id) })
+        mixMachine.takeIf { loadMixCatalog && (activeMixFile != null || mixMachine?.id != CncMachines.scm.id) })
     ObserveViewerOrder(currentMaterial, viewerOrder, currentPage, visiblePages) { pages, page ->
         visiblePages = pages
         currentPage = page
@@ -1097,7 +1109,7 @@ fun SheetViewerScreen(
         }
     }
     val currentJobNumber = currentCncJob?.jobNumber ?: ""
-    val viewerMaterialTitle = if (selectedMixName.isNullOrBlank()) materialName else "$selectedMixName - $materialName"
+    val viewerMaterialTitle = if (activeMixName.isNullOrBlank()) materialName else "$activeMixName - $materialName"
     val viewerTitle = cncSheetViewerTitle(currentJobNumber, viewerMaterialTitle)
     val topBarColor = when (sheetStatus) {
         SheetStatus.COMPLETE -> KKCThemeColors.statusColors.complete
@@ -1220,11 +1232,29 @@ fun SheetViewerScreen(
     // AssemblyViewerScreen.kt.) The callback lambdas below read live vars (currentPage,
     // fileFingerprint, etc.) at invocation time rather than snapshotting them, so they
     // stay correct even though remember only re-fires when the three keyed fields change.
-    val cncDecoration = remember(displayPageNumber, visibleTotalPages, sheetStatus, effectiveVisiblePages, currentVisibleIndex) {
+    // The other CNC's loaded sheet: tapping toggles between machines' current files.
+    val otherCncTarget = if (!loadMixCatalog) null else otherCncJumpTarget(cncMarks,
+        CncSheetRef(jobFolderName, pdfFilename, currentMaterial?.resolveHeadPage(currentPage) ?: currentPage),
+        mixMachine?.displayName)
+    val cncDecoration = remember(displayPageNumber, visibleTotalPages, sheetStatus, effectiveVisiblePages, currentVisibleIndex, otherCncTarget) {
         NavBarCncDecoration(
             currentPage = displayPageNumber,
             totalPages = visibleTotalPages,
             sheetStatus = sheetStatus,
+            otherCnc = otherCncTarget?.let { target ->
+                NavBarCncJump(target.machineName, target.machine, target.running) {
+                    val sheet = target.sheet
+                    val sameMaterial = sheet.jobFolderName.equals(jobFolderName, true) && sheet.pdfFilename.equals(pdfFilename, true)
+                    if (sameMaterial && sheet.page in effectiveVisiblePages) {
+                        currentPage = sheet.page
+                        selectedPartNumber = null
+                        selectedCabinetNumber = null
+                    } else {
+                        onOpenCncSheet(sheet.jobFolderName, sheet.pdfFilename, sheet.page,
+                            CncMachines.all.firstOrNull { it.displayName == target.machineName }?.id)
+                    }
+                }
+            },
             onPrevPage = {
                 if (effectiveVisiblePages.isNotEmpty() && currentVisibleIndex > 0) {
                     currentPage = effectiveVisiblePages[currentVisibleIndex - 1]

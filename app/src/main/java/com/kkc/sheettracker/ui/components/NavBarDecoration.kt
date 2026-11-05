@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import com.kkc.sheettracker.data.models.SheetStatus
+import com.kkc.sheettracker.ui.cnc.CncPillMachine
 
 data class NavBarSearchDecoration(
     val searchTextValue: TextFieldValue,
@@ -52,7 +53,17 @@ data class NavBarCncDecoration(
     val onToggleSkip: () -> Unit,
     val onToggleComplete: () -> Unit,
     val onOpenSearch: () -> Unit,
-    val onToggleRenested: () -> Unit
+    val onToggleRenested: () -> Unit,
+    /** The other CNC's loaded sheet; null hides the switch button. */
+    val otherCnc: NavBarCncJump? = null
+)
+
+/** Switch-to-other-CNC button: [label] is the machine name, tinted by [machine]. */
+data class NavBarCncJump(
+    val label: String,
+    val machine: CncPillMachine?,
+    val running: Boolean,
+    val onClick: () -> Unit
 )
 
 data class NavBarSpecialtyDecoration(
