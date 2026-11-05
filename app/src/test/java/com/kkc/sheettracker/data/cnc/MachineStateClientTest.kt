@@ -43,6 +43,16 @@ class MachineStateClientTest {
         assertEquals("GET", request.method)
         assertEquals("/machine/state", request.path)
     }
+    @Test fun parsesMaestrosLoadedMixWhenReported() = withServer { server, client ->
+        server.enqueue(MockResponse().setBody("""{"ok":true,"maestroLoadedPrograms":["R340304A"," R340304Z ",3,null,""]}"""))
+        server.enqueue(MockResponse().setBody("""{"ok":true,"maestroLoadedPrograms":[]}"""))
+        server.enqueue(MockResponse().setBody("""{"ok":true,"maestroLoadedPrograms":null}"""))
+        server.enqueue(MockResponse().setBody("""{"ok":true}"""))
+        assertEquals(listOf("R340304A", "R340304Z"), runBlocking { client.fetch().getOrThrow().maestroLoadedPrograms })
+        assertEquals(emptyList<String>(), runBlocking { client.fetch().getOrThrow().maestroLoadedPrograms })
+        assertNull("unreadable on the CNC", runBlocking { client.fetch().getOrThrow().maestroLoadedPrograms })
+        assertNull("older service", runBlocking { client.fetch().getOrThrow().maestroLoadedPrograms })
+    }
     @Test fun nullAndMissingFieldsAreSafe() = withServer { server, client ->
         listOf("""{"ok":true}""", """{"ok":true,"currentProgram":null,"lastProgram":null}""",
             """{"ok":true,"currentProgram":{"name":null}}""").forEach { body ->

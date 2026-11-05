@@ -533,6 +533,8 @@ class MainActivity : ComponentActivity() {
 
                     // Outcomes of CNC moves and mix changes, on whatever screen is open.
                     com.kkc.sheettracker.ui.components.CncOperationNoticeHost((application as KKCApplication).cncOperations)
+                    // Blue SCM's controller keeps cutting cached copies until the mix is reloaded.
+                    com.kkc.sheettracker.ui.components.MixReloadReminderHost((application as KKCApplication).mixReloadReminders)
 
                     if (showSyncthingSetupPrompt && syncthingApiKey.isBlank()) {
                         val dismissSyncthingPrompt = {

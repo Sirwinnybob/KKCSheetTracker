@@ -50,6 +50,24 @@ class KKCApplication : Application() {
     val applicationScope: kotlinx.coroutines.CoroutineScope =
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
 
+    /** "Reload this mix in the CNC Controller" after a change to files Blue SCM's Maestro has cached. */
+    val mixReloadReminders: com.kkc.sheettracker.data.cnc.MixReloadReminders by lazy {
+        val blueState = com.kkc.sheettracker.data.cnc.MachineStateClient(com.kkc.sheettracker.data.cnc.CncMachines.scmNew.baseUrl)
+        com.kkc.sheettracker.data.cnc.MixReloadReminders(
+            scope = applicationScope,
+            loadedMixSource = { id -> blueState.takeIf { id == com.kkc.sheettracker.data.cnc.CncMachines.scmNew.id } },
+            materialPrograms = { id, job, material ->
+                val catalog = when (val state = mixFilesStores.store(machineFor(id), job, material).state.value) {
+                    is com.kkc.sheettracker.data.mixfiles.CatalogState.Live -> state.catalog
+                    is com.kkc.sheettracker.data.mixfiles.CatalogState.Offline -> state.cached
+                    is com.kkc.sheettracker.data.mixfiles.CatalogState.Outdated -> state.cached
+                    else -> null
+                }
+                catalog?.files?.flatMap { row -> row.entries.map { it.pgm } }?.toSet()
+            },
+        )
+    }
+
     /** The single poller of every submitted move and mix/second-pass operation, independent of screens. */
     val cncOperations: com.kkc.sheettracker.data.cnc.CncOperationWatcher by lazy {
         com.kkc.sheettracker.data.cnc.CncOperationWatcher(
@@ -62,6 +80,7 @@ class KKCApplication : Application() {
             } },
             refreshCatalog = { machineId, job, material -> mixFilesStores.store(machineFor(machineId), job, material).refreshNow() },
             publishCatalog = { machineId, job, material, catalog -> mixFilesStores.store(machineFor(machineId), job, material).publish(catalog) },
+            onFilesChanged = { machineId, job, material -> mixReloadReminders.filesChanged(machineId, job, material) },
         )
     }
 

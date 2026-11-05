@@ -65,6 +65,8 @@ class CncOperationWatcher(
     private val newRequestId: () -> String = { "tablet-mix-${UUID.randomUUID()}" },
     private val minDelayMs: Long = 2_000L,
     private val maxDelayMs: Long = 10_000L,
+    /** A finished change that may have touched the material's files on that machine (refusals excluded). */
+    private val onFilesChanged: (machineId: String, job: String, material: String) -> Unit = { _, _, _ -> },
 ) {
     private val lock = Any()
     private val pollers = mutableMapOf<String, Job>()
@@ -127,6 +129,7 @@ class CncOperationWatcher(
             it.copy(state = state, message = message, acknowledged = autoAcknowledged(key, state))
         }
         if (result is MixFilesResult.Ok) publishCatalog(machine.id, job, material, result.value) else refresh(machine.id, job, material)
+        if (state != MixOperationState.FAILED) filesChanged(machine.id, job, material)
         if (record?.acknowledged == true) mixOperations.acknowledge(requestId)
         result
     }.await()
@@ -163,6 +166,7 @@ class CncOperationWatcher(
             it.copy(state = state, message = message, acknowledged = autoAcknowledged(MaterialKey(machine.id, job, material), state))
         }
         refresh(machine.id, job, material)
+        if (state != MixOperationState.FAILED) filesChanged(machine.id, job, material)
         if (record?.acknowledged == true) mixOperations.acknowledge(requestId)
     }
 
@@ -301,9 +305,13 @@ class CncOperationWatcher(
         while (true) {
             val record = transfers.pollOnce(requestId) ?: return
             if (record.state != TransferState.SUBMITTED) {
-                // Terminal: both machines' copies of the material may have changed.
+                // Terminal: both machines' copies of the material may have changed. The source is reported
+                // before its refresh (the material is gone after it), the destination after.
+                val changed = record.state != TransferState.FAILED // A failed move changed nothing on either machine.
+                if (changed) filesChanged(record.sourceMachineId, record.job, record.material)
                 refresh(record.sourceMachineId, record.job, record.material)
                 refresh(record.destinationMachineId, record.job, record.material)
+                if (changed) filesChanged(record.destinationMachineId, record.job, record.material)
                 return
             }
             if (record.phase != phase) { phase = record.phase; wait = minDelayMs }
@@ -323,6 +331,10 @@ class CncOperationWatcher(
                 val next = mixOperations.update(requestId) { current -> if (current.pollable) applyOperation(current, operation) else current }
                 if (next == null || !next.pollable) {
                     next?.let { refresh(it.machineId, it.job, it.material) }
+                    // A running plan reports its own outcome; a step left behind by a restart reports here.
+                    if (next != null && next.state != MixOperationState.FAILED && !isLive(requestId)) {
+                        filesChanged(next.machineId, next.job, next.material)
+                    }
                     if (next != null && next.acknowledged && !isLive(requestId)) mixOperations.acknowledge(requestId)
                     return
                 }
@@ -349,6 +361,10 @@ class CncOperationWatcher(
         }
         val acknowledged = live || autoAcknowledged(MaterialKey(record.machineId, record.job, record.material), state)
         return record.copy(state = state, stage = operation.stage, operation = operation, message = message, acknowledged = acknowledged)
+    }
+
+    private fun filesChanged(machineId: String, job: String, material: String) {
+        try { onFilesChanged(machineId, job, material) } catch (_: Exception) { } // A reminder never breaks an outcome.
     }
 
     private suspend fun refresh(machineId: String, job: String, material: String) {

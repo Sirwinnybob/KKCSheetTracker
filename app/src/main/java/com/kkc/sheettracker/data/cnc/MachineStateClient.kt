@@ -74,7 +74,11 @@ private fun parseMachineState(body: String): MachineState {
     val finished = root.get("lastProgram").objectOrNull()?.let { program ->
         program.text("name")?.let { FinishedProgram(it, program.text("path"), program.text("start"), program.text("end")) }
     }
+    val maestroLoaded = root.get("maestroLoadedPrograms")?.takeIf { it.isJsonArray }?.asJsonArray?.mapNotNull { element ->
+        element.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString?.trim()?.takeIf { it.isNotEmpty() }
+    }
     return MachineState(root.text("asOf"), root.text("reportDate"), root.boolean("haveReport"),
-        root.text("state"), if (root.has("displayProducing")) root.boolean("displayProducing") else root.boolean("producing"), loaded, finished)
+        root.text("state"), if (root.has("displayProducing")) root.boolean("displayProducing") else root.boolean("producing"), loaded, finished,
+        maestroLoaded)
 }
 

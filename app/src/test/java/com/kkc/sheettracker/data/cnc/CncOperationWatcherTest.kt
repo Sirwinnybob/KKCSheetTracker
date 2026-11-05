@@ -51,16 +51,17 @@ class CncOperationWatcherTest {
     }
 
     private class Harness(val watcher: CncOperationWatcher, val refreshes: MutableList<Triple<String, String, String>>,
-        val published: MutableList<MixFilesCatalog>)
+        val published: MutableList<MixFilesCatalog>, val filesChanged: MutableList<Triple<String, String, String>>)
 
     private fun TestScope.harness(transfers: MaterialTransferStore, mixes: MixOperationStore, endpoints: MutableList<String>, reader: FakeReader): Harness {
         val refreshes = mutableListOf<Triple<String, String, String>>()
         val published = mutableListOf<MixFilesCatalog>()
+        val filesChanged = mutableListOf<Triple<String, String, String>>()
         var ids = 0
         val watcher = CncOperationWatcher(transfers, mixes, backgroundScope, { endpoint -> endpoints += endpoint; reader },
             refreshCatalog = { m, j, mat -> refreshes += Triple(m, j, mat) }, publishCatalog = { _, _, _, c -> published += c },
-            newRequestId = { "mix-${++ids}" })
-        return Harness(watcher, refreshes, published)
+            newRequestId = { "mix-${++ids}" }, onFilesChanged = { m, j, mat -> filesChanged += Triple(m, j, mat) })
+        return Harness(watcher, refreshes, published, filesChanged)
     }
 
     private fun transferStore(api: FakeMoves) = MaterialTransferStore(temp.root.resolve("transfers.json"),
@@ -323,6 +324,69 @@ class CncOperationWatcherTest {
         assertEquals(OperationNoticeTone.ATTENTION, h.watcher.notices.value.single().tone)
         advanceTimeBy(60_000)
         assertEquals(1, posts)
+    }
+
+    @Test fun everyChangeThatMayHaveTouchedFilesIsReportedOnce() = runTest {
+        val mixes = mixStore()
+        val h = harness(MaterialTransferStore(temp.root.resolve("t.json")), mixes, mutableListOf(), FakeReader { 0 })
+        h.watcher.start()
+        h.watcher.viewing(blue.id, "711", "19mm") // An open Mixes screen still gets the report.
+        h.watcher.submitMixWrite(blue, "711", "19mm", "Save A.mix") { MixFilesResult.Ok(MixFilesCatalog("711", "19mm", "r", emptyList())) }
+        h.watcher.submitMixWrite(blue, "711", "19mm", "Rename A.mix") { MixFilesResult.Offline }
+        runCurrent()
+        assertEquals(listOf(Triple(blue.id, "711", "19mm"), Triple(blue.id, "711", "19mm")), h.filesChanged)
+    }
+
+    @Test fun refusedChangesAreNotReported() = runTest {
+        val reader = FakeReader { testScheduler.currentTime }.apply {
+            next = { MixServiceOperation(id = "op-7", state = "failed", stage = "failed", error = "edit busy", code = "edit_busy") }
+        }
+        val service = object : MixOperationService {
+            override suspend fun submitPgmEdits(job: String, material: String, requestId: String, files: List<PgmEditRow>) =
+                MixServiceOperation(id = "op-7", state = "queued")
+            override suspend fun getOperation(id: String): MixServiceOperation = error("the runner must not poll")
+        }
+        val h = harness(MaterialTransferStore(temp.root.resolve("t.json")), mixStore(), mutableListOf(), reader)
+        h.watcher.start()
+        h.watcher.submitMixWrite(blue, "711", "19mm", "Save A.mix") {
+            MixFilesResult.Rejected(com.kkc.sheettracker.data.mixfiles.MixFilesError(409, "stale", "stale", null, emptyList(), null, null, null, null))
+        }
+        backgroundScope.launch {
+            h.watcher.runSecondPass(blue, "711", "19mm") { tracker ->
+                SecondPassRunner(service, { _, _, _, _ -> error("unused") }, { "tablet-t-9" }, tracker = tracker)
+                    .apply("711", "19mm", listOf(SecondPassStep.Edit(listOf(PgmEditRow("p.pgm", "standard", true))))) {}
+            }
+        }
+        advanceTimeBy(2_001)
+        assertTrue(h.filesChanged.isEmpty())
+    }
+
+    @Test fun finishedSecondPassAndMoveReportEveryTouchedMachine() = runTest {
+        val reader = FakeReader { testScheduler.currentTime }.apply {
+            next = { MixServiceOperation(id = "op-7", state = "completed", stage = "completed", result = succeeded) }
+        }
+        val service = object : MixOperationService {
+            override suspend fun submitPgmEdits(job: String, material: String, requestId: String, files: List<PgmEditRow>) =
+                MixServiceOperation(id = "op-7", state = "queued")
+            override suspend fun getOperation(id: String): MixServiceOperation = error("the runner must not poll")
+        }
+        val api = FakeMoves { testScheduler.currentTime }
+        val transfers = transferStore(api)
+        val h = harness(transfers, mixStore(), mutableListOf(), reader)
+        h.watcher.start()
+        backgroundScope.launch {
+            h.watcher.runSecondPass(blue, "711", "19mm") { tracker ->
+                SecondPassRunner(service, { _, _, _, _ -> error("unused") }, { "tablet-t-8" }, tracker = tracker)
+                    .apply("711", "19mm", listOf(SecondPassStep.Edit(listOf(PgmEditRow("p.pgm", "standard", true))))) {}
+            }
+        }
+        advanceTimeBy(2_001)
+        assertEquals(listOf(Triple(blue.id, "711", "19mm")), h.filesChanged)
+        h.filesChanged.clear()
+        h.watcher.startMove(red, blue, "711", "19mm", preview, "rev", PunloadPolicy.REMOVE)
+        api.operation = TransferResult.Ok(TransferOperation("op-1", "completed", "completed", null))
+        advanceTimeBy(2_001)
+        assertEquals(setOf(Triple(red.id, "711", "19mm"), Triple(blue.id, "711", "19mm")), h.filesChanged.toSet())
     }
 
     @Test fun viewedCompletionIsNotRepeatedAppWide() = runTest {
