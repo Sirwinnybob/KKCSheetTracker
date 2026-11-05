@@ -109,6 +109,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kkc.sheettracker.data.mixfiles.*
+import com.kkc.sheettracker.data.cnc.CncCapability
 import com.kkc.sheettracker.data.cnc.CncMachine
 import com.kkc.sheettracker.data.cnc.CncMachines
 import com.kkc.sheettracker.ui.components.rememberForegroundMixFiles
@@ -900,11 +901,13 @@ fun SheetViewerScreen(
     val isMixOrder = viewerOrder is ViewerOrder.Mix
     val unmatchedPgms = (viewerOrder as? ViewerOrder.Mix)?.unmatched.orEmpty()
     val emptyMix = viewerOrder is ViewerOrder.Mix && viewerOrder.pages.isEmpty()
-    val mixOrderNotice = viewerMixNotice(when {
+    val mixNoticeDetail = when {
         viewerOrder is ViewerOrder.Natural -> viewerOrder.reason
         mixState is CatalogState.Offline -> "Offline · showing saved mix order."
         else -> null
-    }, mixMachine.takeIf { loadMixCatalog && (selectedMixFile != null || mixMachine?.id != CncMachines.scm.id) })
+    }
+    val mixOrderNotice = viewerMixNotice(mixNoticeDetail,
+        mixMachine.takeIf { loadMixCatalog && (selectedMixFile != null || mixMachine?.id != CncMachines.scm.id) })
     ObserveViewerOrder(currentMaterial, viewerOrder, currentPage, visiblePages) { pages, page ->
         visiblePages = pages
         currentPage = page
@@ -1525,8 +1528,18 @@ fun SheetViewerScreen(
                     }
                 }
             }
-            mixOrderNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) }
+            // On the CNC, the machine-tinted status pill takes the machine name's place; other notices stay beside it.
+            val noticeText = if (cncHeaderPill != null) mixNoticeDetail else mixOrderNotice
+            if (cncHeaderPill != null || noticeText != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    cncHeaderPill?.let { CncStatusPill(it) }
+                    noticeText?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
             if (sheetFilesLabel.isNotBlank() || currentPageRemake != null || cncHeaderPill != null) {
                 val chips = remember(currentPageMetadata) {
                     inferSheetFiles(currentPageMetadata)
@@ -1540,7 +1553,7 @@ fun SheetViewerScreen(
                         val leftChips = remember(chips, sheetSizeLabel) {
                             chips + listOfNotNull(sheetSizeLabel)
                         }
-                        if (leftChips.isNotEmpty() || cncHeaderPill != null) {
+                        if (leftChips.isNotEmpty()) {
                             Row(
                                 modifier = Modifier
                                     .weight(1f)
@@ -1550,7 +1563,6 @@ fun SheetViewerScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                cncHeaderPill?.let { CncStatusPill(it) }
                                 Surface(
                                     shape = RoundedCornerShape(9.dp),
                                     color = MaterialTheme.colorScheme.surface,
@@ -1591,6 +1603,29 @@ fun SheetViewerScreen(
                             }
                         } else {
                             Spacer(Modifier.weight(1f))
+                        }
+                        // Only for a material folder that's actually on the resolved CNC; both-machines waits for the operator's pick.
+                        val secondPassMachine = mixMachine?.takeIf {
+                            loadMixCatalog && CncCapability.SECOND_PASS in it.capabilities && catalogHoldsMaterial(mixState)
+                        }
+                        val secondPassMaterial = currentMaterial?.materialName
+                        val secondPassPgms = remember(currentPageMetadata) { orderedPgmFiles(inferSheetFiles(currentPageMetadata)) }
+                        if (secondPassMachine != null && secondPassMaterial != null && sheetSecondPassPgms(secondPassPgms).isNotEmpty()) {
+                            SheetSecondPassButton(
+                                machine = secondPassMachine,
+                                jobFolderName = jobFolderName,
+                                materialName = secondPassMaterial,
+                                sheetPgms = secondPassPgms,
+                                locked = isLockedStatus(sheetStatus),
+                                readOnly = pdfMarkupReadOnly,
+                                catalogLive = mixState is CatalogState.Live,
+                                onMessage = { message ->
+                                    scope.launch {
+                                        snackbarHostState.currentSnackbarData?.dismiss()
+                                        snackbarHostState.showSnackbar(message)
+                                    }
+                                }
+                            )
                         }
                         val viewModeOptions = listOf(
                             KKCPillOption(
