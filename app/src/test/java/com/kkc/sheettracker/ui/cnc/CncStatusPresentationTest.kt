@@ -51,6 +51,14 @@ class CncStatusPresentationTest {
         assertEquals("RED SCM · ON CNC", cards[0].pill?.dashboardText)
         assertEquals("BLUE SCM · LOADED · IDLE", cards[1].pill?.dashboardText)
         assertEquals(3, cards[1].openPage)
+        assertEquals(CncPillMachine.RED, cards[0].pill?.machine)
+        assertEquals(CncPillMachine.BLUE, cards[1].pill?.machine)
+    }
+    @Test fun viewerPillsCarryTheMachineTheyWereBuiltFor() {
+        assertNull(cncPillForSheet(marks(), ref)?.machine)
+        assertEquals(CncPillMachine.RED, cncPillForSheet(marks(), ref, CncPillMachine.RED)?.machine)
+        val cut = CncSheetMarks(lastFinished = CncFinishedMark(ref, "7:04"))
+        assertEquals(CncPillMachine.BLUE, cncPillForSheet(cut, ref, CncPillMachine.BLUE)?.machine)
     }
     @Test fun sameMaterialOnBothMachinesKeepsBothProgramCards() {
         val blue = CncSheetMarks(CncLoadedMark.Matched(ref.copy(page = 7), "R2", true))

@@ -399,7 +399,7 @@ fun SheetViewerScreen(
         resolvePageMetadata(currentMaterial, currentPage)
     }
     val cncHeaderPill = cncPillForSheet(cncMarks, CncSheetRef(jobFolderName, pdfFilename,
-        currentMaterial?.resolveHeadPage(currentPage) ?: currentPage))
+        currentMaterial?.resolveHeadPage(currentPage) ?: currentPage), CncPillMachine.RED)
     val parts = remember(currentPageMetadata) {
         currentPageMetadata?.parts ?: emptyList()
     }
@@ -2126,7 +2126,7 @@ fun SheetViewerScreen(
                 showSheetToc = false
             },
             onDismiss = { showSheetToc = false },
-            cncPillsByPage = cncPillsForMaterial(cncMarks, jobFolderName, currentMaterial, effectiveVisiblePages),
+            cncPillsByPage = cncPillsForMaterial(cncMarks, jobFolderName, currentMaterial, effectiveVisiblePages, CncPillMachine.RED),
             unmatchedPgms = unmatchedPgms,
             orderNotice = mixOrderNotice,
         )

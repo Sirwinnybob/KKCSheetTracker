@@ -5,7 +5,21 @@ import com.kkc.sheettracker.data.models.*
 
 enum class CncPillKind { CUTTING, IDLE, FINISHED }
 enum class CncPillPlacement { DASHBOARD, HEADER, NAVIGATOR }
-data class CncPill(val kind: CncPillKind, val headerText: String, val navigatorText: String, val dashboardText: String)
+/** Which SCM a pill belongs to; tints the pill and its dot. Null keeps the status-kind color. */
+enum class CncPillMachine { RED, BLUE }
+data class CncPill(
+    val kind: CncPillKind,
+    val headerText: String,
+    val navigatorText: String,
+    val dashboardText: String,
+    val machine: CncPillMachine? = null,
+)
+
+internal fun cncPillMachineFor(displayName: String): CncPillMachine? = when (displayName) {
+    CncMachines.scm.displayName -> CncPillMachine.RED
+    CncMachines.scmNew.displayName -> CncPillMachine.BLUE
+    else -> null
+}
 
 private fun loadedPill(running: Boolean) = if (running)
     CncPill(CncPillKind.CUTTING, "ON CNC · CUTTING", "ON CNC", "ON CNC")
@@ -14,11 +28,12 @@ else CncPill(CncPillKind.IDLE, "LOADED · IDLE", "ON CNC", "LOADED · IDLE")
 private fun CncSheetRef.sameSheet(other: CncSheetRef): Boolean =
     page == other.page && jobFolderName.equals(other.jobFolderName, true) && pdfFilename.equals(other.pdfFilename, true)
 
-internal fun cncPillForSheet(marks: CncSheetMarks, sheet: CncSheetRef): CncPill? {
+internal fun cncPillForSheet(marks: CncSheetMarks, sheet: CncSheetRef, machine: CncPillMachine? = null): CncPill? {
     val loaded = marks.loaded as? CncLoadedMark.Matched
-    if (loaded?.sheet?.sameSheet(sheet) == true) return loadedPill(loaded.running)
+    if (loaded?.sheet?.sameSheet(sheet) == true) return loadedPill(loaded.running).copy(machine = machine)
     val finished = marks.lastFinished?.takeIf { it.sheet.sameSheet(sheet) } ?: return null
-    return CncPill(CncPillKind.FINISHED, "CUT ON CNC ${finished.endLabel}", "CUT ${finished.endLabel}", "CUT ON CNC ${finished.endLabel}")
+    return CncPill(CncPillKind.FINISHED, "CUT ON CNC ${finished.endLabel}", "CUT ${finished.endLabel}",
+        "CUT ON CNC ${finished.endLabel}", machine)
 }
 
 internal fun cncPillsForMaterial(
@@ -26,10 +41,11 @@ internal fun cncPillsForMaterial(
     jobFolderName: String,
     material: Material?,
     visiblePages: List<Int>,
+    machine: CncPillMachine? = null,
 ): Map<Int, CncPill> {
     if (material == null) return emptyMap()
     return visiblePages.mapNotNull { page ->
-        cncPillForSheet(marks, CncSheetRef(jobFolderName, material.pdfFilename, material.resolveHeadPage(page)))
+        cncPillForSheet(marks, CncSheetRef(jobFolderName, material.pdfFilename, material.resolveHeadPage(page)), machine)
             ?.let { page to it }
     }.toMap()
 }
@@ -82,7 +98,9 @@ internal fun projectCncDashboard(
                 else {
                     rows.removeAll { row -> row is CncDashboardRow.Material && row.pill == null &&
                         row.item.jobFolderName.equals(ref.jobFolderName, true) && row.item.pdfFilename.equals(ref.pdfFilename, true) }
-                    val pill = loadedPill(loaded.running).let { it.copy(dashboardText = "${machine.uppercase()} · ${it.dashboardText}") }
+                    val pill = loadedPill(loaded.running).let {
+                        it.copy(dashboardText = "${machine.uppercase()} · ${it.dashboardText}", machine = cncPillMachineFor(machine))
+                    }
                     rows.add(0, CncDashboardRow.Material(item.copy(nextIncompletePage = ref.page,
                         thumbnailPath = projection.programIndex.thumbnailsBySheet[ref]), ref.page, pill))
                 }
