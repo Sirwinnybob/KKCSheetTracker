@@ -94,6 +94,15 @@ fun Modifier.kkcTopBarItem(key: String): Modifier =
     }
 
 /**
+ * Pins a screen's own (non-[KKCTopAppBar]) header while one instance of that screen replaces another,
+ * e.g. the sheet viewer's switch-CNC jump: the header stays put and its title/actions crossfade
+ * while the content beneath slides. Needs the route wrapped in [ProvideKKCTopBarRoute]; no-op otherwise.
+ */
+@Composable
+fun Modifier.kkcPinnedScreenHeader(key: String): Modifier =
+    then(kkcTopBarShared("kkc-pinned-header:$key", zIndex = 2f, crossfade = true))
+
+/**
  * `sharedElement` (target only — matched items move, no double-draw dimming) or `sharedBounds`
  * (both screens drawn, crossfading). Empty outside an opted-in route.
  */

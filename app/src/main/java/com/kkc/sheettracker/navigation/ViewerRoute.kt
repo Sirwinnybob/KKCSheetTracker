@@ -1,5 +1,6 @@
 package com.kkc.sheettracker.navigation
 
+import com.kkc.sheettracker.data.cnc.CncMachines
 import com.kkc.sheettracker.data.mixservice.ViewerMixSelection
 import java.net.URLEncoder
 
@@ -19,6 +20,18 @@ internal fun viewerRoute(jobFolderName: String, pdfFilename: String, page: Int,
         machineId?.let { add("machine=${viewerRouteSegment(it)}") }
     }
     return base + if (query.isEmpty()) "" else "?" + query.joinToString("&")
+}
+
+/**
+ * Horizontal direction for a sheet-viewer to sheet-viewer swap (the navbar's switch-CNC jump):
+ * 1 = the new viewer enters from the right (Blue SCM), -1 = from the left (Red SCM). Machines sit
+ * left to right in [CncMachines.all] order, so each machine always arrives from its own side.
+ * Null when either side isn't the viewer, so other routes keep the NavHost's default transition.
+ */
+internal fun cncSwitchSlideDirection(fromRoute: String?, toRoute: String?, toMachineId: String?): Int? {
+    if (fromRoute != VIEWER_ROUTE_PATTERN || toRoute != VIEWER_ROUTE_PATTERN) return null
+    val index = CncMachines.all.indexOfFirst { it.id == toMachineId }
+    return if (index == 0) -1 else 1
 }
 
 /** NavBackStackEntry String arguments have already been decoded once by Navigation. */

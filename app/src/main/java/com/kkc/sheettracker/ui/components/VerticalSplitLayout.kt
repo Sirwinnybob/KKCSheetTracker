@@ -36,6 +36,7 @@ fun VerticalSplitLayout(
     modifier: Modifier = Modifier,
     initialTopWeight: Float = DEFAULT_TOP_WEIGHT,
     aspectRatio: Float? = null,
+    aspectRatioAnimationMillis: Int = 700,
     fullscreen: SplitFullscreen = SplitFullscreen.NONE,
     clipTop: Boolean = true,
     clipBottom: Boolean = true,
@@ -81,7 +82,7 @@ fun VerticalSplitLayout(
             val startHeight = topHeightPx
             val targetHeight = targetHeightPx ?: clampedTopPx(totalHeight.width.toFloat() / aspectRatio)
             anim.snapTo(startHeight)
-            anim.animateTo(targetHeight, tween(700)) {
+            anim.animateTo(targetHeight, tween(aspectRatioAnimationMillis)) {
                 topHeightPx = value
             }
         }

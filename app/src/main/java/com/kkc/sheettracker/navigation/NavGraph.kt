@@ -1937,8 +1937,10 @@ private fun JobsTabHost(
                 navArgument("mixFile") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("preferStartPage") { type = NavType.BoolType; defaultValue = false },
                 navArgument("machine") { type = NavType.StringType; nullable = true; defaultValue = null }
-            )
-        ) { backStack ->
+            ),
+            enterTransition = viewerCncSwitchEnter,
+            exitTransition = viewerCncSwitchExit
+        ) { backStack -> ProvideKKCTopBarRoute {
             val folderName = backStack.arguments?.getString("folderName").orEmpty()
             val pdfFilename = backStack.arguments?.getString("pdfFilename").orEmpty()
             val startPage = backStack.arguments?.getInt("startPage") ?: 1
@@ -2001,7 +2003,7 @@ private fun JobsTabHost(
                 onBack = { navController.popBackStack() },
                 onUiVisibilityChanged = onUiVisibilityChanged
             )
-        }
+        } }
 
         composable(
             "manage_code/{folderName}?material={material}&machine={machine}",
@@ -3519,8 +3521,10 @@ private fun LegacySingleStackNavigation(
                         navArgument("mixFile") { type = NavType.StringType; nullable = true; defaultValue = null },
                         navArgument("preferStartPage") { type = NavType.BoolType; defaultValue = false },
                         navArgument("machine") { type = NavType.StringType; nullable = true; defaultValue = null }
-                    )
-                ) { backStack ->
+                    ),
+                    enterTransition = viewerCncSwitchEnter,
+                    exitTransition = viewerCncSwitchExit
+                ) { backStack -> ProvideKKCTopBarRoute {
                     val folderName = backStack.arguments?.getString("folderName").orEmpty()
                     val pdfFilename = backStack.arguments?.getString("pdfFilename").orEmpty()
                     val startPage = backStack.arguments?.getInt("startPage") ?: 1
@@ -3583,7 +3587,7 @@ private fun LegacySingleStackNavigation(
                         onBack = { navController.popBackStack() },
                         onUiVisibilityChanged = { viewerUiVisible = it }
                     )
-                }
+                } }
 
                 composable(
                     "manage_code/{folderName}?material={material}&machine={machine}",

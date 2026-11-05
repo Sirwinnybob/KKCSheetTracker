@@ -24,6 +24,17 @@ import kotlin.math.abs
 
 class SheetViewerScreenTest {
 
+    @Test fun nearStandardSheetImagesSnapToStandardAspectSoTheSplitDoesNotMove() {
+        // CNC sheet diagrams (5100 x 2562) and slightly cropped variants all hold one height.
+        assertEquals(STANDARD_SHEET_ASPECT_RATIO, sheetSplitAspectRatio(5100, 2562)!!, 0f)
+        assertEquals(STANDARD_SHEET_ASPECT_RATIO, sheetSplitAspectRatio(5000, 2562)!!, 0f)
+        assertEquals(STANDARD_SHEET_ASPECT_RATIO, sheetSplitAspectRatio(420, 210)!!, 0f)
+        // Genuinely different images (full PDF page, odd sheet size) keep their own ratio.
+        assertEquals(792f / 612f, sheetSplitAspectRatio(792, 612)!!, 0.0001f)
+        assertEquals(2.5f, sheetSplitAspectRatio(500, 200)!!, 0.0001f)
+        assertNull(sheetSplitAspectRatio(100, 0))
+    }
+
     @Test fun explicitCncOpenBeatsSavedPositionAndContinuationResolvesToHead() {
         val material = Material("m.pdf", "m", 11, metadata = MaterialMetadata(pages = listOf(
             PageMetadata(pageNumber = 10), PageMetadata(pageNumber = 11, isPartListContinuation = true, continuationHeadPage = 10))))
