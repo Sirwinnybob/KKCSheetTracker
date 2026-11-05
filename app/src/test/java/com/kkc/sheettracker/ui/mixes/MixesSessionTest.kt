@@ -57,7 +57,10 @@ class MixesSessionTest {
     }
     @Test fun splitSaveUsesOneCurrentCompletionSnapshotForValidationAndWrite() = runTest {
         val session = session()
-        val group = group(session.catalog!!)
+        val template = session.catalog!!.files.single()
+        val c = session.catalog!!.copy(files = listOf(template.copy(entries = template.entries + template.entries.single().copy(pgm = "keep.pgm", path = "Z:\\keep.pgm"))))
+        session.onCatalog(c)
+        val group = group(c)
         session.edit(group, emptyList()) { MixDrafts.splitOff(it, setOf(1), "Other.mix") }
         var reads = 0
         var requests = 0
@@ -244,23 +247,56 @@ class MixesSessionTest {
         assertEquals(listOf(2, 3), draft.entries.map { it.quantity })
         assertEquals(listOf("010.0", "010.0"), draft.entries.map { it.parameters!!["V"] })
         assertFalse(draft.isInterrupted)
-        val write = buildWrite(draft, null, draft.completedPgms.toList(), emptyMap()) as MixWrite.Write
+        val write = buildWrite(draft, null, draft.completedPgms.toList(), emptyMap()) as MixWrite.Split
         assertNull(write.completion) // An ordinary new MIX, never an FRZ resume.
-        assertEquals("MapleRemaining.mix", write.file)
+        assertEquals(template.file, write.file)
+        assertEquals(template.revision, write.expectedRevision)
+        assertEquals(entries.map { it.path }, write.entries.map { (it as EntrySpec.Existing).path })
+        assertEquals("MapleRemaining.mix", write.newMixes.single().file)
+        assertEquals(listOf(2, 3), write.newMixes.single().entries.map { (it as EntrySpec.Existing).parameters["R"]!!.toInt() })
+        assertEquals(listOf("010.0", "010.0"), write.newMixes.single().entries.map { (it as EntrySpec.Existing).parameters["V"] })
         // Nothing left to cut, or an open draft: nothing is staged.
         assertFalse(MixesSession().also { it.onCatalog(c) }.startRemaining(group(c), listOf("a.pgm", "b.pgm", "c.pgm")))
         assertFalse(session.startRemaining(group(c), emptyList()))
     }
+    @Test fun emptyNewMixAndSplitLeavingEmptyOriginalAreNotSubmitted() = runTest {
+        val session = MixesSession().also { it.onCatalog(catalog("base")) }
+        session.startNew("Maple", emptyList(), emptyList())
+        var submissions = 0
+        assertNull(session.saveMix { submissions++; MixFilesResult.Ok(catalog("saved")) })
+        assertEquals("Add at least one sheet before saving this mix.", session.mixSaveBlockedReason)
+        session.discardMix(null)
+        val group = group(session.catalog!!)
+        session.edit(group, emptyList()) { MixDrafts.splitOff(it, it.entries.map { row -> row.id }.toSet(), "Other.mix") }
+        assertNull(session.saveMix { submissions++; MixFilesResult.Ok(catalog("saved")) })
+        assertEquals("Leave at least one sheet in the original mix, or rename the mix instead.", session.mixSaveBlockedReason)
+        assertEquals(0, submissions)
+    }
+    @Test fun remainingCopyRefusesSheetsCompletedSinceItWasStaged() = runTest {
+        val template = catalog("base").files.single()
+        val entries = listOf("done.pgm", "pairA.pgm", "pairZ.pgm").map {
+            template.entries.single().copy(pgm = it, path = "Z:\\$it")
+        }
+        val c = catalog("base").copy(files = listOf(template.copy(entries = entries)))
+        val session = MixesSession().also { it.onCatalog(c) }
+        assertTrue(session.startRemaining(group(c), listOf("done.pgm")))
+        var submissions = 0
+        assertNull(session.saveMix({ listOf("done.pgm", "pairA.pgm", "pairZ.pgm") }) {
+            submissions++; MixFilesResult.Ok(c)
+        })
+        assertEquals(0, submissions)
+        assertEquals("Some sheets in this remaining mix are now complete. Discard it and create a remaining mix again.", session.mixSaveBlockedReason)
+    }
     @Test fun inFlightSaveStaysWithItsMachineSessionAfterSelectionChanges() = runTest {
         val red = MixesSession(key = MaterialKey("scm", "J", "M")).also { it.onCatalog(catalog("base")) }
         val blue = MixesSession(key = MaterialKey("scm-new", "J", "M")).also { it.onCatalog(catalog("blue-base")) }
-        red.edit(group(catalog("base")), emptyList()) { MixDrafts.remove(it, it.entries.single().id) }
+        red.edit(group(catalog("base")), emptyList()) { MixDrafts.setQuantity(it, it.entries.single().id, 2, null) }
         val gate = CompletableDeferred<MixFilesResult<MixFilesCatalog>>()
         val submittedTo = mutableListOf<String>()
         val pending = launch { red.saveMix { submittedTo += red.key!!.machineId; gate.await() } }
         runCurrent()
         // The user switches to Blue and starts editing the identically named material.
-        blue.edit(group(catalog("blue-base")), emptyList()) { MixDrafts.remove(it, it.entries.single().id) }
+        blue.edit(group(catalog("blue-base")), emptyList()) { MixDrafts.setQuantity(it, it.entries.single().id, 2, null) }
         gate.complete(MixFilesResult.Offline) // Uncertain: never resubmitted, never moved to Blue.
         pending.join()
         assertEquals(listOf("scm"), submittedTo)

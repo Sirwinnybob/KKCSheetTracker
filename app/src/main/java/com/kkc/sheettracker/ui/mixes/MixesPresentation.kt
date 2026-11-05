@@ -91,7 +91,7 @@ data class MaterialMixesInput(
     val machine: CncMachine,
     val material: Material,
     val catalogState: CatalogState,
-    val pages: List<SheetPage> = sheetPages(material.metadata?.pages.orEmpty()),
+    val pages: List<SheetPage> = physicalSheetPages(sheetPages(material.metadata?.pages.orEmpty())),
     val statusByPage: Map<Int, SheetStatus> = emptyMap(),
     /** May be supplied from CNC PGM inventory when metadata has no matching pages. */
     val hasPgms: Boolean = pages.isNotEmpty(),
@@ -126,8 +126,17 @@ data class MixesUiInput(
 )
 
 /** Split entries have left the main rows, but current tablet completion still protects every occurrence. */
+internal fun emptyMixBlockReason(draft: MixDraft?): String? = when {
+    draft == null || draft.entries.isNotEmpty() -> null
+    draft.splitOff.isNotEmpty() -> "Leave at least one sheet in the original mix, or rename the mix instead."
+    else -> "Add at least one sheet before saving this mix."
+}
+
 internal fun splitCompletionBlockReason(draft: MixDraft?, completedPgms: List<String>): String? {
     val locked = completedPgms.map { it.lowercase(Locale.ROOT) }.toSet()
+    if (draft?.copySource != null && draft.entries.any { (it.source?.pgm ?: it.newPgm)?.lowercase(Locale.ROOT) in locked }) {
+        return "Some sheets in this remaining mix are now complete. Discard it and create a remaining mix again."
+    }
     val completed = draft?.splitOff.orEmpty().flatMap { it.entries }
         .mapNotNull { it.source?.pgm ?: it.newPgm }
         .filter { it.lowercase(Locale.ROOT) in locked }
@@ -198,6 +207,7 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
             changed -> "This mix changed on the CNC"
             unconfirmed -> "Refresh to confirm whether the CNC saved this mix"
             input.applying -> "Saving changes"
+            emptyMixBlockReason(draft) != null -> emptyMixBlockReason(draft)
             splitBlock != null -> splitBlock
             (group?.isInterrupted == true || draft?.isInterrupted == true) && it.unmatched.isNotEmpty() -> "${it.unmatched.size} sheets in this mix don't match the job — fix them before saving"
             else -> null
@@ -266,7 +276,7 @@ private fun navChip(input: MaterialMixesInput): MaterialChip {
     if (!input.hasPgms) return MaterialChip.NoPgms
     val groups = input.catalogState.catalog()?.let(::groupMixFiles).orEmpty().filter { it.mix != null || it.frz != null }
     if (groups.isEmpty()) return MaterialChip.NoMix
-    val left = input.pages.count { !isLockedStatus(input.statusOf(it.pageNumber)) }
+    val left = physicalSheetPages(input.pages).count { !isLockedStatus(input.statusOf(it.pageNumber)) }
     return if (left == 0 && input.pages.isNotEmpty()) MaterialChip.Done else MaterialChip.Left(left, groups.any { it.isInterrupted })
 }
 
@@ -326,7 +336,7 @@ private fun buildSheetGroups(
     } + companionOnlyUnmatchedRows(group, material.pages, otherMembership.keys)
     val includedPgms = effective.map { it.pgm.key() }.toSet()
     // A continuation shares its head's PGM; it must not offer Add for the same file a second time.
-    val notInMix = material.pages.filterNot { page -> page.pgmFiles.any { it.key() in includedPgms } }
+    val notInMix = physicalSheetPages(material.pages).filterNot { page -> page.pgmFiles.any { it.key() in includedPgms } }
     return SheetGroups(rows.filter { !it.locked && it.item is MixItem.Sheet }, rows.filter { it.item is MixItem.Unmatched },
         notInMix, rows.filter { it.locked }, notInMix.mapNotNull { page ->
             val names = page.pgmFiles.flatMap { otherMembership[it.key()].orEmpty() }.distinct()

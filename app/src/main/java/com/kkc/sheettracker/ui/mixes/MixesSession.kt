@@ -184,7 +184,8 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
         val stem = generateSequence(1) { it + 1 }.map { if (it == 1) base else "$base $it" }.first { key(it) !in taken }
         val file = "$stem.mix"
         val entries = keep.mapIndexed { index, entry -> DraftEntry(index + 1L, entry, null, entry.quantity, null, LinkedHashMap(entry.parameters)) }
-        draft = MixDraft(key(file), null, null, entries, file, emptyList(), 1, completedPgms = locks, baselineEntries = emptyList())
+        draft = MixDraft(key(file), null, null, entries, file, emptyList(), 1, completedPgms = locks,
+            baselineEntries = emptyList(), copySource = mix)
         smart = null
         draftFolderRevision = catalog?.folderRevision; selectedTab = draft?.groupKey
         conflict = false; applyResult = null; savedInterrupted = false; mixSaveBlockedReason = null
@@ -202,7 +203,7 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
         // Read once at the actual submission boundary, before any suspension or request construction.
         // The same snapshot validates split membership and supplies buildWrite's completion.
         val completion = locked()
-        mixSaveBlockedReason = splitCompletionBlockReason(current, completion)
+        mixSaveBlockedReason = emptyMixBlockReason(current) ?: splitCompletionBlockReason(current, completion)
         if (mixSaveBlockedReason != null) return null
         val submitted = current.copy(completedPgms = completion.map(::key).toSet())
         applying = true

@@ -23,6 +23,12 @@ fun sheetPages(pages: List<PageMetadata>): List<SheetPage> = pages.sortedBy { it
     if (files.isEmpty()) null else SheetPage(page.pageNumber, files, page.hiddenInApp || page.trackingExcluded, page.isPartListContinuation, page.thumbnailPath)
 }
 
+/** Continuation PDFs repeat the head's programs; offer one physical sheet, preferring its visible head. */
+fun physicalSheetPages(pages: List<SheetPage>): List<SheetPage> = pages
+    .sortedWith(compareBy<SheetPage> { if (it.continuation) 2 else if (it.hidden) 1 else 0 }.thenBy { it.pageNumber })
+    .distinctBy { page -> page.pgmFiles.map { it.lowercase(Locale.ROOT) }.toSet() }
+    .sortedBy { it.pageNumber }
+
 // inferSheetFiles can return [Z, A] from its sheetId fallback. Keep the shared
 // business order A before Z regardless of which metadata representation supplied it.
 internal fun orderedPgmFiles(stems: List<String>): List<String> {
