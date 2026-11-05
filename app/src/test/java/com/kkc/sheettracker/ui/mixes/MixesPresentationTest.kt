@@ -8,6 +8,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MixesPresentationTest {
+    @Test fun notInMixOffersAzHeadOnceAndKeepsUniqueContinuationPrograms() {
+        val head = page(5, "R340304A.pgm", "R340304Z.pgm")
+        val continuation = head.copy(pageNumber = 6, hidden = true, continuation = true)
+        val unique = page(7, "R340305N.pgm").copy(continuation = true)
+        val c = catalog(row(entries = listOf(entry("Other.pgm"))))
+        val ui = buildMixesUi(input(material(c, listOf(continuation, unique, head))))
+        assertEquals(listOf(5, 7), ui.groups!!.notInMix.map { it.pageNumber })
+        assertEquals(listOf("R340304A.pgm", "R340304Z.pgm"), ui.groups.notInMix.first().pgmFiles)
+    }
     private fun page(n: Int, vararg pgms: String, hidden: Boolean = false) =
         SheetPage(n, pgms.toList().ifEmpty { listOf("P$n.pgm") }, hidden, false, null)
     private fun entry(pgm: String, q: Int = 1, left: Int? = null) =

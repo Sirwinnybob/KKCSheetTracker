@@ -39,6 +39,8 @@ data class MixDraft(
     val baselineEntries: List<DraftEntry> = entries,
     val rawRestore: RawMixRestore? = null,
     val nextEntryId: Long = (entries.maxOfOrNull { it.id } ?: 0L) + 1,
+    // A remaining MIX copies this revision through the existing split transaction.
+    val copySource: MixFileRow? = null,
 ) {
     val isInterrupted: Boolean get() = baseFrzRevision != null
 }
@@ -301,7 +303,13 @@ sealed interface MixWrite {
 }
 
 fun buildWrite(d: MixDraft, group: MixGroup?, completedPgms: List<String>, resolutions: Map<String, String>): MixWrite {
-    if (d.newFile != null) return MixWrite.Write(d.newFile, null, d.entries.map { it.fullSpec() }, null)
+    if (d.newFile != null) {
+        val source = d.copySource
+        if (source != null) return MixWrite.Split(source.file, source.revision,
+            source.entries.mapIndexed { index, entry -> entry.toDraft(index + 1L).fullSpec() },
+            listOf(NewMix(d.newFile, d.entries.map { it.fullSpec() })), null)
+        return MixWrite.Write(d.newFile, null, d.entries.map { it.fullSpec() }, null)
+    }
     requireNotNull(group) { "An existing draft requires its mix group" }
     require(group.key == d.groupKey) { "Draft belongs to a different mix group" }
     d.rawRestore?.let { intent ->

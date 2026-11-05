@@ -263,7 +263,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
     val catalogWritable = catalogLive && activeMove == null && pendingOperation == null && access?.mixFiles != false && (access?.frz != false || group?.isInterrupted != true)
     val secondWritable = catalogLive && activeMove == null && pendingOperation == null && access?.secondPass != false
     // Read ProgressStore at the action boundary, rather than a status map from the last composition.
-    fun locks(): List<String> = material?.let { m -> sheetPages(m.metadata?.pages.orEmpty()).filter {
+    fun locks(): List<String> = material?.let { m -> physicalSheetPages(sheetPages(m.metadata?.pages.orEmpty())).filter {
         isLockedStatus(progressStore.getSheetStatus(jobFolderName, m.pdfFilename, it.pageNumber, m.fileFingerprint))
     }.flatMap { it.pgmFiles }.distinct() }.orEmpty()
     fun edit(change: (MixDraft) -> MixDraft) = session.edit(group, locks(), change)
