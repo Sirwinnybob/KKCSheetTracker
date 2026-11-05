@@ -939,28 +939,45 @@ fun SupplyDashboardScreen(
     }
 
     editingToOrderItem?.let { (jobFolder, resolvedItem) ->
-        ToOrderEditDialog(
+        val group = toOrderGroups.firstOrNull { it.folderName == jobFolder }
+        val jobLabel = listOfNotNull(
+            group?.jobNumber?.takeIf { it.isNotBlank() } ?: jobFolder,
+            group?.jobName?.takeIf { it.isNotBlank() }
+        ).joinToString(" • ")
+        ToOrderEditModal(
             item = resolvedItem.item,
+            isOrdered = resolvedItem.isComplete,
+            jobLabel = jobLabel,
             onDismiss = { editingToOrderItem = null },
-            onSave = { name, cabNums, supplier, model, orderDate, tracking, orderUrl, notes, qty, material, dimensions ->
+            onSave = { edit ->
                 scope.launch {
                     val result = withContext(Dispatchers.IO) {
                         runCatching {
                             specialtyStore.updateToOrderItem(
                                 jobFolderName = jobFolder,
                                 itemId = resolvedItem.item.id,
-                                name = name,
-                                cabinetNumbers = cabNums,
-                                supplier = supplier,
-                                model = model,
-                                orderDate = orderDate,
-                                tracking = tracking,
-                                orderUrl = orderUrl,
-                                notes = notes,
-                                quantity = qty,
-                                material = material,
-                                dimensions = dimensions
+                                name = edit.name,
+                                cabinetNumbers = edit.cabinetNumbers,
+                                supplier = edit.supplier,
+                                model = edit.model,
+                                orderDate = edit.orderDate,
+                                tracking = edit.tracking,
+                                orderUrl = edit.orderUrl,
+                                notes = edit.notes,
+                                quantity = edit.quantity,
+                                material = edit.material,
+                                dimensions = edit.dimensions
                             )
+                            if (edit.ordered != resolvedItem.isComplete) {
+                                specialtyStore.setCompletion(
+                                    jobFolderName = jobFolder,
+                                    itemId = resolvedItem.item.id,
+                                    completionKey = SpecialtyProgressStore.ITEM_COMPLETION_KEY,
+                                    completed = edit.ordered,
+                                    completedBy = employeeName.ifBlank { "Floor" },
+                                    completedAt = java.time.Instant.now().toString()
+                                )
+                            }
                         }
                     }
                     result.onFailure {
@@ -1846,195 +1863,6 @@ internal fun toOrderItemCardText(item: SpecialtyItem): ToOrderItemCardText {
         orderDateLabel = item.orderDate?.takeIf { it.isNotBlank() },
         supportingText = supportingText
     )
-}
-
-@Composable
-private fun ToOrderEditDialog(
-    item: SpecialtyItem,
-    onDismiss: () -> Unit,
-    onSave: (
-        name: String,
-        cabinetNumbers: List<String>,
-        supplier: String?,
-        model: String?,
-        orderDate: String?,
-        tracking: String?,
-        orderUrl: String?,
-        notes: String?,
-        quantity: Double?,
-        material: String?,
-        dimensions: String?
-    ) -> Unit
-) {
-    var name by remember { mutableStateOf(item.name) }
-    var cabinetNumbersStr by remember { mutableStateOf(item.cabinetNumbers.joinToString(", ")) }
-    var supplier by remember { mutableStateOf(item.supplier.orEmpty()) }
-    var model by remember { mutableStateOf(item.model.orEmpty()) }
-    var orderDate by remember { mutableStateOf(item.orderDate.orEmpty()) }
-    var tracking by remember { mutableStateOf(item.tracking.orEmpty()) }
-    var orderUrl by remember { mutableStateOf(item.orderUrl.orEmpty()) }
-    var notes by remember { mutableStateOf(item.notes.orEmpty()) }
-    var quantityStr by remember { mutableStateOf(item.quantity?.let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() }.orEmpty()) }
-    var material by remember { mutableStateOf(item.material.orEmpty()) }
-    var dimensions by remember { mutableStateOf(item.dimensions.orEmpty()) }
-
-    SupplyModalFrame(
-        title = "Edit To Order Item",
-        onDismiss = onDismiss,
-        modifier = Modifier.fillMaxHeight(0.85f)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Item Name") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium
-            )
-
-            OutlinedTextField(
-                value = cabinetNumbersStr,
-                onValueChange = { cabinetNumbersStr = it },
-                label = { Text("Cabinet Numbers (comma separated)") },
-                placeholder = { Text("e.g. 1, 2, 3") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = quantityStr,
-                    onValueChange = { quantityStr = it },
-                    label = { Text("Quantity") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.medium
-                )
-                OutlinedTextField(
-                    value = dimensions,
-                    onValueChange = { dimensions = it },
-                    label = { Text("Dimensions") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.medium
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = material,
-                    onValueChange = { material = it },
-                    label = { Text("Material") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.medium
-                )
-                OutlinedTextField(
-                    value = supplier,
-                    onValueChange = { supplier = it },
-                    label = { Text("Supplier") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.medium
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedTextField(
-                    value = model,
-                    onValueChange = { model = it },
-                    label = { Text("Model Number") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.medium
-                )
-                OutlinedTextField(
-                    value = orderDate,
-                    onValueChange = { orderDate = it },
-                    label = { Text("Order Date") },
-                    placeholder = { Text("MM-DD or any date") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.medium
-                )
-            }
-
-            OutlinedTextField(
-                value = tracking,
-                onValueChange = { tracking = it },
-                label = { Text("Tracking Number") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium
-            )
-
-            OutlinedTextField(
-                value = orderUrl,
-                onValueChange = { orderUrl = it },
-                label = { Text("Order URL") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium
-            )
-
-            OutlinedTextField(
-                value = notes,
-                onValueChange = { notes = it },
-                label = { Text("Notes") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 2,
-                shape = MaterialTheme.shapes.medium
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(
-                    onClick = {
-                        val cabNums = cabinetNumbersStr.split(",")
-                            .map { it.trim() }
-                            .filter { it.isNotBlank() }
-                        val qty = quantityStr.toDoubleOrNull()
-                        onSave(
-                            name.trim(),
-                            cabNums,
-                            supplier.trim().ifBlank { null },
-                            model.trim().ifBlank { null },
-                            orderDate.trim().ifBlank { null },
-                            tracking.trim().ifBlank { null },
-                            orderUrl.trim().ifBlank { null },
-                            notes.trim().ifBlank { null },
-                            qty,
-                            material.trim().ifBlank { null },
-                            dimensions.trim().ifBlank { null }
-                        )
-                    },
-                    enabled = name.isNotBlank()
-                ) { Text("Save") }
-            }
-        }
-    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
