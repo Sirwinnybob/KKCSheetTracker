@@ -198,7 +198,11 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
     }.orEmpty())
     val card = rows?.let {
         val total = it.remaining.size + it.unmatched.size + it.completed.size
-        val count = draft?.changeCount ?: 0
+        // A sheet the tablet completed but the FRZ still cuts is a change of its own: its locked row can't be
+        // edited, so Apply sends the tablet's completion and the mismatch dialog picks a side per sheet.
+        // The reverse (FRZ done, tablet not) is fixed by marking the sheet, so it doesn't offer Apply.
+        val disagreements = it.completed.count { row -> row.disagreement }
+        val count = (draft?.changeCount ?: 0) + disagreements
         val block = when {
             outdated -> "The CNC mix service needs updating"
             accessReason != null -> accessReason
@@ -215,9 +219,9 @@ fun buildMixesUi(input: MixesUiInput): MixesUiModel {
         MixCardModel(
             if (total == 0) 0f else it.completed.size.toFloat() / total,
             "${it.completed.size} of $total cut · ${total - it.completed.size} remaining",
-            draft != null && count > 0 && block == null,
+            (draft != null || disagreements > 0) && count > 0 && block == null,
             if (draft?.rawRestore != null) "Apply restore" else "Apply $count ${if (count == 1) "change" else "changes"}", block,
-            draft != null, it.remaining.any { row -> row.canSplit } || it.unmatched.any { row -> row.canSplit },
+            draft != null || disagreements > 0,it.remaining.any { row -> row.canSplit } || it.unmatched.any { row -> row.canSplit },
             it.completed.size, total,
         )
     }

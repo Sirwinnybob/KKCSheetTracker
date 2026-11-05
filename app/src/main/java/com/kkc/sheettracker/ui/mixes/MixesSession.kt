@@ -191,9 +191,14 @@ internal class MixesSession(val gate: CatalogGate = CatalogGate(), val key: Mate
         conflict = false; applyResult = null; savedInterrupted = false; mixSaveBlockedReason = null
         return true
     }
-    suspend fun saveMix(locked: () -> List<String> = { draft?.completedPgms.orEmpty().toList() },
+    /**
+     * [seed] lets an interrupted mix save with no edits: its tablet/FRZ completion disagreement is the change,
+     * and the locked rows behind it can't be edited to open a draft.
+     */
+    suspend fun saveMix(locked: () -> List<String> = { draft?.completedPgms.orEmpty().toList() }, seed: MixGroup? = null,
         submit: suspend (MixDraft) -> MixFilesResult<MixFilesCatalog>): MixFilesResult<MixFilesCatalog>? {
         if (applying || conflict) return null
+        if (draft == null && seed?.isInterrupted == true) edit(seed, locked()) { it }
         val current = draft ?: return null
         if (current.rawRestore != null) {
             val group = catalog?.let(::groupMixFiles)?.firstOrNull { it.key == current.groupKey }

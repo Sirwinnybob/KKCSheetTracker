@@ -13,6 +13,16 @@ class ViewerMachineRouteTest {
         assertTrue(VIEWER_ROUTE_PATTERN.endsWith("&machine={machine}"))
     }
 
+    @Test fun cncSwitchSlidesTowardTheTargetMachineSide() {
+        // Red SCM sits on the left, Blue SCM on the right.
+        assertEquals(1, cncSwitchSlideDirection(VIEWER_ROUTE_PATTERN, VIEWER_ROUTE_PATTERN, "scm-new"))
+        assertEquals(-1, cncSwitchSlideDirection(VIEWER_ROUTE_PATTERN, VIEWER_ROUTE_PATTERN, "scm"))
+        assertEquals(1, cncSwitchSlideDirection(VIEWER_ROUTE_PATTERN, VIEWER_ROUTE_PATTERN, null))
+        // Entering or leaving the viewer from another screen keeps the normal transition.
+        assertEquals(null, cncSwitchSlideDirection("dashboard", VIEWER_ROUTE_PATTERN, "scm-new"))
+        assertEquals(null, cncSwitchSlideDirection(VIEWER_ROUTE_PATTERN, "manage_code/{folderName}?material={material}&machine={machine}", "scm"))
+    }
+
     @Test fun manageCodeRouteKeepsJobMaterialAndMachineTogether() {
         assertEquals("manage_code/711+Kitchen?material=19mm+Maple&machine=scm-new", manageCodeRoute("711 Kitchen", "19mm Maple", "scm-new"))
         assertEquals("manage_code/711+Kitchen?material=19mm+Maple", manageCodeRoute("711 Kitchen", "19mm Maple"))

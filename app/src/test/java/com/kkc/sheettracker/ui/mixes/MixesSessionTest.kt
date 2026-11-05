@@ -55,6 +55,26 @@ class MixesSessionTest {
             assertEquals(beforeSecond, session.secondPass)
         }
     }
+    @Test fun interruptedSaveWithoutDraftSeedsOneSoTabletCompletionReachesTheFrz() = runTest {
+        val template = catalog("frz").files.single()
+        val entries = listOf("done.pgm", "next.pgm").map { pgm -> template.entries.single().copy(pgm = pgm, path = "Z:\\$pgm", remaining = 1) }
+        val frz = template.copy(file = "MapleMix.FRZ", kind = MixFileKind.FRZ, revision = "frz", entries = entries)
+        val interrupted = catalog("frz").copy(files = listOf(frz))
+        val session = MixesSession()
+        session.onCatalog(interrupted)
+        val writes = mutableListOf<MixWrite>()
+        val result = session.saveMix({ listOf("DONE.pgm") }, seed = group(interrupted)) { submitted ->
+            writes += buildWrite(submitted, group(interrupted), submitted.completedPgms.toList(), mapOf("done.pgm" to "tablet"))
+            MixFilesResult.Ok(interrupted)
+        }
+        assertTrue(result is MixFilesResult.Ok)
+        val write = writes.single() as MixWrite.Frz
+        assertEquals(listOf("done.pgm"), write.completion.completedPgms)
+        assertEquals(listOf("next.pgm"), write.pending.map { (it as EntrySpec.Pending).pgm })
+        // A plain mix with no draft still has nothing to save.
+        val plain = MixesSession().apply { onCatalog(catalog("plain")) }
+        assertNull(plain.saveMix({ emptyList() }, seed = group(catalog("plain"))) { error("must not submit") })
+    }
     @Test fun splitSaveUsesOneCurrentCompletionSnapshotForValidationAndWrite() = runTest {
         val session = session()
         val template = session.catalog!!.files.single()

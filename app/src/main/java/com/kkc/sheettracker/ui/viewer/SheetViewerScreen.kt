@@ -48,6 +48,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import com.kkc.sheettracker.ui.components.LocalLowEndMode
+import com.kkc.sheettracker.ui.components.kkcPinnedScreenHeader
 import com.kkc.sheettracker.ui.components.icons.MarkupPenIcon
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Image
@@ -286,6 +287,32 @@ internal fun resolveSheetDisplayBitmap(
     diagramBitmap: Bitmap?
 ): Bitmap? = if (showFullPdfPage) pageBitmap else diagramBitmap
 
+/** CNC status pill / notices / remade parts / both-machines choice (FilterChip is 32 dp). */
+private val SHEET_VIEWER_STATUS_ROW_HEIGHT = 36.dp
+/** Sheet file chips + second pass + Sheet/Plans/Assembly pill (tallest: the 44 dp pill track). */
+private val SHEET_VIEWER_CHIPS_ROW_HEIGHT = 44.dp
+
+/** Width / height of a standard CNC sheet diagram (5100 x 2562 sidecar JPEG). */
+internal const val STANDARD_SHEET_ASPECT_RATIO = 5100f / 2562f
+private const val STANDARD_SHEET_ASPECT_TOLERANCE = 0.05f
+
+/** Pause so the new image is on screen (Crossfade 150 ms) before the line items move. */
+internal const val SHEET_SPLIT_RESIZE_DELAY_MS = 180L
+internal const val SHEET_SPLIT_RESIZE_ANIMATION_MS = 280
+
+/**
+ * Aspect ratio the sheet viewer's split should fit for an image of [width] x [height].
+ * Anything within a few percent of a standard sheet snaps to [STANDARD_SHEET_ASPECT_RATIO], so
+ * paging between ordinary sheets never nudges the line items; only a genuinely different image
+ * (full PDF page, unusual sheet size) moves the split. Null when the size is unusable.
+ */
+internal fun sheetSplitAspectRatio(width: Int, height: Int): Float? {
+    if (width <= 0 || height <= 0) return null
+    val ratio = width.toFloat() / height.toFloat()
+    val relativeDiff = kotlin.math.abs(ratio - STANDARD_SHEET_ASPECT_RATIO) / STANDARD_SHEET_ASPECT_RATIO
+    return if (relativeDiff <= STANDARD_SHEET_ASPECT_TOLERANCE) STANDARD_SHEET_ASPECT_RATIO else ratio
+}
+
 internal fun resolveSheetViewerMarkupStoreConfig(
     basePath: String?,
     tabletId: String?
@@ -407,9 +434,6 @@ fun SheetViewerScreen(
         currentMaterial?.resolveHeadPage(currentPage) ?: currentPage))
     val parts = remember(currentPageMetadata) {
         currentPageMetadata?.parts ?: emptyList()
-    }
-    val sheetFilesLabel = remember(currentPageMetadata) {
-        inferSheetFiles(currentPageMetadata).joinToString("  |  ")
     }
     val sheetSizeLabel = remember(currentPageMetadata) {
         formatSheetDimensions(currentPageMetadata?.sheetDimensions)
@@ -985,7 +1009,9 @@ fun SheetViewerScreen(
                 VIEWER_PREPARED_TAG,
                 "render_recompute_reason=${if (cached == null) "cache_miss" else "quality_promotion"} page=$currentPage job=$jobFolderName pdf=$pdfFilename"
             )
-            if (cached == null) delay(150L)
+            // Debounce fast page turns only; a freshly opened viewer (e.g. sliding in after a
+            // switch-CNC jump) renders its first sheet immediately.
+            if (cached == null && renderEffectCount > 1) delay(150L)
             val rendered = withContext(Dispatchers.IO) {
                 loadSheetPage(
                     targetMaterial = material,
@@ -1243,16 +1269,11 @@ fun SheetViewerScreen(
             sheetStatus = sheetStatus,
             otherCnc = otherCncTarget?.let { target ->
                 NavBarCncJump(target.machineName, target.machine, target.running) {
+                    // Always a fresh viewer for the other machine (even for the same material), so
+                    // every switch gets the same sideways machine slide and that machine's mix context.
                     val sheet = target.sheet
-                    val sameMaterial = sheet.jobFolderName.equals(jobFolderName, true) && sheet.pdfFilename.equals(pdfFilename, true)
-                    if (sameMaterial && sheet.page in effectiveVisiblePages) {
-                        currentPage = sheet.page
-                        selectedPartNumber = null
-                        selectedCabinetNumber = null
-                    } else {
-                        onOpenCncSheet(sheet.jobFolderName, sheet.pdfFilename, sheet.page,
-                            CncMachines.all.firstOrNull { it.displayName == target.machineName }?.id)
-                    }
+                    onOpenCncSheet(sheet.jobFolderName, sheet.pdfFilename, sheet.page,
+                        CncMachines.all.firstOrNull { it.displayName == target.machineName }?.id)
                 }
             },
             onPrevPage = {
@@ -1410,7 +1431,10 @@ fun SheetViewerScreen(
         topBar = {
             // graphicsLayer alpha — no layout shift, no bitmap re-render during animation.
             TopAppBar(
-                modifier = Modifier.graphicsLayer { alpha = topBarAlpha },
+                // Pinned across switch-CNC jumps so only the sheet content slides.
+                modifier = Modifier
+                    .kkcPinnedScreenHeader("sheet-viewer")
+                    .graphicsLayer { alpha = topBarAlpha },
                 title = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1547,36 +1571,61 @@ fun SheetViewerScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (loadMixCatalog && mixHolders.size > 1) {
-                // Folder on both machines: an explicit choice, never a merged order.
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("${machineChoiceLabel(mixHolders)}:", style = MaterialTheme.typography.bodySmall)
-                    mixHolders.forEach { holder ->
-                        FilterChip(selected = mixMachine?.id == holder.id, onClick = { chosenMixMachineId = holder.id },
-                            label = { Text(holder.displayName) })
-                    }
+            // Everything above the sheet sits in fixed-height rows that are always laid out — before
+            // the CNC status, mix catalog and sheet metadata arrive, and on sheets that aren't on a
+            // CNC — so the sheet and line items never drop when something loads, and stay in the
+            // same spot while paging or switching CNCs.
+            val remadePartNames = currentPageRemake?.remadeParts
+                ?.map { part ->
+                    val numberText = part.partNumber.takeIf { it > 0 }?.let { "#$it " }.orEmpty()
+                    "$numberText${part.partName}".trim()
                 }
-            }
+                ?.distinct()
+                .orEmpty()
             // On the CNC, the machine-tinted status pill takes the machine name's place; other notices stay beside it.
             val noticeText = if (cncHeaderPill != null) mixNoticeDetail else mixOrderNotice
-            if (cncHeaderPill != null || noticeText != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    cncHeaderPill?.let { CncStatusPill(it) }
-                    noticeText?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            val headerDetail = listOfNotNull(
+                remadePartNames.takeIf { it.isNotEmpty() }?.let { "Remade parts: ${it.joinToString(", ")}" },
+                noticeText
+            ).joinToString(" · ").ifBlank { null }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(SHEET_VIEWER_STATUS_ROW_HEIGHT)
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (loadMixCatalog && mixHolders.size > 1) {
+                    // Folder on both machines: an explicit choice, never a merged order.
+                    Text("${machineChoiceLabel(mixHolders)}:", style = MaterialTheme.typography.bodySmall)
+                    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+                        mixHolders.forEach { holder ->
+                            FilterChip(selected = mixMachine?.id == holder.id, onClick = { chosenMixMachineId = holder.id },
+                                label = { Text(holder.displayName) })
+                        }
+                    }
+                }
+                cncHeaderPill?.let { CncStatusPill(it) }
+                headerDetail?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
                 }
             }
-            if (sheetFilesLabel.isNotBlank() || currentPageRemake != null || cncHeaderPill != null) {
+            run {
                 val chips = remember(currentPageMetadata) {
                     inferSheetFiles(currentPageMetadata)
                 }
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(SHEET_VIEWER_CHIPS_ROW_HEIGHT),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1689,23 +1738,6 @@ fun SheetViewerScreen(
                             )
                         }
                     }
-                    val remadePartNames = currentPageRemake?.remadeParts
-                        ?.map { part ->
-                            val numberText = part.partNumber.takeIf { it > 0 }?.let { "#$it " }.orEmpty()
-                            "$numberText${part.partName}".trim()
-                        }
-                        ?.distinct()
-                        .orEmpty()
-                    if (remadePartNames.isNotEmpty()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "Remade parts: ${remadePartNames.joinToString(", ")}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
                 }
             }
 
@@ -1760,22 +1792,25 @@ fun SheetViewerScreen(
                 emptyList()
             }
 
-            var lastValidAspectRatio by remember { mutableFloatStateOf(2f) }
-            var hasSetInitialAspectRatio by remember { mutableStateOf(false) }
+            // Lay out at the standard sheet size from the first frame (no 45% default that then
+            // animates), and keep it while paging between ordinary sheets. A genuinely different
+            // image is shown first, then the line items move to its height in one quick step.
+            var splitAspectRatio by remember { mutableFloatStateOf(STANDARD_SHEET_ASPECT_RATIO) }
             LaunchedEffect(bitmap) {
-                val bmp = bitmap
-                if (bmp != null && bmp.height > 0) {
-                    lastValidAspectRatio = bmp.width.toFloat() / bmp.height.toFloat()
-                    hasSetInitialAspectRatio = true
+                val bmp = bitmap ?: return@LaunchedEffect
+                val target = sheetSplitAspectRatio(bmp.width, bmp.height) ?: return@LaunchedEffect
+                if (target != splitAspectRatio) {
+                    delay(SHEET_SPLIT_RESIZE_DELAY_MS)
+                    splitAspectRatio = target
                 }
             }
-            val bitmapAspectRatio = if (hasSetInitialAspectRatio) lastValidAspectRatio else null
 
             VerticalSplitLayout(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                aspectRatio = bitmapAspectRatio,
+                aspectRatio = splitAspectRatio,
+                aspectRatioAnimationMillis = SHEET_SPLIT_RESIZE_ANIMATION_MS,
                 topContent = { topModifier ->
                     val mainViewRefData = mainViewReferenceData
                     if (mainViewRefData != null) {

@@ -284,7 +284,7 @@ fun MixesScreen(scanCoordinator: ScanCoordinator, progressStore: ProgressStore, 
             val smartContext = session.smart
             // The record closure runs in the app scope: hold the application context, never the Activity.
             val appContext = context.applicationContext
-            val result = session.saveMix(::locks) { draft ->
+            val result = session.saveMix(::locks, seed = group) { draft ->
                 val write = buildWrite(draft, group, draft.completedPgms.toList(), resolutions)
                 operations.submitMixWrite(machine, jobFolderName, name, mixWriteLabel(write)) {
                     submitMixWithLearning(app.applicationScope, record = {
